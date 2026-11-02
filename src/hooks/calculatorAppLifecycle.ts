@@ -19,6 +19,7 @@ type AppLifecycleOptions = {
   setPendingStatsEvent: (event: PendingStatsEvent | null) => void;
   resetState: () => void;
   runCalculation: () => Promise<boolean>;
+  captureCalculationOwnership: () => () => boolean;
   setDetailView: React.Dispatch<React.SetStateAction<DetailView>>;
   setResultView: React.Dispatch<React.SetStateAction<ResultView>>;
   setStaleSource: React.Dispatch<React.SetStateAction<"state" | "stock" | null>>;
@@ -47,18 +48,24 @@ export function useCalculatorAppLifecycle({
   setPendingStatsEvent,
   resetState,
   runCalculation,
+  captureCalculationOwnership,
   setDetailView,
   setResultView,
   setStaleSource,
   setValidationView,
 }: AppLifecycleOptions) {
   const calculateAndClearStale = useCallback(async () => {
-    const started = await runCalculation();
-    if (!started) return false;
+    const completion = runCalculation();
+    // The lower flow starts synchronously (including its boundary check).
+    // Capture that execution, then read LIVE ownership at the final mutations:
+    // its earlier boolean can become stale while promise continuations unwind.
+    const owns = captureCalculationOwnership();
+    const started = await completion;
+    if (!started || !owns()) return false;
     clearResultStale();
     setStaleSource(null);
     return true;
-  }, [clearResultStale, runCalculation, setStaleSource]);
+  }, [captureCalculationOwnership, clearResultStale, runCalculation, setStaleSource]);
 
   const resetInputs = useCallback(() => {
     invalidateValidation();

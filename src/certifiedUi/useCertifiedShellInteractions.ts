@@ -12,7 +12,9 @@ type ShellNavigation = ReturnType<typeof useAppShellNavigation<() => void>>;
  * which actions are permitted, and how each action moves the mobile tabs.
  */
 export function useCertifiedShellInteractions(
-  controller: CertifiedCalculatorController,
+  controller: Pick<CertifiedCalculatorController,
+    "actions" | "run" | "stockCorrection" | "stockCorrectionRequired" |
+    "inputLocked" | "modal" | "statePanel" | "session" | "calculateDisabled">,
   shell: ShellNavigation,
 ) {
   const [cancelledSession, setCancelledSession] = useState<CertifiedSession | null>(null);

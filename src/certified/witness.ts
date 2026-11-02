@@ -1,3 +1,4 @@
+import { CERTIFIED_RECOMMENDED_HORIZON_DAYS } from "../../shared/certifiedHorizon";
 import { q, sub, toWire } from "../../shared/certifiedRational";
 import type { CertifiedSupplyEvent } from "../../shared/certifiedSupply";
 import type { ExactSupplyOutcome } from "../../shared/certifiedSupplyLaws";
@@ -69,9 +70,9 @@ function boundaryResult(
 ): CertifiedWaiting {
   return {
     ...waitingBase("certified", null),
-    recommendedDays: 56,
+    recommendedDays: CERTIFIED_RECOMMENDED_HORIZON_DAYS,
     rangeBoundary: true,
-    bestDayRange: [56, 56],
+    bestDayRange: [CERTIFIED_RECOMMENDED_HORIZON_DAYS, CERTIFIED_RECOMMENDED_HORIZON_DAYS],
     evaluatedDays: [0],
     value: null,
     successProbabilityInterval: { lower: toWire(context.current.p), upper: toWire(ONE) },
@@ -80,8 +81,8 @@ function boundaryResult(
       "fixed_prices_all_dates",
       "nonnegative_nonexpiring_inventory_coupling",
       "single_latent_cohort_positive_prior",
-      "positive_mass_receipt_witness_strict_lex_day55_to56",
-      "all_prior_dates_bounded_by_day55",
+      "positive_mass_receipt_witness_strict_lex_day13_to14",
+      "all_prior_dates_bounded_by_day13",
       "PH_lower_bound_from_exact_current_P_and_inventory_coupling",
       "range_only_no_global_or_deadline_claim",
     ],
@@ -99,16 +100,22 @@ function boundaryResult(
  * Nonnegative, nonexpiring arrivals and fixed prices give pointwise lex
  * monotonicity. In a finite positive-mass mixture, a strict witness implies
  * strict expectation at the first globally changing objective component.
- * Thus a strict day55->56 witness proves earliest range maximum=56.
+ * Thus a strict day13->14 witness proves earliest range maximum=14.
  * Failure of these deterministic selectors is UNKNOWN, never equality.
  */
 export function boundaryWitness(
   context: WaitingContext,
   events: readonly CertifiedSupplyEvent[],
 ): CertifiedWaiting | null {
-  const last = events.filter((event) => eventOffset(context.input, event) === 56);
+  const last = events.filter(
+    (event) => eventOffset(context.input, event) === CERTIFIED_RECOMMENDED_HORIZON_DAYS,
+  );
   if (last.length === 0) return null;
-  const prior = events.filter((event) => eventOffset(context.input, event) !== 56);
+  const prior = events.filter(
+    (event) =>
+      eventOffset(context.input, event) >= 1 &&
+      eventOffset(context.input, event) < CERTIFIED_RECOMMENDED_HORIZON_DAYS,
+  );
   const near = nearBoundWitness(context, prior, last);
   if (near)
     return boundaryResult(

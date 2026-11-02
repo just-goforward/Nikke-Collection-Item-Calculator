@@ -14,22 +14,6 @@
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <script>
       (() => {
-        const legacyStorageKey = "collection-kit-calculator.language";
-        try {
-          const savedLocale = window.localStorage.getItem(legacyStorageKey);
-          if (window.location.pathname === "/") {
-            if (savedLocale === "en" || savedLocale === "ja") {
-              window.history.replaceState(
-                null,
-                "",
-                `/${savedLocale}/${window.location.search}${window.location.hash}`,
-              );
-            }
-          }
-          window.localStorage.removeItem(legacyStorageKey);
-        } catch {
-          // Language storage can be unavailable in restricted browser contexts.
-        }
         const firstPathSegment = window.location.pathname.split("/").find(Boolean);
         const locale = firstPathSegment === "en" || firstPathSegment === "ja"
           ? firstPathSegment

@@ -10,6 +10,7 @@ import { presentOutcomePreview } from "../view-models/outcomePresentation";
 import { AlignedText } from "./AlignedText";
 import { KIT_PANEL_LABEL_KEYS, RESULT_KIT_KEYS, resultKitDotClass } from "./kitPresentation";
 import { STATE_FEEDBACK_VISIBLE_MS } from "./stateFeedbackAnimations";
+import { useDecisionReceipt } from "../analytics/DecisionPresentation";
 
 const classes = {
   recommendation:
@@ -168,6 +169,7 @@ function RecommendationBlock({
   onTransitionComplete?: (transitionId: number) => void;
 }) {
   const outcomePanelRef = useRef<HTMLDivElement | null>(null);
+  const receiptRef = useDecisionReceipt(kit === "convert" ? "conversion" : "current");
 
   useEffect(() => {
     if (!transition || !onTransitionComplete) return;
@@ -233,7 +235,7 @@ function RecommendationBlock({
     : undefined;
 
   return (
-    <div className={classes.recommendation}>
+    <div ref={receiptRef} className={classes.recommendation}>
       <div className={classes.nextAction} style={transitionStyle}>
         {transition ? (
           <div className={classes.previousActionCard} key={`previous-${transition.id}`}>

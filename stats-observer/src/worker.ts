@@ -1,4 +1,4 @@
-import { runObserver } from "./observer";
+import { observerErrorCode, runObserver } from "./observer";
 import type { StatsObserverEnv } from "./types";
 
 const worker = {
@@ -12,10 +12,9 @@ const worker = {
   ) {
     ctx.waitUntil(
       runObserver(env, controller.scheduledTime).catch((error) => {
-        const code =
-          error instanceof Error && /^[a-z0-9_]{1,64}$/.test(error.message)
-            ? error.message
-            : "observer_internal_error";
+        // Only the allowlisted application code is surfaced; D1/provider message text
+        // collapses to one fixed category, so nothing arbitrary reaches the log.
+        const code = observerErrorCode(error);
         console.error(
           JSON.stringify({
             level: "error",

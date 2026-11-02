@@ -1,3 +1,5 @@
+import type { SUPPLY_FORECAST_REGISTRY } from "../../shared/generated/supplyForecast";
+
 type StatisticsDateBasis = "kst_calendar_date_v1" | "kst_game_day_0500_v2";
 
 export type AdminDiagnosticsBody = {
@@ -139,16 +141,5 @@ export type AdminDiagnosticsBody = {
     solveMsBucket: string;
     events: number;
   }>;
-  supplyForecastRegistry?: {
-    version: number;
-    activeForecastId: string;
-    stagingForecastId: string;
-    approvedForecastId: string;
-    forecasts: Array<{
-      id: string;
-      basisDays: number;
-      effectiveFrom: string;
-      expectedGain: { blue: number; purple: number; yellow: number };
-    }>;
-  };
+  supplyForecastRegistry?: typeof SUPPLY_FORECAST_REGISTRY;
 };

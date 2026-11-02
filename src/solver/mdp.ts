@@ -23,6 +23,7 @@ import {
   type ResearchCostModel,
   STRATEGY_META,
   type Strategy,
+  selectedSupplyGain,
   totalKits,
   transitionNormalized,
 } from "./domain";
@@ -112,9 +113,15 @@ export function finiteInventoryMdp(
   const initialUses = input.actualStockUses;
   const initialStockPieces = input.stock;
   const strategy: Strategy = input.strategy;
-  const researchCostModel = options.researchCostModel || DEFAULT_RESEARCH_COST_MODEL;
+  const configuredCostModel = options.researchCostModel || DEFAULT_RESEARCH_COST_MODEL;
   const availabilityExpectedGain =
-    researchCostModel.kind === "availability-pnorm" ? researchCostModel.expectedGain : undefined;
+    (configuredCostModel.kind === "availability-pnorm"
+      ? configuredCostModel.expectedGain
+      : undefined) ?? selectedSupplyGain();
+  const researchCostModel =
+    configuredCostModel.kind === "availability-pnorm"
+      ? { ...configuredCostModel, expectedGain: availabilityExpectedGain }
+      : configuredCostModel;
   const probabilityTolerance = probabilityToleranceForStrategy(strategy, options.toleranceOverride);
   const gateAudit = options.collectGateAudit ? createProbabilityGateAudit() : null;
   const capStats = { dynamicCapReductions: 0, dynamicCapFallbacks: 0 };
@@ -173,7 +180,7 @@ export function finiteInventoryMdp(
         availabilityExpectedGain,
       );
       const supplyCost = researchCostScore(vector, initialStockPieces, researchCostModel);
-      const legacySupplyCost = legacySupplyCostScore(vector);
+      const legacySupplyCost = legacySupplyCostScore(vector, availabilityExpectedGain);
       candidates.push({
         firstAction: kit,
         successProbability,
@@ -251,7 +258,7 @@ export function finiteInventoryMdp(
         availabilityExpectedGain,
       );
       const supplyCost = researchCostScore(vector, initialStockPieces, researchCostModel);
-      const legacySupplyCost = legacySupplyCostScore(vector);
+      const legacySupplyCost = legacySupplyCostScore(vector, availabilityExpectedGain);
       return {
         name: STRATEGY_META[strategy].label,
         firstAction: kit,

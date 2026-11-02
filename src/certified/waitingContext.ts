@@ -1,6 +1,6 @@
 import type { Q } from "../../shared/certifiedRational";
 import type { FiniteKernel } from "./kernel";
-import type { CertifiedInput, CertifiedValue } from "./types";
+import type { CertifiedInput, CertifiedValue, CompletedDate } from "./types";
 import type { ExactValue } from "./value";
 
 export interface WaitingContext {
@@ -10,4 +10,5 @@ export interface WaitingContext {
   kernel: FiniteKernel;
   priors: readonly Q[];
   view: (value: ExactValue) => CertifiedValue;
+  completedDates?: CompletedDate[];
 }

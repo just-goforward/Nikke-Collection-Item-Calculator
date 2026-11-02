@@ -18,20 +18,29 @@ concurrency:
 
 jobs:
   watch-staging:
-    if: vars.FORECAST_COLLECTOR_STAGING_URL != ''
+    if: github.ref == 'refs/heads/main' && vars.FORECAST_COLLECTOR_STAGING_URL != ''
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: budget-monitor
     steps:
-      - name: Checkout trusted main
+      # The Site tree no longer contains these monitoring helpers. Keep the
+      # original v10 read/classification contract, not Site's v2 replacement.
+      # This is a monitoring-source pin, not a backend deployment authorization.
+      - name: Checkout preserved monitoring snapshot
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: refs/heads/main
+          ref: 37311d5e1935c24f0aca764cf17ab9069e170792
+          path: budget-monitor
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
           cache: npm
+          cache-dependency-path: budget-monitor/package-lock.json
 
       - name: Prepare npm 12.2.0 with pinned integrity
         shell: bash
@@ -290,76 +299,15 @@ jobs:
             echo "- Current utilization: \`${{ steps.budget.outputs.current_percent || 'unknown' }}%\`"
             echo "- Projected utilization: \`${{ steps.budget.outputs.projected_percent || 'unknown' }}%\`"
             echo "- Active canary: \`${{ steps.canary.outputs.active || 'false' }}\`"
+            echo "- Staging stop requested: \`${{ steps.action.outputs.stop_staging || 'unknown' }}\`"
+            echo "- Automatic staging/D1 deployment is retired; staging stops rely on existing Usage Guard runtime gating."
           } >> "$GITHUB_STEP_SUMMARY"
-
-      # While disabled, staging stops rely on Usage Guard runtime gating.
-      # paid_quota_*, canary_runtime_invalid and stats_production_d1_unreadable
-      # are still reported, but are NOT enforced by a staging redeploy.
-      - name: Record staging redeploy suppression
-        if: always() && vars.FORECAST_STAGING_AUTO_REDEPLOY == 'disabled'
-        run: echo "Staging Collector/Dispatcher redeployment suppressed because FORECAST_STAGING_AUTO_REDEPLOY=disabled. Usage checks, alerting and protected production emergency-stop escalation remain active." >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Disable staging Collector and Dispatcher on budget pressure
-        id: staging_stop
-        if: always() && steps.action.outputs.stop_staging == 'true' && vars.FORECAST_STAGING_AUTO_REDEPLOY != 'disabled'
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
-          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
-          DISCORD_FORECAST_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
-          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
-          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
-          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
-          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
-          DISCORD_FORECAST_APPLICATION_ID: ${{ vars.DISCORD_FORECAST_APPLICATION_ID }}
-          DISCORD_FORECAST_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_PUBLIC_KEY }}
-          POLL_MODE: ${{ steps.canary.outputs.poll_mode }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --input-type=module - \
-            "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
-            "$RUNNER_TEMP/forecast-secrets.json" <<'NODE'
-          import { writeFileSync } from "node:fs";
-          writeFileSync(process.argv[2], JSON.stringify({
-            GITHUB_APP_PRIVATE_KEY: process.env.FORECAST_GITHUB_APP_PRIVATE_KEY,
-            DISCORD_BOT_TOKEN: process.env.DISCORD_FORECAST_BOT_TOKEN,
-          }), { mode: 0o600 });
-          writeFileSync(process.argv[3], JSON.stringify({
-            ADMIN_TOKEN: process.env.FORECAST_COLLECTOR_ADMIN_TOKEN,
-            DISCORD_APPLICATION_ID: process.env.DISCORD_FORECAST_APPLICATION_ID,
-            DISCORD_PUBLIC_KEY: process.env.DISCORD_FORECAST_PUBLIC_KEY,
-          }), { mode: 0o600 });
-          NODE
-          npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml \
-            --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
-            --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} \
-            --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID \
-            --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID \
-            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
-            --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
-            --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
-            --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID \
-            --var DISPATCH_ENABLED:false \
-            --tag "${{ github.sha }}-runtime-budget-stop" \
-            --message "Disable forecast dispatcher after runtime D1 budget failure"
-          npx wrangler deploy --env staging --config forecast-collector/wrangler.toml \
-            --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
-            --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
-            --var COLLECT_ENABLED:false \
-            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
-            --var DISCORD_INTERACTION_OWNER:router \
-            --tag "${{ github.sha }}-$POLL_MODE-runtime-budget-stop" \
-            --message "Disable forecast collector after runtime D1 budget failure"
 
       - name: Request protected production Cron stop
         if: always() && steps.action.outputs.emergency_action != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           EMERGENCY_ACTION: ${{ steps.action.outputs.emergency_action }}
         shell: bash
         run: |
@@ -396,15 +344,13 @@ jobs:
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
           DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
-          STAGING_REDEPLOY_POLICY: ${{ vars.FORECAST_STAGING_AUTO_REDEPLOY == 'disabled' && 'suppressed (FORECAST_STAGING_AUTO_REDEPLOY=disabled); staging stops rely on Usage Guard runtime gating' || 'enabled' }}
-          STAGING_STOP_OUTCOME: ${{ steps.staging_stop.outcome || 'not run' }}
           GUARD_EFFECTIVE_ACTION: ${{ steps.guard.outputs.action || 'unavailable' }}
         shell: bash
         run: |
           set -euo pipefail
           reasons="${{ steps.action.outputs.reasons }}"
           payload=$(jq -n \
-            --arg content "D1 runtime budget alert. Staging redeploy: $STAGING_REDEPLOY_POLICY. Redeploy step outcome: $STAGING_STOP_OUTCOME. Observed effective Usage Guard action: $GUARD_EFFECTIVE_ACTION. Reasons: $reasons. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg content "D1 runtime budget alert. Automatic staging/D1 deployment is retired; staging stops rely on existing Usage Guard runtime gating. Observed effective Usage Guard action: $GUARD_EFFECTIVE_ACTION. Reasons: $reasons. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             '{content:$content,allowed_mentions:{parse:[]}}')
           curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
             -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
@@ -412,7 +358,7 @@ jobs:
             --data "$payload" \
             "https://discord.com/api/v10/channels/$DISCORD_ALERT_CHANNEL_ID/messages" >/dev/null
 
-      - name: Fail after runtime budget rollback
+      - name: Fail after runtime budget alert
         if: always() && steps.action.outputs.fail == 'true'
         run: exit 1
 

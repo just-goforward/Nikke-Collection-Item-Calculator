@@ -51,10 +51,10 @@ export class WorkerTestHarness {
     this.#guardDatabase = null;
   }
 
-  async submit(payload: object) {
+  async submit(payload: object, path = "/api/events") {
     if (!worker.fetch) throw new Error("Worker fetch handler is not defined.");
     const ctx = createExecutionContext();
-    const request = new Request(REQUEST_URL, {
+    const request = new Request(new URL(path, REQUEST_URL), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -64,7 +64,7 @@ export class WorkerTestHarness {
       body: JSON.stringify(payload),
     }) as WorkerRequest;
     const event = Reflect.get(payload, "event");
-    const kind = event && typeof event === "object" ? Reflect.get(event, "kind") : null;
+    const kind = event && typeof event === "object" ? Reflect.get(event, "kind") : Reflect.get(payload, "kind");
     this.#submittedEventKind = typeof kind === "string" ? kind : null;
     try {
       const response = await worker.fetch(request, this.workerEnv(), ctx);
@@ -228,6 +228,7 @@ export class WorkerTestHarness {
     const db = this.env.DB;
     if (!db) throw new Error("Worker test DB binding is not initialized.");
     return {
+      ...this.env,
       DB: db,
       USAGE_GUARD_DB: this.env.USAGE_GUARD_DB ?? db,
       EVENT_RATE_LIMITER: this.env.EVENT_RATE_LIMITER ?? env.EVENT_RATE_LIMITER,

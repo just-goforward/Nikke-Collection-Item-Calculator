@@ -2,6 +2,7 @@ import { useCallback } from "react";
 
 import { INITIAL_VALIDATION } from "./calculatorShared";
 import type { OutcomeRenderArgs, OutcomeSharedOptions } from "./outcomeFlowTypes";
+import { withoutRecommendedWait } from "./serviceCertifiedPresentation";
 
 export function useOutcomeRenderer({
   latestResultRef,
@@ -22,7 +23,10 @@ export function useOutcomeRenderer({
       run,
       stockMessage,
     }: OutcomeRenderArgs) => {
-      if (preserveExistingResult) return;
+      if (preserveExistingResult) {
+        setDetailView(withoutRecommendedWait);
+        return;
+      }
       setResultView({
         type: "outcome",
         kit: best.firstAction,

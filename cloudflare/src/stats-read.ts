@@ -27,6 +27,15 @@ type SegmentGroup = NonNullable<ReturnType<typeof segmentForState>> & {
 };
 
 export async function handleStats(request: Request, env: StatsReadEnv) {
+  return readStats(request, env, false);
+}
+
+/** Capability-only reader. A missing summary is an error, never a raw-table fallback. */
+export async function handleCompactStats(request: Request, env: StatsReadEnv) {
+  return readStats(request, env, true);
+}
+
+async function readStats(request: Request, env: StatsReadEnv, compact: boolean) {
   if (new URL(request.url).href.includes("?")) throw new HttpError(400, "unexpected_query");
   if (!isAllowedOrigin(request, env)) throw new HttpError(403, "origin_not_allowed");
   const limit = await env.READ_RATE_LIMITER.limit({ key: trustedClientIp(request) });
@@ -39,7 +48,9 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
 
   const [aggregateRowsResult, todayRowsResult] = await Promise.all([
     env.DB.prepare(
-      `SELECT grade, level, kit, SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
+      compact
+        ? `SELECT grade,level,kit,events,attempts,great_successes FROM stats_public_totals`
+        : `SELECT grade, level, kit, SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
        FROM (
          SELECT grade, level, kit, events, attempts, great_successes FROM event_aggregates
          UNION ALL
@@ -48,7 +59,9 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
        GROUP BY grade, level, kit`,
     ).all<StatsAggregateRow>(),
     env.DB.prepare(
-      `SELECT SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
+      compact
+        ? `SELECT events,attempts,great_successes FROM stats_public_game_day WHERE date_key=?`
+        : `SELECT SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
        FROM event_aggregates_game_day
        WHERE date_key = ?`,
     )

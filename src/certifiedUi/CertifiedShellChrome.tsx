@@ -1,33 +1,52 @@
+import { lazy, Suspense } from "react";
+import { runtimeForecastEnvironment } from "../../shared/runtimeForecastMode";
 import { MobileActionBar } from "../components/MobileChrome";
 import { useI18n } from "../i18n/locale";
 import type { LoadingView, ResultView } from "../ui-types";
 import { ResultPanels } from "./CertifiedResultPanels";
 import { CertifiedPanel, SupplyComparison } from "./CertifiedSupplyPanels";
 import type { CertifiedCalculatorController } from "./calculatorController";
-import { ForecastReviewNotice } from "./ForecastReviewNotice";
 import type { CertifiedWords } from "./messages";
 import { dismissCertifiedMigrationNotice } from "./session";
 import type { CertifiedShellInteractions } from "./useCertifiedShellInteractions";
 
 type ChromeProps = {
-  controller: CertifiedCalculatorController;
+  controller: Pick<CertifiedCalculatorController,
+    "storageBlocked" | "sessionSaveFailed" | "session" | "inputLocked" |
+    "stockCorrectionRequired" | "updateSession" | "actionError" | "snapshot" |
+    "prepareError" | "run" | "calculateDisabled" | "stockCorrection" | "comparison">;
   ui: CertifiedShellInteractions;
   words: CertifiedWords;
 };
 
+const RuntimeForecastNotice =
+  runtimeForecastEnvironment(import.meta.env.VITE_FORECAST_RUNTIME) !== null
+    ? lazy(() =>
+        import("./RuntimeForecastNotice").then((module) => ({
+          default: module.RuntimeForecastNotice,
+        })),
+      )
+    : null;
+
 /** Route-wide notices above the shared top bar, including malformed-storage recovery. */
-export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
+export function CertifiedBanner({ controller, ui, words, bannerCopy = words }: ChromeProps & {
+  bannerCopy?: { staging: string; intro: string; sessionNotice: string };
+}) {
   const { t } = useI18n();
   return (
     <div className="cert-banner-stack">
       <aside className="cert-banner" aria-label={t("staging.label")}>
-        <strong>{words.staging}</strong>
-        <span>{words.intro}</span>
+        <strong>{bannerCopy.staging}</strong>
+        <span>{bannerCopy.intro}</span>
         {!controller.storageBlocked && !controller.sessionSaveFailed && (
-          <span className="cert-muted">{words.sessionNotice}</span>
+          <span className="cert-muted">{bannerCopy.sessionNotice}</span>
         )}
       </aside>
-      <ForecastReviewNotice />
+      {RuntimeForecastNotice && (
+        <Suspense fallback={null}>
+          <RuntimeForecastNotice />
+        </Suspense>
+      )}
       {controller.session.migrationNotice && (
         <p role="status" className="cert-notice" data-testid="certified-cohort-migration">
           {words[controller.session.migrationNotice]}
@@ -37,7 +56,7 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
             disabled={controller.inputLocked || controller.stockCorrectionRequired}
             onClick={() => controller.updateSession(dismissCertifiedMigrationNotice)}
           >
-            {words.dismissMigrationNotice}
+            <span className="cert-button-label">{words.dismissMigrationNotice}</span>
           </button>
         </p>
       )}
@@ -49,7 +68,7 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
         >
           {words.storageBlocked}
           <button type="button" className="cert-button" onClick={ui.onReset}>
-            {t("common.reset")}
+            <span className="cert-button-label">{t("common.reset")}</span>
           </button>
         </p>
       )}
@@ -62,9 +81,12 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
           {words.sessionSaveFailed}
         </p>
       )}
-      {controller.snapshot?.sourceStatus === "uncertain" && (
-        <p className="cert-notice">{words.uncertain}</p>
-      )}
+      {/* Median candidates always carry sourceStatus "uncertain" and never auto-delay,
+          so neither half of this legacy-cadence notice applies to them. */}
+      {controller.snapshot?.sourceStatus === "uncertain" &&
+        controller.snapshot.cadence.version !== "observed-median-v2" && (
+          <p className="cert-notice">{words.uncertain}</p>
+        )}
       {!controller.snapshot && (
         <CertifiedPreparationNotice error={controller.prepareError} words={words} />
       )}
@@ -79,6 +101,9 @@ export function CertifiedPreparationNotice({
   error: CertifiedCalculatorController["prepareError"];
   words: CertifiedWords;
 }) {
+  // Online modes: RuntimeForecastNotice owns the fail-closed unavailable state and its retry.
+  if (runtimeForecastEnvironment(import.meta.env.VITE_FORECAST_RUNTIME) !== null && error === "forecast_unavailable")
+    return null;
   let message: string = words.ready;
   if (error === "preparation_failed") message = words.error;
   if (error === "unsupported_forecast_version") message = words.unsupportedForecastVersion;
@@ -105,7 +130,7 @@ export function CertifiedMobileActions({ controller, ui, words }: ChromeProps) {
           className="cert-mobile-button cert-mobile-primary"
           onClick={ui.onConvert}
         >
-          {words.convert}
+          <span className="cert-button-label">{words.convert}</span>
         </button>
       </div>
     );
@@ -115,10 +140,10 @@ export function CertifiedMobileActions({ controller, ui, words }: ChromeProps) {
       <fieldset className="mobile-action-bar cert-mobile-actions">
         <legend className="sr-only">{words.use}</legend>
         <button type="button" className="cert-mobile-button" onClick={() => ui.onOutcome("normal")}>
-          {words.normal}
+          <span className="cert-button-label">{words.normal}</span>
         </button>
         <button type="button" className="cert-mobile-button" onClick={() => ui.onOutcome("great")}>
-          {words.great}
+          <span className="cert-button-label">{words.great}</span>
         </button>
       </fieldset>
     );
@@ -193,20 +218,12 @@ function RunStatusNotices({ controller, ui, words }: ChromeProps) {
 function CertifiedRunMeta({ controller, words }: Omit<ChromeProps, "ui">) {
   const { formatNumber } = useI18n();
   const finished = controller.run.finished;
+  if (!finished) return null;
   return (
     <div className="cert-meta">
-      {finished && (
-        <p>
-          {words.elapsed}: {formatNumber(finished.timing.totalMs / 1000, 3)}s
-        </p>
-      )}
-      <a
-        href="https://game.naver.com/lounge/nikke/board/detail/8060044"
-        target="_blank"
-        rel="noreferrer"
-      >
-        {words.source}
-      </a>
+      <p>
+        {words.elapsed}: {formatNumber(finished.timing.totalMs / 1000, 3)}s
+      </p>
     </div>
   );
 }
@@ -221,7 +238,7 @@ export function CertifiedResultRegion({ controller, ui, words }: ChromeProps) {
         action={
           run.busy ? (
             <button type="button" className="cert-button" onClick={ui.onCancel}>
-              {words.cancel}
+              <span className="cert-button-label">{words.cancel}</span>
             </button>
           ) : null
         }

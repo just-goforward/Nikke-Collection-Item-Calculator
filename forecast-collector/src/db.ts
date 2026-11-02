@@ -1,10 +1,12 @@
+import { certifiedVersionPolicy } from "../../shared/certifiedVersionPolicy";
 import type { SupplyForecastCandidateEnvelope } from "../../shared/supplyForecastCandidate";
 import {
   assertForecastCandidateInvariants,
+  isExpectedCandidateRejection,
   SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
   supplyForecastCandidateSchema,
 } from "../../shared/supplyForecastCandidate";
-import { SUPPLY_RULES_VERSION } from "../../shared/supplyForecastModel";
+import { SUPPLY_RULES_VERSION } from "../../shared/supplyForecastProjection";
 import { sha256Hex, stableJson } from "./crypto";
 import type { CandidateBuildResult, NormalizedSourceItem, ScheduleEvent } from "./types";
 
@@ -34,7 +36,34 @@ export function sourceItemAndEventStatements(
   nowIso: string,
   condition?: StatementWriteCondition,
 ) {
+  if (
+    items.some((item) => item.source === "naver-board-11") ||
+    events.some(
+      (event) =>
+        event.sourceItem.source === "naver-board-11" ||
+        event.segment ||
+        event.eventType === "grant",
+    )
+  ) {
+    condition = {
+      sql: `(${condition?.sql ?? "1"}) AND EXISTS(SELECT 1 FROM schema_migrations WHERE version>=27)`,
+      bindings: condition?.bindings ?? [],
+    };
+  }
   const statements: D1PreparedStatement[] = [];
+  appendSourceItems(db, items, nowIso, condition, statements);
+  appendScheduleEvents(db, events, nowIso, condition, statements);
+  appendWatermarks(db, items, nowIso, condition, statements);
+  return statements;
+}
+
+function appendSourceItems(
+  db: D1Database,
+  items: readonly NormalizedSourceItem[],
+  nowIso: string,
+  condition: StatementWriteCondition | undefined,
+  statements: D1PreparedStatement[],
+) {
   for (const item of items) {
     statements.push(
       db
@@ -69,20 +98,29 @@ export function sourceItemAndEventStatements(
         ),
     );
   }
+}
+
+function appendScheduleEvents(
+  db: D1Database,
+  events: readonly ScheduleEvent[],
+  nowIso: string,
+  condition: StatementWriteCondition | undefined,
+  statements: D1PreparedStatement[],
+) {
   for (const event of events) {
     statements.push(
       db
         .prepare(
           `INSERT INTO schedule_events (
              event_id, event_type, source, source_item_id, starts_at, ends_at,
-             schedule_status, manual_review, reason, observed_at
-           ) ${insertValuesSql("?, ?, ?, ?, ?, ?, ?, ?, ?, ?", condition)}
+             schedule_status, manual_review, reason, observed_at${event.segment ? ", segment_json" : ""}
+           ) ${insertValuesSql(`?, ?, ?, ?, ?, ?, ?, ?, ?, ?${event.segment ? ", ?" : ""}`, condition)}
            ON CONFLICT(event_id) DO UPDATE SET
              starts_at = excluded.starts_at,
              ends_at = excluded.ends_at,
              schedule_status = excluded.schedule_status,
              manual_review = excluded.manual_review,
-             reason = excluded.reason`,
+             reason = excluded.reason${event.segment ? ", segment_json = excluded.segment_json" : ""}`,
         )
         .bind(
           event.eventId,
@@ -95,10 +133,20 @@ export function sourceItemAndEventStatements(
           event.manualReview ? 1 : 0,
           event.reason,
           nowIso,
+          ...(event.segment ? [JSON.stringify(event.segment)] : []),
           ...(condition?.bindings ?? []),
         ),
     );
   }
+}
+
+function appendWatermarks(
+  db: D1Database,
+  items: readonly NormalizedSourceItem[],
+  nowIso: string,
+  condition: StatementWriteCondition | undefined,
+  statements: D1PreparedStatement[],
+) {
   const latestBySource = new Map<NormalizedSourceItem["source"], NormalizedSourceItem>();
   for (const item of items) {
     const current = latestBySource.get(item.source);
@@ -136,14 +184,12 @@ export function sourceItemAndEventStatements(
         ),
     );
   }
-  return statements;
 }
 
 export async function loadScheduleEvents(db: D1Database): Promise<ScheduleEvent[]> {
   const result = await db
     .prepare(
-      `SELECT e.event_id, e.event_type, e.starts_at, e.ends_at, e.schedule_status,
-              e.manual_review, e.reason, s.source, s.item_id, s.url, s.title,
+      `SELECT e.*, s.source, s.item_id, s.url, s.title,
               s.excerpt, s.published_at, s.content_hash, s.structured, s.official
        FROM schedule_events e
        JOIN source_items s ON s.source = e.source AND s.item_id = e.source_item_id
@@ -200,6 +246,16 @@ export function candidateStatements(
   condition?: StatementWriteCondition,
 ) {
   const { candidate, payloadHash } = result;
+  const policy = candidate.certifiedSnapshot
+    ? certifiedVersionPolicy(candidate.certifiedSnapshot.version)
+    : undefined;
+  if (policy?.segmentsAndGrants) {
+    const schemaVersion = policy.fixedDispatch ? 34 : 27;
+    condition = {
+      sql: `EXISTS (SELECT 1 FROM schema_migrations WHERE version >= ${schemaVersion})${condition ? ` AND (${condition.sql})` : ""}`,
+      bindings: condition?.bindings ?? [],
+    };
+  }
   const targetState = candidate.sourceStatus;
   const statements = [
     db
@@ -270,39 +326,28 @@ export async function listProposalCandidates(db: D1Database) {
   );
 }
 
-export async function supersedeIncompatibleCandidates(db: D1Database) {
-  const result = await db
-    .prepare(
-      `UPDATE forecast_candidates
-       SET state = 'superseded', updated_at = ?
-       WHERE state IN ('observed', 'parsed', 'crosschecked', 'x_unavailable', 'conflict', 'proposed')
-         AND (
-           COALESCE(json_extract(payload_json, '$.payloadVersion'), -1) <> ?
-           OR COALESCE(json_extract(payload_json, '$.rulesVersion'), '') <> ?
-         )`,
-    )
-    .bind(new Date().toISOString(), SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION, SUPPLY_RULES_VERSION)
-    .run();
-  return Number(result.meta.changes ?? 0);
-}
-
-export async function markCandidateProposed(db: D1Database, candidateId: string) {
-  const result = await db
-    .prepare(
-      `UPDATE forecast_candidates
-       SET state = 'proposed', updated_at = ?
-       WHERE candidate_id = ? AND state IN ('crosschecked', 'x_unavailable')`,
-    )
-    .bind(new Date().toISOString(), candidateId)
-    .run();
-  return Number(result.meta.changes ?? 0) === 1;
+export async function unapprovedCandidateCondition(db: D1Database) {
+  // Legacy production/bootstrap schemas predate runtime approvals. Only reference
+  // the publication table once its migration is recorded; never cache this gate.
+  const publication = await db
+    .prepare("SELECT version FROM schema_migrations WHERE version = 23")
+    .first();
+  return publication
+    ? `NOT EXISTS (
+        SELECT 1 FROM forecast_runtime_approvals a
+        WHERE a.candidate_id = forecast_candidates.candidate_id
+      )`
+    : "1";
 }
 
 export async function readHealth(db: D1Database) {
   const latest = await db
     .prepare(
       `SELECT status, deployment_sha, COALESCE(finished_at, started_at) AS finished_at
-       FROM collector_invocations ORDER BY scheduled_at DESC LIMIT 1`,
+       FROM collector_invocations
+       WHERE invocation_id NOT LIKE 'rotation-ingestion:%'
+         AND invocation_id NOT LIKE 'runtime-candidate:%'
+       ORDER BY scheduled_at DESC LIMIT 1`,
     )
     .first<{ status: string; deployment_sha: string; finished_at: string }>();
   const counts = await db
@@ -326,15 +371,29 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   const minimumScheduled = 200;
   const minimumCompletionRate = 0.99;
   const since = new Date(nowMs - windowHours * 60 * 60 * 1000).toISOString();
+  // Publication slots identify the six-minute combined collection schedule,
+  // but never contribute to successful collection or its denominator.
+  const combinedAlternation = Boolean(
+    await db
+      .prepare(`SELECT 1 FROM collector_invocations
+    WHERE deployment_sha=? AND scheduled_at>=? AND invocation_id LIKE 'runtime-candidate:%'
+    LIMIT 1`)
+      .bind(deploymentSha, since)
+      .first(),
+  );
   const invocations = await db
     .prepare(
-      `SELECT status, poll_mode, scheduled_at, started_at, finished_at
+      `SELECT invocation_id, status, poll_mode, scheduled_at, started_at, finished_at
        FROM collector_invocations
        WHERE scheduled_at >= ? AND deployment_sha = ?
+         AND invocation_id NOT LIKE 'profile-%'
+         AND invocation_id NOT LIKE 'rotation-ingestion:%'
+         AND invocation_id NOT LIKE 'runtime-candidate:%'
        ORDER BY scheduled_at ASC`,
     )
     .bind(since, deploymentSha)
     .all<{
+      invocation_id: string;
       status: string;
       poll_mode: "both" | "alternating";
       scheduled_at: string;
@@ -358,7 +417,10 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   const first = await db
     .prepare(
       `SELECT scheduled_at AS started_at FROM collector_invocations
-       WHERE deployment_sha = ? ORDER BY scheduled_at ASC LIMIT 1`,
+       WHERE deployment_sha = ? AND invocation_id NOT LIKE 'profile-%'
+         AND invocation_id NOT LIKE 'rotation-ingestion:%'
+         AND invocation_id NOT LIKE 'runtime-candidate:%'
+       ORDER BY scheduled_at ASC LIMIT 1`,
     )
     .bind(deploymentSha)
     .first<{ started_at: string }>();
@@ -437,7 +499,7 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   const cursors = await db
     .prepare(
       `SELECT source, committed_item_id, committed_published_at, scan_head_item_id,
-              scan_head_published_at, next_offset FROM source_poll_state`,
+              scan_head_published_at, next_offset, page_size FROM source_poll_state`,
     )
     .all<{
       source: string;
@@ -446,16 +508,35 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
       scan_head_item_id: string | null;
       scan_head_published_at: string | null;
       next_offset: number;
+      page_size: number;
     }>();
   let invalidCandidates = 0;
   for (const row of candidates.results) {
+    let payload: unknown;
     try {
-      const candidate = supplyForecastCandidateSchema.parse(JSON.parse(row.payload_json));
-      assertForecastCandidateInvariants(candidate);
-      if ((await sha256Hex(stableJson(candidate))) !== row.payload_hash) invalidCandidates += 1;
-    } catch {
+      payload = JSON.parse(row.payload_json);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
       invalidCandidates += 1;
+      continue;
     }
+    const parsed = supplyForecastCandidateSchema.safeParse(payload);
+    if (!parsed.success) {
+      invalidCandidates += 1;
+      continue;
+    }
+    // Plain Error signals rejected data; validator defects mean unavailable
+    // evidence and must propagate without exposing candidate data in logs.
+    try {
+      assertForecastCandidateInvariants(parsed.data);
+    } catch (error) {
+      if (!isExpectedCandidateRejection(error)) throw error;
+      console.error(JSON.stringify({ event: "canary_candidate_invariant_check_failed" }));
+      invalidCandidates += 1;
+      continue;
+    }
+    // A hashing failure is unavailable evidence, not an invalid candidate.
+    if ((await sha256Hex(stableJson(parsed.data))) !== row.payload_hash) invalidCandidates += 1;
   }
   const invalidWatermarks = watermarks.results.filter(
     (row) =>
@@ -495,7 +576,7 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     return (
       !["pending", "processed", "ignored", "manual_review"].includes(row.status) ||
       row.attempts < 0 ||
-      !/^naver-board-(48|56)$/.test(row.source) ||
+      !/^naver-board-(11|48|56)$/.test(row.source) ||
       !/^\d{1,20}$/.test(row.item_id) ||
       !url ||
       url.protocol !== "https:" ||
@@ -505,8 +586,12 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   }).length;
   const invalidCursors = cursors.results.filter(
     (row) =>
-      !/^naver-board-(48|56)$/.test(row.source) ||
+      !/^naver-board-(11|48|56)$/.test(row.source) ||
       row.next_offset < 0 ||
+      !Number.isInteger(row.next_offset) ||
+      ![5, 10].includes(row.page_size) ||
+      (row.source !== "naver-board-48" && row.page_size !== 10) ||
+      row.next_offset >= 30 / row.page_size ||
       (row.next_offset > 0 && (!row.scan_head_item_id || !row.scan_head_published_at)) ||
       (row.next_offset === 0 &&
         (row.scan_head_item_id !== null || row.scan_head_published_at !== null)) ||
@@ -562,9 +647,27 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     invalidDispatchStates === 0 &&
     smokeCount >= 1 &&
     invalidSmoke === 0;
+  const rotation = invocations.results.some((row) =>
+    row.invocation_id.startsWith("rotation-board-"),
+  );
+  const rotationV2 = invocations.results.some(
+    (row) => row.invocation_id.startsWith("rotation-board-") && row.invocation_id.endsWith(":v2"),
+  );
+  const missingRotationBoard =
+    rotation &&
+    (rotationV2 ? [48, 56, 11] : [48, 56]).some(
+      (board) =>
+        !invocations.results.some((row) =>
+          row.invocation_id.startsWith(`rotation-board-${board}:`),
+        ),
+    );
   const passed =
     eligible &&
-    effective.length >= minimumScheduled &&
+    effective.length >=
+      (rotation
+        ? Math.floor((minimumScheduled * (rotationV2 ? 3 : 2)) / (rotationV2 ? 4 : 3))
+        : minimumScheduled / (combinedAlternation ? 2 : 1)) &&
+    !missingRotationBoard &&
     successRate >= minimumCompletionRate &&
     latest?.status === "completed" &&
     abandoned === 0 &&
@@ -684,6 +787,7 @@ export function nextNaverRetryAt(nowMs: number, consecutiveFailures: number) {
 }
 
 type ScheduleEventRow = {
+  segment_json?: string | null;
   event_id: string;
   event_type: ScheduleEvent["eventType"];
   starts_at: string | null;
@@ -724,5 +828,8 @@ function rowToScheduleEvent(row: ScheduleEventRow): ScheduleEvent {
     scheduleStatus: row.schedule_status,
     manualReview: row.manual_review === 1,
     reason: row.reason,
+    ...(row.segment_json
+      ? { segment: JSON.parse(row.segment_json) as ScheduleEvent["segment"] }
+      : {}),
   };
 }

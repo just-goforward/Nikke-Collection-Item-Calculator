@@ -6,6 +6,7 @@ import {
   type StatsDeliveryHealth,
 } from "../../shared/solverRecoveryContract";
 import { ignoreExpectedError } from "./errorHandling";
+import { createVolatileStorage } from "./volatileSession";
 import type { StatsEventKind, StatsSubmissionEnvelope } from "./statsSubmissionQueue";
 
 export const STATS_OUTBOX_MAX_EVENTS = 20;
@@ -406,6 +407,14 @@ function parseCurrent(raw: string): StoredOutbox {
 
 function emptyState(): StoredOutbox {
   return { version: STATS_OUTBOX_VERSION, records: [] };
+}
+
+export function createMemoryStatsOutbox(endpoint: string, now: () => number = Date.now): BrowserStatsOutbox {
+  return createStatsSubmissionOutbox(
+    createVolatileStorage(),
+    statsOutboxStorageKey(endpoint, STATS_OUTBOX_KEY_PREFIX),
+    now,
+  );
 }
 
 export function createBrowserStatsOutbox(endpoint: string): BrowserStatsOutbox | null {

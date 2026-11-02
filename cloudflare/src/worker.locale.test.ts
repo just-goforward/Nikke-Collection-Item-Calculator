@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ACTIVE_SUPPLY_FORECAST_ID } from "../../shared/generated/supplyForecast";
 import { solverDiagnosticEvent } from "./worker.test-events";
 import { WorkerTestHarness } from "./worker.test-harness";
 
@@ -35,7 +36,7 @@ describe("calculation locale aggregates", () => {
         events: number;
       }>();
     expect(stored).toEqual({
-      forecast_id: "supply-2026-08-21-v1",
+      forecast_id: ACTIVE_SUPPLY_FORECAST_ID,
       locale: "ja",
       requested_backend: "rust-min-ef",
       terminal_backend: "rust-phase2",
@@ -52,7 +53,7 @@ describe("calculation locale aggregates", () => {
       {
         dateBasis: "kst_game_day_0500_v2",
         diagnosticVersion: 8,
-        forecastId: "supply-2026-08-21-v1",
+        forecastId: ACTIVE_SUPPLY_FORECAST_ID,
         locale: "ja",
         requestedBackend: "rust-min-ef",
         terminalBackend: "rust-phase2",

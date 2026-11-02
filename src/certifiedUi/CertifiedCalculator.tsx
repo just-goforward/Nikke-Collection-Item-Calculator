@@ -1,5 +1,11 @@
 import type { ComponentProps } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { CertifiedTargetInput, initialCertifiedTargetDraft } from "./CertifiedTargetInput";
+import { parseTargetDraft } from "./targetInput";
+import { CertifiedTargetResult } from "./CertifiedTargetResult";
+// Chunk layout only: the pure-data authority is evaluated first so that it does not split
+// the calculator code across gzip windows (lazy-certified budget). It has no side effects.
+import "../../shared/generated/certifiedForecastAuthority";
 import { CERTIFIED_STAGING_ENGINE_PROFILE } from "../../shared/certifiedEngineProfile";
 import { AppShell } from "../AppLayout";
 import { AccountControl } from "../account/AccountControl";
@@ -15,9 +21,8 @@ import {
   CertifiedMobileActions,
   CertifiedResultRegion,
 } from "./CertifiedShellChrome";
-import { ClaimsPanel, CohortPanel } from "./CertifiedSupplyPanels";
 import type { CertifiedCalculatorController } from "./calculatorController";
-import { type CertifiedWords, certifiedMessages } from "./messages";
+import { certifiedMessages } from "./messages";
 import { useCertifiedCalculatorApp } from "./useCertifiedCalculatorApp";
 import {
   type CertifiedShellInteractions,
@@ -25,11 +30,10 @@ import {
 } from "./useCertifiedShellInteractions";
 import "./certified.css";
 
-/** Shared StatePanel/StockPanel plus the certified-only reroll type and receipt inputs. */
+/** Shared state and stock inputs; dispatch policy is not user-selectable. */
 function certifiedInputPanels(
   controller: CertifiedCalculatorController,
   ui: CertifiedShellInteractions,
-  words: CertifiedWords,
 ): ComponentProps<typeof AppShell>["inputPanels"] {
   const { actions } = controller;
   return {
@@ -56,26 +60,6 @@ function certifiedInputPanels(
       onCalculate: ui.onCalculate,
       onReset: ui.onReset,
     },
-    extra: (
-      <>
-        <CohortPanel
-          disabled={ui.inputSessionLocked}
-          session={controller.session}
-          onUpdate={controller.updateSession}
-          words={words}
-        />
-        {controller.snapshot && (
-          <ClaimsPanel
-            claims={controller.claims}
-            disabled={ui.inputSessionLocked}
-            snapshot={controller.snapshot}
-            session={controller.session}
-            onUpdate={controller.updateSession}
-            words={words}
-          />
-        )}
-      </>
-    ),
   };
 }
 
@@ -91,7 +75,9 @@ export default function CertifiedCalculator() {
   const shell = useAppShellNavigation<() => void>();
   const stats = useStatsQuery(shell.statsVisible);
   const queueStatsEvent = useStatsSubmission(stats.markSubmitted);
-  const app = useCertifiedCalculatorApp(queueStatsEvent);
+  const [targetDraft, setTargetDraft] = useState(initialCertifiedTargetDraft);
+  const target = useMemo(() => parseTargetDraft(targetDraft), [targetDraft]);
+  const app = useCertifiedCalculatorApp(queueStatsEvent, target);
   // With the flag off this stays false and no account code runs (only the constant flag check).
   const [accountLocked, setAccountLocked] = useState(accountFeatureEnabled);
   // The account binding keeps the engine's own lock; only the shown inputs are read-only.
@@ -116,10 +102,16 @@ export default function CertifiedCalculator() {
           />
         ) : null
       }
-      banner={<CertifiedBanner {...chrome} />}
+      banner={<><CertifiedBanner {...chrome} /><CertifiedTargetInput
+        locale={locale}
+        value={targetDraft}
+        disabled={accountLocked || app.modal.open || app.storageBlocked}
+        {...(target === null ? { error: words.error } : {})}
+        onChange={(next) => { app.run.invalidate(); setTargetDraft(next); }}
+      /></>}
       engineProfile={CERTIFIED_STAGING_ENGINE_PROFILE.id}
       hasResult={ui.current !== null}
-      inputPanels={certifiedInputPanels(controller, ui, words)}
+      inputPanels={certifiedInputPanels(controller, ui)}
       mobileActions={<CertifiedMobileActions {...chrome} />}
       mobileTab={shell.mobileTab}
       modal={controller.modal}
@@ -128,7 +120,9 @@ export default function CertifiedCalculator() {
       onThemeModeChange={theme.setThemeMode}
       onViewTabChange={shell.setViewTab}
       resetToast={ui.resetToast}
-      result={<CertifiedResultRegion {...chrome} />}
+      result={<><CertifiedTargetResult requested={targetDraft.enabled}
+        output={app.run.result} busy={app.run.busy} locale={locale}
+      /><CertifiedResultRegion {...chrome} /></>}
       stateFeedback={null}
       stats={{ view: stats.statsView, onRetry: stats.retryStats }}
       themeMode={theme.themeMode}

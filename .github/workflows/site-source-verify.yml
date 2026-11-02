@@ -1,0 +1,90 @@
+name: Site source verification (no publication)
+
+on:
+  push:
+    branches:
+      - ci/site-source-transition
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-source-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  DO_NOT_TRACK: "1"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  WRANGLER_SEND_METRICS: "false"
+  WRANGLER_SEND_ERROR_REPORTS: "false"
+  CLOUDFLARE_CF_FETCH_ENABLED: "false"
+  npm_config_audit: "false"
+  npm_config_fund: "false"
+  npm_config_update_notifier: "false"
+
+# Separate approved Site CI boundary, not isolated operational admission.
+# CodeQL remains GitHub-managed default setup; this job cannot replace its checks.
+jobs:
+  site-source-verify:
+    name: Site source verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout the event revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        timeout-minutes: 5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up the pinned Node toolchain
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        timeout-minutes: 5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Check revision and Node identity
+        timeout-minutes: 2
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node --input-type=module -e 'import {readFileSync} from "node:fs"; import assert from "node:assert/strict"; assert.equal(process.versions.node,readFileSync(".nvmrc","utf8").trim());'
+
+      - name: Pin npm without lifecycle scripts
+        timeout-minutes: 5
+        run: |
+          npm install --global npm@12.2.1 --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = "12.2.1"
+
+      - name: Install the committed lock without lifecycle scripts
+        timeout-minutes: 10
+        run: npm ci --ignore-scripts
+
+      - name: Check operational source types
+        timeout-minutes: 10
+        run: npm run typecheck:operations
+
+      - name: Run the existing Site operations lane
+        timeout-minutes: 10
+        run: npm run test:operations
+
+      - name: Run online build, artifact and publication guard tests
+        timeout-minutes: 10
+        run: node --test scripts/build-certified-wasm.test.mjs scripts/build-production-service.test.mjs scripts/site-deployment-artifact.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs
+
+      - name: Build production-online with pinned WASM and engine freshness guards
+        timeout-minutes: 45
+        run: npm run build:site-production
+
+      - name: Verify the event revision, approved online profile and packaged content
+        timeout-minutes: 5
+        run: |
+          node --input-type=module -e 'const {assertProductionSiteCandidateProfile}=await import("./scripts/site-deployment-artifact.mjs"); const {buildSiteProduction}=await import("./scripts/build-site-production.ts"); const contract=await assertProductionSiteCandidateProfile("dist",process.env.GITHUB_SHA); await buildSiteProduction("dist",true,contract);'

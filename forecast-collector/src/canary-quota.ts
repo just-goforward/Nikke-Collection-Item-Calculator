@@ -3,20 +3,23 @@ import {
   CLOUDFLARE_PAID_THRESHOLDS,
   type D1QuotaEvidence,
 } from "../../shared/d1QuotaEvidence";
+import { errorCode } from "../../shared/errorCodes.ts";
 import type { UsageGuardEvidence, UsageGuardState } from "../../shared/usageGuard";
 import { sha256Hex } from "./crypto";
 
 export const CANARY_WINDOW_MS = CLOUDFLARE_PAID_THRESHOLDS.canaryHours * 60 * 60 * 1_000;
 
 const QUOTA_EVIDENCE_MAX_AGE_MS = 20 * 60 * 1_000;
+// Configured runaway guards equal the deployed cpu_ms limits, not performance targets.
 const WORKER_CPU_LIMITS_MS: Record<string, number> = {
   "collection-kit-stats": 10,
   "collection-kit-stats-staging": 10,
   "collection-kit-forecast-interactions": 10,
+  "collection-kit-forecast-interactions-staging": 10,
   "collection-kit-forecast-dispatcher": 25,
   "collection-kit-forecast-dispatcher-staging": 25,
-  "collection-kit-forecast-collector": 50,
-  "collection-kit-forecast-collector-staging": 50,
+  "collection-kit-forecast-collector": 300,
+  "collection-kit-forecast-collector-staging": 300,
   "collection-kit-usage-guard": 25,
 };
 
@@ -57,7 +60,8 @@ export async function readQuotaEvidence(
   } catch (error) {
     return {
       valid: false,
-      errorCode: error instanceof Error ? error.message.slice(0, 120) : "d1_quota_evidence_invalid",
+      // Registered quota-evidence codes survive; any other message text never reaches the report.
+      errorCode: errorCode(error, "forecast_ops"),
       evidence: null,
       evidenceHash: runtimeQuota?.evidenceHash ?? row.quota_evidence_hash,
       initialEvidenceHash: row.quota_evidence_hash,
@@ -83,11 +87,14 @@ async function validateQuotaEvidence(
     throw new Error("d1_quota_evidence_hash_mismatch");
   }
   const initialEvidence = assertD1QuotaEvidence(JSON.parse(row.quota_evidence_json));
+  if (!runtimeQuota) throw new Error("cloudflare_paid_runtime_guard_required");
   const runtimeEvidence = runtimeQuota && "evidence" in runtimeQuota ? runtimeQuota.evidence : null;
   if (options.finalEvidenceRequired && !runtimeEvidence) {
     throw new Error("cloudflare_paid_final_evidence_required");
   }
   const evidence = runtimeEvidence ?? initialEvidence;
+  if (runtimeQuota.action !== evidence.action)
+    throw new Error("cloudflare_paid_guard_action_mismatch");
   if (
     runtimeQuota &&
     (runtimeQuota.periodStart !== initialEvidence.plan.periodStart ||
@@ -186,10 +193,11 @@ function quotaPolicySummary(evidence: D1QuotaEvidence) {
 
 function requiredWorkerNames(environment: Environment) {
   const forecastSuffix = environment === "staging" ? "-staging" : "";
+  // The Router has no Cron and can legitimately have no requests in the window.
+  // If present, its runtime errors remain visible in account diagnostics.
   return [
     `collection-kit-forecast-collector${forecastSuffix}`,
     `collection-kit-forecast-dispatcher${forecastSuffix}`,
-    "collection-kit-forecast-interactions",
     "collection-kit-usage-guard",
   ];
 }
@@ -215,14 +223,22 @@ function assertRuntimeQuotaFresh(
 
 function assertObservedAtFresh(observedAtValue: string, nowMs: number) {
   const observedAt = Date.parse(observedAtValue);
-  if (observedAt > nowMs + 60_000 || nowMs - observedAt > QUOTA_EVIDENCE_MAX_AGE_MS) {
+  if (
+    !Number.isFinite(observedAt) ||
+    observedAt > nowMs + 60_000 ||
+    nowMs - observedAt > QUOTA_EVIDENCE_MAX_AGE_MS
+  ) {
     throw new Error("cloudflare_paid_quota_evidence_stale");
   }
 }
 
 function assertQuotaEvidenceFresh(evidence: D1QuotaEvidence, nowMs: number) {
   const observedAt = Date.parse(evidence.observedAt);
-  if (observedAt > nowMs + 60_000 || nowMs - observedAt > QUOTA_EVIDENCE_MAX_AGE_MS) {
+  if (
+    !Number.isFinite(observedAt) ||
+    observedAt > nowMs + 60_000 ||
+    nowMs - observedAt > QUOTA_EVIDENCE_MAX_AGE_MS
+  ) {
     throw new Error("cloudflare_paid_quota_evidence_stale");
   }
 }

@@ -2,6 +2,7 @@ import { MAX_STOCK_PIECES } from "../../shared/game";
 import type { SolverExecutionKind } from "../../shared/statsContract";
 import { message } from "../i18n/locale";
 import type { SolverBackend } from "../lib/solverRuntime";
+import type { SupplyForecastContext } from "../lib/supplyForecastRuntime";
 import { FIXED_REQUIRED_EXP } from "../solver/domain";
 import type {
   CollectionState,
@@ -14,6 +15,7 @@ import type {
 } from "../types";
 import type { DetailView, ResultView, ValidationView } from "../ui-types";
 import type { SolverRecoveryTrace } from "./solverRecoveryPolicy";
+import type { ServiceCertifiedResult } from "./serviceCertifiedTypes";
 
 export const EMPTY_RESULT: ResultView = {
   type: "empty",
@@ -65,6 +67,10 @@ export type SolverBest = {
   resourceCost?: number;
 };
 
+/** Outcome application needs an action, not invented solver probabilities/candidate metrics. */
+export type OutcomeBest = Pick<SolverBest, "firstAction"> &
+  Partial<Omit<SolverBest, "firstAction">>;
+
 type SolverCandidate = {
   firstAction: Kit;
   firstProbability: number;
@@ -81,6 +87,8 @@ type SolverCandidate = {
 };
 
 export type SolverResult = {
+  /** Native service-certified lane; legacy possible/best/stats are deliberately absent. */
+  certified?: ServiceCertifiedResult;
   terminal?: boolean;
   possible?: boolean;
   convertOnly?: boolean;
@@ -100,6 +108,7 @@ export type SolverResult = {
     fallbackReason?: string;
     forecastId?: string;
     forecastProfileId?: string;
+    supplyForecast?: SupplyForecastContext;
     workerErrorCode?: string;
     memoryStrategy?: string;
     minEfMemoTier?: number;
@@ -120,6 +129,7 @@ export type SolverResult = {
 };
 
 export type SolveOutcome = {
+  supplyForecast?: SupplyForecastContext;
   executionKind: SolverExecutionKind;
   recoveryTrace?: SolverRecoveryTrace;
   requestedBackend: SolverBackend;
@@ -152,7 +162,7 @@ export type PendingStatsEvent = {
 };
 
 export type TerminalSuccessContext = {
-  best: SolverBest;
+  best: OutcomeBest;
   run: RecommendedRun;
   input: SolverInput;
   startSnapshot: CollectionState;

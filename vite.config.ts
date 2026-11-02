@@ -7,6 +7,7 @@ import {
   workerChunkGraphPlugin,
 } from "./scripts/certified-bundle-boundary.ts";
 import { certifiedEngineBuildGuardPlugin } from "./scripts/certified-engine-build.ts";
+import { forecastRuntimeBuildPlugin } from "./scripts/forecast-runtime-build.ts";
 
 import { localizedPagesPlugin } from "./scripts/localized-pages.ts";
 import { STATS_DELIVERY_HEALTH_EMIT_ENABLED } from "./shared/solverRecoveryContract.ts";
@@ -22,12 +23,27 @@ export default defineConfig({
   },
   plugins: [
     certifiedEngineBuildGuardPlugin(),
+    forecastRuntimeBuildPlugin(),
     localizedPagesPlugin(),
     react(),
     tailwindcss(),
     certifiedBundleBoundaryPlugin(),
   ],
-  server: { watch: { ignored: ["**/benchmarks/results/**", "**/.tmp/**", "**/.certified-*/**"] } },
+  // Dev-only: the repository holds very large non-app trees; keep the watcher and the dependency
+  // scan on the app entry so `npm run dev` responds promptly. Builds are unaffected.
+  server: {
+    watch: {
+      ignored: [
+        "**/benchmarks/**",
+        "**/.tmp/**",
+        "**/.certified-*/**",
+        "**/.local-research-assets/**",
+        "**/.artifacts/**",
+        "**/rust/**/target/**",
+      ],
+    },
+  },
+  optimizeDeps: { entries: ["index.html"] },
   build: {
     outDir: "dist",
     emptyOutDir: true,

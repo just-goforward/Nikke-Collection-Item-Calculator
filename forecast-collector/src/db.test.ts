@@ -2,28 +2,46 @@ import { applyD1Migrations, createExecutionContext, reset } from "cloudflare:tes
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
-import schemaSql from "../schema.sql?raw";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import { sha256Hex } from "./crypto";
 import {
   candidateExists,
   candidateStatements,
   listProposalCandidates,
-  markCandidateProposed,
   nextNaverRetryAt,
   persistCandidate,
   persistSourceItemsAndEvents,
   readCanaryReport,
+  readHealth,
   sourceItemAndEventStatements,
-  supersedeIncompatibleCandidates,
 } from "./db";
-import { finishInvocation, startInvocation } from "./source-queue";
+import {
+  completeInvocation as finishInvocation,
+  seedInvocation as startInvocation,
+} from "./test-invocation-history";
+import schemaSql from "./test-schema";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv, NormalizedSourceItem, ScheduleEvent } from "./types";
 import worker from "./worker";
 
 const testEnv = env as unknown as CollectorEnv;
 type WorkerFetch = NonNullable<typeof worker.fetch>;
+
+it("keeps the real profiling SHA in health but excludes profiling from canary evidence", async () => {
+  const now = Date.now();
+  const id = await startInvocation(
+    testEnv.FORECAST_DB,
+    "real-sha",
+    now,
+    "both",
+    "profile-board-48:",
+  );
+  expect(id).toBe(`profile-board-48:real-sha:${now}`);
+  expect((await readHealth(testEnv.FORECAST_DB)).collector.deploymentSha).toBe("real-sha");
+  expect((await readCanaryReport(testEnv.FORECAST_DB, now, "real-sha")).invocations.scheduled).toBe(
+    0,
+  );
+});
 type WorkerRequest = Parameters<WorkerFetch>[0];
 
 const deniedFetch = vi.fn(async () => {
@@ -47,6 +65,57 @@ afterEach(() => {
 });
 
 describe("forecast collector D1 contract", () => {
+  // V5 needs its publication tuple in 0034; historical v4 retains its 0027 boundary.
+  it.each([
+    { version: "certified-daily-v4", schemaVersion: 27 },
+    { version: "certified-daily-v5", schemaVersion: 34 },
+  ] as const)(
+    "does not persist $version before schema $schemaVersion and persists at that version",
+    async ({ version, schemaVersion }) => {
+      const db = testEnv.FORECAST_DB;
+      const item = sourceItem();
+      const event = soloEvent(item);
+      const now = Date.parse("2026-08-24T00:00:00.000Z");
+      await persistSourceItemsAndEvents(db, [item], [event], new Date(now).toISOString());
+      const resolved = resolveSoloSchedule([event], now);
+      if (!resolved) throw new Error("Expected a resolved schedule");
+      const candidate = await buildForecastCandidate(
+        resolved,
+        [],
+        {
+          status: "x_unavailable",
+          sourceItem: null,
+          reason: "test",
+        },
+        now,
+        1,
+        [],
+        { version },
+      );
+      expect(candidate.candidate.certifiedSnapshot?.version).toBe(version);
+      await db
+        .prepare("DELETE FROM schema_migrations WHERE version >= ?")
+        .bind(schemaVersion)
+        .run();
+      const writes = await db.batch(
+        candidateStatements(db, candidate, event.eventId, "2026-08-24", 1),
+      );
+      expect(writes.every((result) => result.meta.changes === 0)).toBe(true);
+      expect((await db.prepare("SELECT * FROM forecast_candidates").all()).results).toEqual([]);
+      expect((await db.prepare("SELECT * FROM candidate_sources").all()).results).toEqual([]);
+      await db
+        .prepare("INSERT INTO schema_migrations VALUES(?,CURRENT_TIMESTAMP)")
+        .bind(schemaVersion)
+        .run();
+      await persistCandidate(db, candidate, event.eventId, "2026-08-24", 1);
+      expect(
+        await db.prepare("SELECT state,payload_hash FROM forecast_candidates").first(),
+      ).toEqual({ state: candidate.candidate.sourceStatus, payload_hash: candidate.payloadHash });
+      expect(await db.prepare("SELECT COUNT(*) n FROM candidate_sources").first()).toEqual({
+        n: 1,
+      });
+    },
+  );
   it("preserves changes() across D1 batch statements and clears it after a zero-row write", async () => {
     const db = testEnv.FORECAST_DB;
     const item = sourceItem();
@@ -197,7 +266,15 @@ describe("forecast collector D1 contract", () => {
       1,
     );
     await persistCandidate(testEnv.FORECAST_DB, candidate, event.eventId, "2026-08-24", 1);
-    await persistCandidate(testEnv.FORECAST_DB, candidate, event.eventId, "2026-08-24", 1);
+    const replay = await buildForecastCandidate(
+      resolved,
+      [],
+      { status: "x_unavailable", sourceItem: null, reason: "test" },
+      Date.parse("2026-08-24T00:00:01Z"),
+      2,
+    );
+    expect(replay.candidate.candidateId).toBe(candidate.candidate.candidateId);
+    await persistCandidate(testEnv.FORECAST_DB, replay, event.eventId, "2026-08-24", 2);
 
     expect(
       await candidateExists(testEnv.FORECAST_DB, event.eventId, "2026-08-24", "x_unavailable"),
@@ -205,12 +282,6 @@ describe("forecast collector D1 contract", () => {
     expect(await listProposalCandidates(testEnv.FORECAST_DB)).toEqual([
       { payloadHash: candidate.payloadHash, candidate: candidate.candidate },
     ]);
-    await expect(
-      markCandidateProposed(testEnv.FORECAST_DB, candidate.candidate.candidateId),
-    ).resolves.toBe(true);
-    await expect(
-      markCandidateProposed(testEnv.FORECAST_DB, candidate.candidate.candidateId),
-    ).resolves.toBe(false);
   });
 
   it("keeps health public but protects candidate data with a timing-safe bearer check", async () => {
@@ -254,43 +325,6 @@ describe("forecast collector D1 contract", () => {
     });
     expect(unauthorized.status).toBe(401);
     expect(authorized.status).toBe(200);
-  });
-
-  it("preserves but supersedes candidates from an older payload contract", async () => {
-    const item = sourceItem();
-    const event = soloEvent(item);
-    await persistSourceItemsAndEvents(
-      testEnv.FORECAST_DB,
-      [item],
-      [event],
-      new Date().toISOString(),
-    );
-    const resolved = resolveSoloSchedule([event], Date.parse("2026-08-24T00:00:00Z"));
-    if (!resolved) throw new Error("Expected a resolved schedule.");
-    const candidate = await buildForecastCandidate(
-      resolved,
-      [],
-      { status: "x_unavailable", sourceItem: null, reason: "test" },
-      Date.parse("2026-08-24T00:00:00Z"),
-      1,
-    );
-    await persistCandidate(testEnv.FORECAST_DB, candidate, event.eventId, "2026-08-24", 1);
-    await testEnv.FORECAST_DB.prepare(
-      `UPDATE forecast_candidates
-       SET payload_json = json_set(payload_json, '$.payloadVersion', 2, '$.rulesVersion', 'schedule-kit-v1')
-       WHERE candidate_id = ?`,
-    )
-      .bind(candidate.candidate.candidateId)
-      .run();
-
-    await expect(supersedeIncompatibleCandidates(testEnv.FORECAST_DB)).resolves.toBe(1);
-    await expect(listProposalCandidates(testEnv.FORECAST_DB)).resolves.toEqual([]);
-    const stored = await testEnv.FORECAST_DB.prepare(
-      "SELECT state FROM forecast_candidates WHERE candidate_id = ?",
-    )
-      .bind(candidate.candidate.candidateId)
-      .first<{ state: string }>();
-    expect(stored?.state).toBe("superseded");
   });
 
   it("caps exponential Naver backoff at thirty minutes", () => {
@@ -379,7 +413,15 @@ describe("forecast collector D1 contract", () => {
     const failing = await readCanaryReport(testEnv.FORECAST_DB, now, "boundary-deployment");
     expect(failing.invocations.scheduled).toBe(199);
     expect(failing.passed).toBe(false);
-  });
+    await testEnv.FORECAST_DB.prepare(`UPDATE collector_invocations
+      SET invocation_id='runtime-candidate:' || invocation_id
+      WHERE deployment_sha='boundary-deployment'
+        AND CAST(substr(invocation_id,length('boundary-deployment:')+1) AS INTEGER)%2=1`).run();
+    const alternating = await readCanaryReport(testEnv.FORECAST_DB, now, "boundary-deployment");
+    expect(alternating.invocations).toMatchObject({ scheduled: 100, completed: 100 });
+    expect(alternating.passed).toBe(true);
+    // Seeds ~200 invocation rows; exceeded the 5 s default under full-suite load.
+  }, 20_000);
 
   it("includes all 102 hard terminations in a 240-invocation canary denominator", async () => {
     const now = Date.parse("2026-08-24T00:00:00Z");

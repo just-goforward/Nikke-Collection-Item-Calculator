@@ -1,13 +1,13 @@
 import type { Dispatch, SetStateAction } from "react";
 import type {
   CertifiedSupplyComparison,
-  CertifiedSupplyEvent,
   CertifiedSupplySnapshot,
 } from "../../shared/certifiedSupply";
 import type { Grade, Stock } from "../types";
 import type { StatePanelModel, StockCorrectionView, SuccessAttemptModalState } from "../ui-types";
 import type { CertifiedAccountDeps } from "./accountSession";
 import type { CertifiedSession } from "./session";
+import type { CertifiedPrepareError } from "./useCertifiedCalculatorPreparation";
 import type { useCertifiedRun } from "./useCertifiedRun";
 
 export type CertifiedCalculatorController = {
@@ -18,9 +18,8 @@ export type CertifiedCalculatorController = {
   session: CertifiedSession;
   updateSession: Dispatch<SetStateAction<CertifiedSession>>;
   snapshot: CertifiedSupplySnapshot | null;
-  prepareError: "unsupported_forecast_version" | "preparation_failed" | null;
+  prepareError: CertifiedPrepareError | null;
   comparison: CertifiedSupplyComparison | null;
-  claims: readonly CertifiedSupplyEvent[];
   run: ReturnType<typeof useCertifiedRun>;
   statePanel: StatePanelModel;
   stock: Stock;

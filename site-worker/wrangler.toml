@@ -1,5 +1,4 @@
-# Staging only. Production uses the separate production.wrangler.toml.
-name = "collection-kit-site-local"
+name = "collection-kit-site-staging"
 main = "src/worker.ts"
 compatibility_date = "2026-10-13"
 workers_dev = false
@@ -8,16 +7,13 @@ upload_source_maps = false
 
 [vars]
 SITE_ENV = "staging"
-
-# PLACEHOLDER: account_id = "<STAGING_CLOUDFLARE_ACCOUNT_ID>"
-# Supply the verified account through CLOUDFLARE_ACCOUNT_ID at deployment time.
-# PLACEHOLDER: zone_id = "<NIKKECOLLECTION_COM_ZONE_ID>" (not needed for Custom Domains).
+# Retain publication bindings without activating the parked forecast runtime.
+FORECAST_RUNTIME_MODE = "off"
 
 [assets]
 directory = "../dist"
 binding = "ASSETS"
 not_found_handling = "404-page"
-# Asset-first HTML preserves _headers and avoids billed gateway invocations.
 run_worker_first = ["/api", "/api/*", "/auth", "/auth/*", "/v1", "/v1/*", "/account", "/account/*", "/admin", "/admin/*", "/robots.txt"]
 
 [observability]
@@ -27,38 +23,21 @@ enabled = false
 enabled = false
 invocation_logs = false
 
-[env.staging]
-name = "collection-kit-site-staging"
-workers_dev = false
-preview_urls = false
-
-[env.staging.vars]
-SITE_ENV = "staging"
-
-[env.staging.assets]
-directory = "../dist"
-binding = "ASSETS"
-not_found_handling = "404-page"
-run_worker_first = ["/api", "/api/*", "/auth", "/auth/*", "/v1", "/v1/*", "/account", "/account/*", "/admin", "/admin/*", "/robots.txt"]
-
-[env.staging.observability]
-enabled = false
-
-[env.staging.observability.logs]
-enabled = false
-invocation_logs = false
-
-[[env.staging.services]]
+[[services]]
 binding = "STATS"
-# Existing staging service name from cloudflare/wrangler.toml; verify before provisioning.
 service = "collection-kit-stats-staging"
 
-# Provision and migrate the backend before the local deploy script publishes this gateway.
-[[env.staging.services]]
-binding = "PERSONAL_DATA"
-service = "collection-kit-personal-data-staging"
+[[d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector-staging"
+database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
 
-# Remote changes are operator-only; deploy:site-staging requires the provisioning gate.
-[[env.staging.routes]]
-pattern = "staging.nikkecollection.com"
-custom_domain = true
+[[d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[[ratelimits]]
+name = "FORECAST_RATE_LIMITER"
+namespace_id = "419107"
+simple = { limit = 60, period = 60 }

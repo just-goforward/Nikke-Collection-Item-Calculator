@@ -1,3 +1,4 @@
+import { errorCode, persistedErrorCode } from "../../shared/errorCodes";
 import {
   assertUsageAllowed,
   readUsageGuardEvidence,
@@ -234,7 +235,19 @@ export async function runObserver(
     await finishRun(env, runId, { rows: hashed.length, deltas, alerts });
     return { rows: hashed.length, deltas, alerts };
   } catch (error) {
-    await failRun(env, runId, errorCode(error)).catch(() => undefined);
+    try {
+      await failRun(env, runId, observerPersistedErrorCode(error));
+    } catch (failureRecordError) {
+      // Keep the original invocation error authoritative, but never lose the fact that
+      // the failure record itself could not be written.
+      console.error(
+        JSON.stringify({
+          event: "observer_run_failure_record_failed",
+          code: observerErrorCode(error),
+          recordCode: observerErrorCode(failureRecordError),
+        }),
+      );
+    }
     throw error;
   }
 }
@@ -379,7 +392,7 @@ async function flushAlerts(env: StatsObserverEnv, now: string, fetchImpl?: typeo
       const nextSendAt = retryable
         ? new Date(Date.parse(now) + (retryAfterMs ?? 5 * 60_000)).toISOString()
         : null;
-      await markAlertRetry(env, alert.fingerprint, errorCode(error), nextSendAt);
+      await markAlertRetry(env, alert.fingerprint, observerPersistedErrorCode(error), nextSendAt);
     }
   }
   return alerts.length;
@@ -421,8 +434,14 @@ function normalizedSha(value: string) {
   return /^[0-9a-f]{40}$/.test(value) || value === "local" ? value : "unknown";
 }
 
-function errorCode(error: unknown) {
-  if (error instanceof DiscordObserverError) return error.code;
-  if (error instanceof Error && /^[a-z0-9_]{1,64}$/.test(error.message)) return error.message;
-  return "observer_internal_error";
+/** Every Observer log line uses the shared registry with the Observer fallback: our own
+ * codes are kept, everything else is a fixed category or runtime error name. */
+export function observerErrorCode(error: unknown) {
+  return errorCode(error, "stats_observer");
+}
+
+/** The run's and the alert's durable error columns: as above, but a runtime error name
+ * becomes the Observer fallback so the column only holds a registered code or `D1_ERROR`. */
+function observerPersistedErrorCode(error: unknown) {
+  return persistedErrorCode(error, "stats_observer");
 }

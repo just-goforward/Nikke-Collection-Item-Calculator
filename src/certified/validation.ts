@@ -1,11 +1,14 @@
 import type { Q } from "../../shared/certifiedRational";
 import {
+  assertCertifiedRuntimeSupplySnapshot,
   assertCertifiedSupplySnapshot,
   certifiedCohortWeights,
 } from "../../shared/certifiedSupply";
 import type { CohortTuple } from "../../shared/certifiedSupplyLaws";
+import { certifiedVersionPolicy } from "../../shared/certifiedVersionPolicy";
 import { CertifiedLimit } from "./budget";
 import { eventOffset } from "./events";
+import { targetConfig } from "./target";
 import type { CertifiedInput, Triple } from "./types";
 
 export function requireInput(condition: boolean, reason: string): asserts condition {
@@ -20,6 +23,20 @@ function validateTriple(stock: Triple, name: string): void {
   );
 }
 export function validate(input: CertifiedInput, checkBudget?: () => void): CohortTuple<Q> {
+  if (input.stableRecommendation !== undefined) {
+    // Semantic cap parsing is request-budgeted by both solver entry points,
+    // after their input reservation; never parse BigInts during this early pass.
+    requireInput(input.riskSummary === true, "stable_recommendation_requires_risk_summary");
+  }
+  targetConfig(input);
+  requireInput(
+    input.riskSummary === undefined || typeof input.riskSummary === "boolean",
+    "invalid_risk_summary_option",
+  );
+  requireInput(
+    input.autoRecommendation === undefined || typeof input.autoRecommendation === "boolean",
+    "invalid_auto_recommendation_option",
+  );
   validateState(input);
   validateSnapshot(input, checkBudget);
   requireInput(
@@ -57,6 +74,8 @@ function validateState(input: CertifiedInput): void {
 }
 function validateSnapshot(input: CertifiedInput, checkBudget?: () => void): void {
   assertCertifiedSupplySnapshot(input.snapshot, checkBudget);
+  if (certifiedVersionPolicy(input.snapshot.version).physicalLaws)
+    assertCertifiedRuntimeSupplySnapshot(input.snapshot);
   requireInput(
     Date.parse(input.snapshot.asOf) === Date.parse(input.asOf),
     "snapshot_asof_mismatch",

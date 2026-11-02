@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run --config vitest.config.ts",
+    "test": "vitest run --config vitest.config.ts && vitest run --config vitest.node.config.ts",
+    "test:node": "vitest run --config vitest.node.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.4.3",
+    "@cloudflare/vitest-plugin": "1.4.6",
     "@vitest/coverage-v8": "5.0.5",
     "vitest": "5.0.5"
   }

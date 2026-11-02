@@ -122,17 +122,35 @@ function alertNonce(alert: ObserverAlertRow) {
   );
 }
 
+const RETRY_FALLBACK_MS = 5 * 60_000;
+
 async function retryAfter(response: Response) {
+  const parsed = await readRetryAfterMs(response);
+  // Discord's delay is advisory metadata, so an unreadable body keeps the conservative
+  // durable fallback instead of failing the alert record.
+  return parsed ?? RETRY_FALLBACK_MS;
+}
+
+/** Records one fixed category when Discord omits or malforms `retry_after` and returns
+ * null so the caller keeps the conservative 5-minute durable fallback. The fixed category
+ * carries no body or message text. */
+function recordInvalidRetryMetadata() {
+  console.warn(JSON.stringify({ event: "observer_discord_retry_metadata_invalid" }));
+}
+
+async function readRetryAfterMs(response: Response): Promise<number | null> {
+  let body: unknown;
   try {
-    const body = await responseJson(response);
-    const seconds = isRecord(body) ? Number(body["retry_after"]) : Number.NaN;
-    if (Number.isFinite(seconds) && seconds >= 0) {
-      return Math.min(Math.max(seconds * 1_000, 250), 60 * 60_000);
-    }
+    body = await responseJson(response);
   } catch {
-    // The durable retry uses a conservative fallback when Discord omits a valid delay.
+    recordInvalidRetryMetadata();
+    return null;
   }
-  return 5 * 60_000;
+  const seconds = isRecord(body) ? Number(body["retry_after"]) : Number.NaN;
+  if (Number.isFinite(seconds) && seconds >= 0)
+    return Math.min(Math.max(seconds * 1_000, 250), 60 * 60_000);
+  recordInvalidRetryMetadata();
+  return null;
 }
 
 async function responseJson(response: Response) {
@@ -149,6 +167,8 @@ async function responseJson(response: Response) {
   }
 }
 
+/** Alert context is rendering-only metadata. A malformed legacy row degrades to an empty
+ * context instead of suppressing the alert; the degradation is counted, not silent. */
 function safeContext(value: string): Record<string, string | number> {
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -160,6 +180,7 @@ function safeContext(value: string): Record<string, string | number> {
       ),
     );
   } catch {
+    console.warn(JSON.stringify({ event: "observer_alert_context_invalid" }));
     return {};
   }
 }

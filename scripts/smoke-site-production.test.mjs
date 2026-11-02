@@ -13,15 +13,51 @@ import {
 const origin = "https://nikkecollection.com";
 const revision = "a".repeat(40);
 
+function assertCdnPreconnect(html) {
+  const links = [...html.matchAll(/<link\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi)];
+  assert.ok(links.some(([tag]) => {
+    const attributes = new Map();
+    for (const match of tag.matchAll(/\s+([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)) {
+      const name = match[1].toLowerCase();
+      if (!attributes.has(name)) attributes.set(name, match[2] ?? match[3] ?? match[4] ?? "");
+    }
+    if (!attributes.get("rel")?.toLowerCase().split(/\s+/).includes("preconnect")) return false;
+    const href = attributes.get("href");
+    if (!href) return false;
+    const url = new URL(href, origin);
+    return url.origin === "https://cdn.jsdelivr.net" && url.href === "https://cdn.jsdelivr.net/";
+  }), "missing jsDelivr preconnect URL");
+}
+
 function html(locale) {
   const source = readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
     '<script type="module" src="/src/main.tsx"></script>',
     '<script src="/assets/index-abcdefgh.js"></script><link rel="stylesheet" href="/assets/index-abcdefgh.css" />',
   );
   const rendered = renderLocalizedPage(source, locale.lang);
-  assert.ok(rendered.includes("<noscript>") && rendered.includes("https://cdn.jsdelivr.net"));
+  assert.ok(rendered.includes("<noscript>"));
+  assertCdnPreconnect(rendered);
   return rendered;
 }
+
+test("fixture requires the actual jsDelivr preconnect URL, not lookalikes or unrelated text", () => {
+  assertCdnPreconnect('<LINK REL="preconnect" HREF="https://CDN.JSDELIVR.NET:443/">');
+  for (const href of [
+    "https://cdn.jsdelivr.net.evil.invalid",
+    "https://cdn.jsdelivr.net@evil.invalid",
+    "https://evil.invalid/https://cdn.jsdelivr.net",
+    "https://cdn.jsdelivr.net/other",
+    "https://cdn.jsdelivr.net/?other",
+  ]) {
+    assert.throws(() => assertCdnPreconnect(`<link rel="preconnect" href="${href}">`), /preconnect URL/);
+  }
+  assert.throws(() => assertCdnPreconnect('<p>https://cdn.jsdelivr.net</p>'), /preconnect URL/);
+  assert.throws(() => assertCdnPreconnect('<link rel="stylesheet" href="https://cdn.jsdelivr.net">'), /preconnect URL/);
+  assert.throws(
+    () => assertCdnPreconnect(`<link data-note=' rel="preconnect" href="https://cdn.jsdelivr.net"'>`),
+    /preconnect URL/,
+  );
+});
 
 const legalInputs = {
   npmLicensesMarkdown: "## react - 19.3.1 (MIT)\n\nMIT License\n",
@@ -100,7 +136,7 @@ function fixture(change = () => {}) {
         result.headers["Content-Type"] = "application/xml";
         result.body = `<urlset>${sitemapUrls.map((url) => `<url><loc>${url}</loc></url>`).join("")}</urlset>`;
       } else if (init.method === "HEAD") {
-        result.status = 405;
+        result.status = path === "/api/stats" ? 405 : 404;
         result.body = null;
       } else if (path === "/api/stats") {
         result.headers["Cache-Control"] = "public, max-age=60";
@@ -109,7 +145,7 @@ function fixture(change = () => {}) {
           byKit: [],
         });
       } else {
-        result.status = path === "/v1/statistics" ? 503 : 404;
+        result.status = 404;
       }
       change(path, result);
       return new Response(result.body, { status: result.status, headers: result.headers });
@@ -322,7 +358,7 @@ test("post-deploy smoke retries a hashed asset missing during propagation, nothi
 });
 
 test("rejects an expected revision embedded in a longer hexadecimal run", async () => {
-  for (const value of [`f${revision}`, `${revision}0`]) {
+  for (const value of [`f${revision}`, `${revision}0`, `F${revision}`, `${revision}A`, revision.toUpperCase()]) {
     const source = fixture((path, result) => {
       if (path.endsWith(".js")) {
         result.body = `document.documentElement.dataset.buildRevision=\`${value}\`,Se()`;
@@ -330,6 +366,10 @@ test("rejects an expected revision embedded in a longer hexadecimal run", async 
     });
     await assert.rejects(smokeSiteProduction(origin, revision, source), /revision does not match/);
   }
+  const source = fixture((path, result) => {
+    if (path.endsWith(".js")) result.body = `"${"b".repeat(40)}";"${revision}";`;
+  });
+  await smokeSiteProduction(origin, revision, source);
 });
 
 for (const [name, change, error] of [

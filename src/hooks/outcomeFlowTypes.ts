@@ -12,6 +12,7 @@ import type {
 } from "../ui-types";
 import type {
   PendingStatsEvent,
+  OutcomeBest,
   RecommendedRun,
   SolverBest,
   SolverResult,
@@ -19,7 +20,7 @@ import type {
 } from "./calculatorShared";
 
 export type OutcomeRenderArgs = {
-  best: SolverBest;
+  best: OutcomeBest;
   run: RecommendedRun;
   nextState: CollectionState;
   outcome: "success" | "fail";

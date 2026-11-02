@@ -5,33 +5,10 @@ export type DispatcherEnvironment = "staging" | "production";
 export type DispatcherEnv = Omit<GeneratedForecastDispatcherEnv, "ENVIRONMENT"> & {
   ENVIRONMENT: DispatcherEnvironment;
   DISPATCH_ENABLED: "true" | "false";
+  FORECAST_V2_NOTIFICATIONS_ENABLED?: "true" | "false";
   USAGE_GUARD_DB: D1Database;
-};
-
-export type WorkLink = {
-  source: "naver-board-48" | "naver-board-56";
-  itemId: string;
-  title: string;
-  url: string;
-};
-
-export type ActionableWork = {
-  pendingIds: string[];
-  candidateIds: string[];
-  links: WorkLink[];
-  pendingCount: number;
-  candidateCount: number;
-  fingerprint: string;
-};
-
-export type DispatchReservation = {
-  dispatchId: string;
-  mode: "work" | "smoke";
-  fingerprint: string;
-  pendingCount: number;
-  candidateCount: number;
-  attempt: number;
-  links: WorkLink[];
+  PUBLICATION_MODE: "off" | "enabled";
+  DISCORD_APPROVAL_CHANNEL_ID: string;
 };
 
 export type OpsAlertRow = {

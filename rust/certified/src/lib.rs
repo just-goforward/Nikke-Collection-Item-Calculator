@@ -6,6 +6,7 @@ mod allocation;
 mod guidance;
 mod minimum_wait;
 mod reachability;
+mod risk_summary;
 mod supply;
 mod waiting;
 use num_bigint::{BigInt, BigUint};
@@ -142,6 +143,8 @@ struct Engine {
     current_choice: Option<minimum_wait::Batch>,
     minimum_stage: bool,
     kernel_calls: usize,
+    #[cfg(test)]
+    waiting_endpoint_solves: usize,
     completion: Vec<u16>,
     completion_p: usize,
     completion_y: usize,
@@ -248,6 +251,8 @@ impl Engine {
             current_choice: None,
             minimum_stage: false,
             kernel_calls: 0,
+            #[cfg(test)]
+            waiting_endpoint_solves: 0,
             completion,
             completion_p,
             completion_y,
@@ -513,6 +518,10 @@ enum Command {
         sid: usize,
         stock: Units,
         complete: bool,
+        #[serde(default, rename = "includeCompletedDates")]
+        include_completed_dates: bool,
+        #[serde(default, rename = "includeRiskSummaries")]
+        include_risk_summaries: bool,
     },
     MinimumWait {
         sid: usize,
@@ -578,15 +587,19 @@ fn execute(
             sid,
             stock,
             complete,
+            include_completed_dates,
+            include_risk_summaries,
         } => {
             if sid > TERMINAL {
                 return Err("invalid_state");
             }
-            e.waiting(
+            e.waiting_with_summaries(
                 supply.as_mut().ok_or("supply_not_initialized")?,
                 sid,
                 stock,
                 complete,
+                include_completed_dates,
+                include_risk_summaries,
             )
         }
         Command::MinimumWait {
@@ -655,6 +668,54 @@ fn execute(
     }
 }
 
+// Count actual encoded bytes, including arbitrary-length rational strings,
+// without allocating a second encoded copy. This path is opt-in only.
+struct CompletedDatesOutputSize {
+    bytes: usize,
+    deadline: f64,
+}
+impl std::io::Write for CompletedDatesOutputSize {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if now() >= self.deadline {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        self.bytes = self
+            .bytes
+            .checked_add(bytes.len())
+            .ok_or(std::io::ErrorKind::OutOfMemory)?;
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+fn completed_dates_output(response: &Json, deadline: f64) -> Result<Vec<u8>> {
+    let mut size = CompletedDatesOutputSize { bytes: 0, deadline };
+    serde_json::to_writer(&mut size, response).map_err(|_| {
+        if now() >= deadline {
+            "request_budget_exhausted"
+        } else {
+            "managed_payload_ceiling"
+        }
+    })?;
+    // LIVE already includes retained exact values, JSON/string generation,
+    // the response tree and the previous ABI output buffer. Admit the full
+    // new buffer in addition, not just the bounded number of date records.
+    #[cfg(target_arch = "wasm32")]
+    if !allocation::can_admit(size.bytes) {
+        return Err("managed_payload_ceiling");
+    }
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(size.bytes)
+        .map_err(|_| "managed_payload_ceiling")?;
+    serde_json::to_writer(&mut bytes, response).map_err(|_| "managed_payload_ceiling")?;
+    if now() >= deadline {
+        return Err("request_budget_exhausted");
+    }
+    Ok(bytes)
+}
+
 // Single-owner Worker ABI. Input and output buffers are module-owned, never
 // retain a JS view across a call (memory.grow may detach it).
 static mut INPUT: Vec<u8> = Vec::new();
@@ -691,15 +752,42 @@ pub unsafe extern "C" fn certified_release() {
 #[no_mangle]
 pub unsafe extern "C" fn certified_call() {
     OUTPUT.clear();
+    let mut include_optional_summaries = false;
     let result = serde_json::from_slice::<Command>(&INPUT)
         .map_err(|_| "invalid_wasm_request")
-        .and_then(|command| execute(&mut ENGINE, &mut SUPPLY, command));
+        .and_then(|command| {
+            include_optional_summaries = matches!(
+                &command,
+                Command::Waiting {
+                    include_completed_dates: true,
+                    ..
+                } | Command::Waiting {
+                    include_risk_summaries: true,
+                    ..
+                }
+            );
+            execute(&mut ENGINE, &mut SUPPLY, command)
+        });
+    let guarded_output = include_optional_summaries && result.is_ok();
     let stats = ENGINE.as_ref().map(|e| json!({ "memoEntries": e.memo.len()+e.primary.len(), "exactTransitions": e.transitions, "supportPeakPoints": e.support_peak, "kernelCalls":e.kernel_calls }));
-    let response = match result {
+    let mut response = match result {
         Ok(value) => json!({ "value": value, "stats": stats }),
         Err(reason) => json!({ "error": reason, "stats": stats }),
     };
-    OUTPUT = serde_json::to_vec(&response).unwrap();
+    OUTPUT = if guarded_output {
+        match completed_dates_output(&response, ENGINE.as_ref().unwrap().deadline) {
+            Ok(bytes) => bytes,
+            Err(reason) => {
+                let stats = response["stats"].take();
+                drop(response);
+                // Refuse the whole optional response; never emit a truncated
+                // envelope or silently fall back to an unversioned success.
+                serde_json::to_vec(&json!({ "error": reason, "stats": stats })).unwrap()
+            }
+        }
+    } else {
+        serde_json::to_vec(&response).unwrap()
+    };
 }
 
 #[cfg(test)]

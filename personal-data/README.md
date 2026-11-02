@@ -1,5 +1,7 @@
 # Personal-data Worker — M0 / M1 / M3 / M7 / M8 (local only)
 
+[D1 Time Travel recovery runbook (Korean; the recovery contract below takes precedence)](../docs/d1-time-travel-recovery-runbook.md)
+
 This directory owns a separate Google OIDC/session Worker and three local D1
 stores. No production binding, cron, publication, deployment, or UI integration
 is provisioned. Existing anonymous statistics remain separate and cookie-free.

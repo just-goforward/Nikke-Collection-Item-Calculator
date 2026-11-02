@@ -9,7 +9,7 @@ import {
   type Strategy as SharedStrategy,
   nextBoundary as sharedNextBoundary,
 } from "../../shared/game";
-import { ACTIVE_SUPPLY_FORECAST_BASE_PROFILE } from "../../shared/generated/supplyForecast";
+import { resolveRuntimeSupplyForecast } from "../lib/supplyForecastRuntime";
 
 export type Grade = SharedGrade;
 export const KIT_ORDER = SHARED_KIT_ORDER;
@@ -74,8 +74,21 @@ export const STRATEGY_META = {
       "SR 15 도달 확률과 키트 보유량·일정 기반 수급 기준량을 함께 고려하여 최적의 선택지를 제공합니다.",
   },
 };
+/** Resolve once per solve; reference windows are not necessarily 28 days. */
+export function selectedSupplyGain(): KitVector {
+  return { ...resolveRuntimeSupplyForecast().profile.expectedGain };
+}
+/** Historical research API name; each read resolves the selected ledger reference, not a fixed 28 days. */
 export const EXPECTED_28_DAY_GAIN: KitVector = {
-  ...ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain,
+  get blue() {
+    return selectedSupplyGain().blue;
+  },
+  get purple() {
+    return selectedSupplyGain().purple;
+  },
+  get yellow() {
+    return selectedSupplyGain().yellow;
+  },
 };
 
 export const GREAT_SUCCESS = SHARED_GREAT_SUCCESS;

@@ -1,16 +1,19 @@
 import { readBoundedBytes } from "../../shared/boundedHttp.ts";
+import { errorCode } from "../../shared/errorCodes.ts";
+import {
+  type BudgetIncidentKind,
+  budgetGameDayResetAt,
+  parseBudgetIncidentKey,
+} from "../../shared/forecastOpsAlerts.ts";
+import { kstLabel } from "../../shared/forecastV2Notifications.ts";
 import { sha256Hex } from "./crypto";
-import type { DispatcherEnv, DispatchReservation, OpsAlertRow } from "./types";
+import type { DispatcherEnv, OpsAlertRow } from "./types";
 
 const DISCORD_API = "https://discord.com/api/v10";
-const WORKFLOW_URL =
-  "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/workflows/forecast-proposal.yml";
-const MANUAL_REVIEW_WORKFLOW_URL =
-  "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/workflows/resolve-forecast-manual-review.yml";
 const MAX_RESPONSE_BYTES = 16_384;
 
 type FetchLike = typeof fetch;
-export type DiscordChannelKind = "activity" | "alert";
+export type DiscordChannelKind = "activity" | "alert" | "approval";
 
 export class DiscordMessageError extends Error {
   readonly retryable: boolean;
@@ -24,45 +27,22 @@ export class DiscordMessageError extends Error {
   }
 }
 
-export function dispatchAcceptedMessage(env: DispatcherEnv, reservation: DispatchReservation) {
-  const links = reservation.links.slice(0, 3).map((item) => {
-    const title = cleanText(item.title, 100);
-    return `- [${escapeMarkdown(title)}](${validatedNaverUrl(item.url)})`;
-  });
-  const workSummary =
-    reservation.mode === "smoke"
-      ? "staging smoke 요청입니다. queue, candidate, 저장소 파일은 변경하지 않습니다."
-      : `pending ${reservation.pendingCount}건 / candidate ${reservation.candidateCount}건`;
-  return {
-    nonce: reservation.dispatchId.slice(3, 28),
-    enforce_nonce: true,
-    allowed_mentions: { parse: [] as string[] },
-    embeds: [
-      {
-        title: "Forecast workflow 실행 요청 접수",
-        description: [
-          `환경: **${env.ENVIRONMENT}**`,
-          workSummary,
-          links.length > 0 ? `\n확인 대상\n${links.join("\n")}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        color: 0x3498db,
-        fields: [
-          { name: "Dispatch ID", value: `\`${reservation.dispatchId}\``, inline: false },
-          { name: "상태", value: "GitHub가 실행 요청을 접수했습니다. 완료 상태가 아닙니다." },
-        ],
-        url: WORKFLOW_URL,
-        timestamp: new Date().toISOString(),
-      },
-    ],
-  };
+export function discordRetryable(error: unknown) {
+  return !(error instanceof DiscordMessageError) || error.retryable;
+}
+
+/** Only uncertain outcomes may have created a message; permission/429 did not. */
+export function discordAmbiguous(error: unknown) {
+  return (
+    error instanceof DiscordMessageError &&
+    /^discord_(network|timeout|response_|create_message_5)/.test(error.message)
+  );
 }
 
 export async function opsAlertMessage(alert: OpsAlertRow) {
+  const incident = parseBudgetIncidentKey(alert.alertKey);
+  if (incident) return budgetIncidentMessage(alert, incident.kind, incident.gameDay);
   const nonce = await alertNonce(alert, "alert");
-  const manualReview = manualReviewMessage(alert, nonce);
-  if (manualReview) return manualReview;
   const context = Object.entries(alert.context)
     .slice(0, 6)
     .map(([key, value]) => `${cleanText(key, 40)}: ${cleanText(String(value), 180)}`)
@@ -90,60 +70,6 @@ export async function opsAlertMessage(alert: OpsAlertRow) {
   };
 }
 
-function manualReviewMessage(alert: OpsAlertRow, nonce: string) {
-  if (!alert.alertKey.startsWith("manual-review:")) return null;
-  const reviewId = typeof alert.context["reviewId"] === "string" ? alert.context["reviewId"] : "";
-  const sourceUrl = typeof alert.context["url"] === "string" ? alert.context["url"] : "";
-  if (!/^mr-[0-9a-f]{32}$/.test(reviewId)) return null;
-  const environment = alert.environment;
-  const reason = cleanText(String(alert.context["reason"] ?? alert.errorCode), 80);
-  const title = cleanText(String(alert.context["title"] ?? "Naver 일정 게시물"), 120);
-  return {
-    nonce,
-    enforce_nonce: true,
-    allowed_mentions: { parse: [] as string[] },
-    embeds: [
-      {
-        title: "Forecast 수동 검토 필요",
-        description: [
-          `환경: **${environment}**`,
-          `게시물: ${escapeMarkdown(title)}`,
-          `사유: \`${reason}\``,
-          `검토 ID: \`${reviewId}\``,
-        ].join("\n"),
-        color: 0xf1c40f,
-        timestamp: new Date().toISOString(),
-      },
-    ],
-    components: [
-      {
-        type: 1,
-        components: [
-          { type: 2, style: 5, label: "원문 열기", url: validatedNaverUrl(sourceUrl) },
-          {
-            type: 2,
-            style: 1,
-            custom_id: `forecast_manual_${environment}_requeue:${reviewId}`,
-            label: "재처리",
-          },
-          {
-            type: 2,
-            style: 2,
-            custom_id: `forecast_manual_${environment}_ignore:${reviewId}`,
-            label: "관련 없음",
-          },
-          {
-            type: 2,
-            style: 5,
-            label: "일정 직접 확정",
-            url: MANUAL_REVIEW_WORKFLOW_URL,
-          },
-        ],
-      },
-    ],
-  };
-}
-
 export async function opsRecoveryMessage(alert: OpsAlertRow) {
   return {
     nonce: await alertNonce(alert, "recovery"),
@@ -162,6 +88,74 @@ export async function opsRecoveryMessage(alert: OpsAlertRow) {
       },
     ],
   };
+}
+
+/** One Korean incident notice per budget kind and game day, in the v2 guidance style. */
+async function budgetIncidentMessage(
+  alert: OpsAlertRow,
+  kind: BudgetIncidentKind,
+  gameDay: string,
+) {
+  const subject = kind === "metadata" ? "공지 목록 조회" : "공지 본문 조회";
+  const used = numberContext(alert.context["used"]);
+  const limit = numberContext(alert.context["limit"]);
+  const quota =
+    used !== null && limit !== null
+      ? `오늘 ${subject} 한도 ${formatCount(used)}/${formatCount(limit)}회를 모두 사용했습니다.`
+      : `오늘 ${subject} 한도를 모두 사용했습니다.`;
+  const resetAt = resetInstant(alert.context["resetAt"], gameDay);
+  const streams = affectedStreams(alert.context["affectedStreams"]);
+  const impact =
+    kind === "metadata"
+      ? `다음 한도가 적용될 때까지 새 공지·수정 공지 확인이 멈춥니다(감시: ${streams}).`
+      : `새 공지 본문 확인과 자동 판정이 다음 한도까지 늦어집니다. 본문을 기다리는 감시는 목록 확인도 함께 늦어질 수 있습니다(감시: ${streams}).`;
+  return {
+    // Incident-stable: a later hold only raises the occurrence count, and the same
+    // message must not be posted again under a new nonce.
+    nonce: await stableNonce(["forecast-ops-budget-v1", alert.environment, alert.alertKey]),
+    enforce_nonce: true,
+    allowed_mentions: { parse: [] as string[] },
+    embeds: [
+      {
+        title: "Forecast 운영 경고",
+        description: [
+          `**Forecast 공지 수집 일시 대기** · 환경: ${alert.environment}`,
+          `❌ 무슨 일이: ${quota} 승인 오류가 아니라 Naver 요청량을 제한하는 보호 장치입니다.`,
+          `📌 영향: ${impact} 이미 저장된 내용의 승인 처리는 계속됩니다.`,
+          `🕔 자동 재개: ${kstLabel(resetAt)} KST에 새 한도가 적용되고 다음 수집 차례에 자동으로 다시 확인합니다.`,
+          "👉 해 주실 일: 할 일 없음. 이 경고 때문에 승인을 다시 누르지 마세요. 매일 반복되면 운영자가 요청량을 점검해야 합니다.",
+        ].join("\n"),
+        color: 0xf1c40f,
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
+/** Only a stored number renders; a missing or malformed value stays unknown. */
+function numberContext(value: string | number | boolean | null | undefined) {
+  if (typeof value === "boolean" || value === null || value === undefined || value === "")
+    return null;
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function formatCount(value: number) {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/** The incident's reset instant; legacy contexts without it derive it from the game day. */
+function resetInstant(value: string | number | boolean | null | undefined, gameDay: string) {
+  if (typeof value === "string" && Number.isFinite(Date.parse(value))) return value;
+  return budgetGameDayResetAt(gameDay);
+}
+
+function affectedStreams(value: string | number | boolean | null | undefined) {
+  const names = String(value ?? "")
+    .split(",")
+    .map((name) => cleanText(name, 12))
+    .filter(Boolean);
+  return names.length ? names.join(", ") : "전체 스트림";
 }
 
 export async function sendDiscordMessage(
@@ -199,10 +193,18 @@ export async function sendDiscordMessage(
 }
 
 export function resolveDiscordChannelId(env: DispatcherEnv, kind: DiscordChannelKind) {
+  if (kind === "approval") {
+    if (!/^\d{6,24}$/.test(env.DISCORD_APPROVAL_CHANNEL_ID ?? ""))
+      throw new DiscordMessageError("discord_approval_channel_id_invalid", false);
+    return env.DISCORD_APPROVAL_CHANNEL_ID;
+  }
   const preferred =
     kind === "activity" ? env.DISCORD_ACTIVITY_CHANNEL_ID : env.DISCORD_ALERT_CHANNEL_ID;
   const candidates = [preferred, env.DISCORD_FALLBACK_CHANNEL_ID, env.DISCORD_CHANNEL_ID];
-  const selected = candidates.find((value) => /^\d{6,24}$/.test(value ?? ""));
+  const selected = candidates.find(
+    (value) =>
+      /^\d{6,24}$/.test(value ?? "") && value !== env.DISCORD_APPROVAL_CHANNEL_ID,
+  );
   if (!selected) {
     throw new DiscordMessageError(`discord_${kind}_channel_id_invalid`, false);
   }
@@ -233,7 +235,13 @@ async function createMessage(
   }
 }
 
+/**
+ * A 429 body we cannot read still means "slow down"; the fixed fallback keeps the
+ * alert durable in D1. The reason is reported so a Discord schema change (or an
+ * oversized body) stays visible instead of hiding behind the fallback delay.
+ */
 async function readRetryAfter(response: Response) {
+  let problem = "retry_after_missing";
   try {
     const bytes = await boundedResponseBytes(response);
     const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
@@ -241,9 +249,21 @@ async function readRetryAfter(response: Response) {
     if (Number.isFinite(retryAfter) && retryAfter >= 0) {
       return Math.min(Math.max(retryAfter * 1_000, 250), 60 * 60 * 1_000);
     }
-  } catch {
-    // The fallback delay is intentionally short; the unsent alert remains durable in D1.
+  } catch (error) {
+    // Only the registered oversize code is reported by name; a parse failure (or a forged
+    // message on a DiscordMessageError) stays the fixed "unreadable" reason.
+    problem =
+      errorCode(error) === "discord_response_too_large"
+        ? "discord_response_too_large"
+        : "retry_after_unreadable";
   }
+  console.warn(
+    JSON.stringify({
+      event: "discord_retry_after_fallback",
+      code: problem,
+      status: response.status,
+    }),
+  );
   return 5 * 60 * 1_000;
 }
 
@@ -253,14 +273,6 @@ async function boundedResponseBytes(response: Response) {
   } catch {
     throw new DiscordMessageError("discord_response_too_large", false);
   }
-}
-
-function validatedNaverUrl(value: string) {
-  const url = URL.parse(value);
-  if (url?.protocol !== "https:" || url.hostname !== "game.naver.com") {
-    return "https://game.naver.com/lounge/nikke/home";
-  }
-  return url.toString();
 }
 
 function cleanText(value: string, maxLength: number) {
@@ -274,10 +286,6 @@ function cleanText(value: string, maxLength: number) {
     .slice(0, maxLength);
 }
 
-function escapeMarkdown(value: string) {
-  return value.replace(/[\\`*_{}[\]()#+\-.!|>@]/g, "\\$&");
-}
-
 async function alertNonce(alert: OpsAlertRow, kind: "alert" | "recovery") {
   const identity = JSON.stringify([
     "forecast-ops-v1",
@@ -289,6 +297,11 @@ async function alertNonce(alert: OpsAlertRow, kind: "alert" | "recovery") {
     kind === "recovery" ? alert.resolvedAt : null,
   ]);
   return (await sha256Hex(identity)).slice(0, 25);
+}
+
+/** Nonce for a message whose identity must not move as its counters change. */
+async function stableNonce(identity: string[]) {
+  return (await sha256Hex(JSON.stringify(identity))).slice(0, 25);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -15,48 +15,50 @@ export type SoloRaidRound = {
 };
 
 // New rounds only. Interrupted and reopened segments stay attached to their original round.
-export const SOLO_RAID_ROUND_HISTORY = [
-  round(1, "2023-05-11", "as_announced", 1950871),
-  round(2, "2023-06-08", "as_announced", 2055448),
-  round(3, "2023-07-13", "as_announced", 2336639),
-  round(4, "2023-08-10", "as_announced", 2501590),
-  round(5, "2023-09-14", "as_announced", 2744161),
-  round(6, "2023-10-12", "as_announced", 2878411),
-  round(7, "2023-11-09", "as_announced", 3022731),
-  round(8, "2023-12-14", "rescheduled", 3276396),
-  round(9, "2024-01-04", "as_announced", 3354291),
-  round(10, "2024-02-09", "as_announced", 3523796),
-  round(11, "2024-03-08", "as_announced", 3668690),
-  round(12, "2024-04-04", "as_announced", 3841536),
-  round(13, "2024-05-02", "as_announced", 3975245),
-  round(14, "2024-06-06", "as_announced", 4191267),
-  round(15, "2024-07-11", "as_announced", 4375422),
-  round(16, "2024-08-02", "as_announced", 4514386),
-  round(17, "2024-09-05", "as_announced", 4691557),
-  round(18, "2024-10-03", "as_announced", 4823662),
-  round(19, "2024-10-31", "schedule_changed", 5013873),
-  round(20, "2024-12-12", "as_announced", 5250302),
-  round(21, "2025-01-09", "as_announced", 5414775),
-  round(22, "2025-02-06", "as_announced", 5558577),
-  round(23, "2025-03-06", "as_announced", 5689969),
-  round(24, "2025-04-03", "as_announced", 5815120),
-  round(25, "2025-05-08", "as_announced", 5968589),
-  round(26, "2025-06-19", "schedule_changed", 6225681),
-  round(27, "2025-07-24", "as_announced", 6383981),
-  round(28, "2025-08-21", "schedule_changed", 6579018),
-  round(29, "2025-09-16", "as_announced", 6674249),
-  round(30, "2025-10-09", "as_announced", 6748668),
-  round(31, "2025-11-13", "as_announced", 6916387),
-  round(32, "2025-12-11", "as_announced", 7034442),
-  round(33, "2026-01-08", "as_announced", 7138616),
-  round(34, "2026-02-19", "as_announced", 7298679),
-  round(35, "2026-03-20", "as_announced", 7409051),
-  round(36, "2026-04-30", "as_announced", 7576019),
-  round(37, "2026-05-28", "reconstructed", 7699562),
-  round(38, "2026-06-18", "schedule_changed", 7833931),
-  round(39, "2026-07-16", "as_announced", 7911818),
-  round(40, "2026-08-20", "as_announced", 8060044),
-] as const satisfies readonly SoloRaidRound[];
+// Adopted-ledger readers do not need these seed-only computations in their bundle.
+export const SOLO_RAID_ROUND_HISTORY = /* @__PURE__ */ (() =>
+  [
+    round(1, "2023-05-11", "as_announced", 1950871),
+    round(2, "2023-06-08", "as_announced", 2055448),
+    round(3, "2023-07-13", "as_announced", 2336639),
+    round(4, "2023-08-10", "as_announced", 2501590),
+    round(5, "2023-09-14", "as_announced", 2744161),
+    round(6, "2023-10-12", "as_announced", 2878411),
+    round(7, "2023-11-09", "as_announced", 3022731),
+    round(8, "2023-12-14", "rescheduled", 3276396),
+    round(9, "2024-01-04", "as_announced", 3354291),
+    round(10, "2024-02-09", "as_announced", 3523796),
+    round(11, "2024-03-08", "as_announced", 3668690),
+    round(12, "2024-04-04", "as_announced", 3841536),
+    round(13, "2024-05-02", "as_announced", 3975245),
+    round(14, "2024-06-06", "as_announced", 4191267),
+    round(15, "2024-07-11", "as_announced", 4375422),
+    round(16, "2024-08-02", "as_announced", 4514386),
+    round(17, "2024-09-05", "as_announced", 4691557),
+    round(18, "2024-10-03", "as_announced", 4823662),
+    round(19, "2024-10-31", "schedule_changed", 5013873),
+    round(20, "2024-12-12", "as_announced", 5250302),
+    round(21, "2025-01-09", "as_announced", 5414775),
+    round(22, "2025-02-06", "as_announced", 5558577),
+    round(23, "2025-03-06", "as_announced", 5689969),
+    round(24, "2025-04-03", "as_announced", 5815120),
+    round(25, "2025-05-08", "as_announced", 5968589),
+    round(26, "2025-06-19", "schedule_changed", 6225681),
+    round(27, "2025-07-24", "as_announced", 6383981),
+    round(28, "2025-08-21", "schedule_changed", 6579018),
+    round(29, "2025-09-16", "as_announced", 6674249),
+    round(30, "2025-10-09", "as_announced", 6748668),
+    round(31, "2025-11-13", "as_announced", 6916387),
+    round(32, "2025-12-11", "as_announced", 7034442),
+    round(33, "2026-01-08", "as_announced", 7138616),
+    round(34, "2026-02-19", "as_announced", 7298679),
+    round(35, "2026-03-20", "as_announced", 7409051),
+    round(36, "2026-04-30", "as_announced", 7576019),
+    round(37, "2026-05-28", "reconstructed", 7699562),
+    round(38, "2026-06-18", "schedule_changed", 7833931),
+    round(39, "2026-07-16", "as_announced", 7911818),
+    round(40, "2026-08-20", "as_announced", 8060044),
+  ] as const satisfies readonly SoloRaidRound[])();
 
 export type SoloRaidCadenceSummary = {
   rounds: number;
@@ -68,13 +70,13 @@ export type SoloRaidCadenceSummary = {
   frequency: Readonly<Record<number, number>>;
 };
 
-export const SOLO_RAID_CADENCE_SUMMARY = summarizeSoloRaidCadence(
-  SOLO_RAID_ROUND_HISTORY.map((entry) => entry.startGameDate),
-);
+export const SOLO_RAID_CADENCE_SUMMARY = /* @__PURE__ */ (() =>
+  summarizeSoloRaidCadence(SOLO_RAID_ROUND_HISTORY.map((entry) => entry.startGameDate)))();
 
 /** The unreduced observed numerator/count retains the frequency's provenance. */
 export type ExactSoloRaidCadence = {
-  version: "observed-mean-thursday-v1";
+  version: "observed-mean-thursday-v1" | "observed-median-v2";
+  medianDays?: number;
   numerator: number;
   denominator: number;
   rounds: number;
@@ -125,6 +127,73 @@ export function deriveExactSoloRaidCadence(
 }
 
 export type CertifiedSoloEstimate = { round: number; startGameDate: string };
+
+/**
+ * V2 prediction only: never an announcement or supply authority.
+ * Legacy weekly delay offsets are deliberately not inputs. Recompute the daily
+ * waiting shift from the original prediction and the current 05:00 KST game day.
+ */
+export function predictMedianSoloRaid(input: {
+  confirmedRounds: readonly SoloRaidRound[];
+  previousStart: string;
+  previousEnd: string;
+  interruptionAt?: string;
+  asOf: string;
+}) {
+  // Reuse the contiguous, one-start-per-season history validation.
+  deriveExactSoloRaidCadence(input.confirmedRounds);
+  const ordered = [...input.confirmedRounds].sort((a, b) => a.round - b.round);
+  const summary = summarizeSoloRaidCadence(ordered.map((entry) => entry.startGameDate));
+  const medianDays = Math.floor(summary.medianDays);
+  const start = Date.parse(input.previousStart);
+  const end = Date.parse(input.interruptionAt ?? input.previousEnd);
+  const now = Date.parse(input.asOf);
+  if (![start, end, now].every(Number.isFinite) || end <= start)
+    throw new Error("solo_raid_prediction_time_invalid");
+  const gameDay = (at: number) => Math.floor((at + 4 * 3_600_000) / DAY_MS);
+  const last = ordered.at(-1);
+  if (!last || new Date(gameDay(start) * DAY_MS).toISOString().slice(0, 10) !== last.startGameDate)
+    throw new Error("solo_raid_prediction_anchor_invalid");
+  const alternatives = Object.entries(summary.frequency).sort(
+    ([left, a], [right, b]) => b - a || Number(left) - Number(right),
+  );
+  const prediction = (intervalDays: number) =>
+    predictSoloRaidInterval(start, end, now, intervalDays);
+  const second = alternatives[1];
+  return {
+    version: "observed-median-v2" as const,
+    summary,
+    primary: prediction(medianDays),
+    secondary: second ? prediction(Number(second[0])) : null,
+  };
+}
+
+export function predictSoloRaidInterval(
+  start: number,
+  end: number,
+  now: number,
+  intervalDays: number,
+) {
+  const original = start + intervalDays * DAY_MS;
+  const waiting = now > original;
+  const offsetDays = soloRaidWaitingOffset(original, now);
+  const shifted = original + offsetDays * DAY_MS;
+  const noticeDate = new Date(shifted + 9 * 3_600_000 - 6 * DAY_MS).toISOString().slice(0, 10);
+  return {
+    label: "prediction" as const,
+    status: waiting ? ("공지 대기" as const) : ("prediction" as const),
+    intervalDays,
+    offsetDays,
+    start: new Date(shifted).toISOString(),
+    end: new Date(shifted + end - start).toISOString(),
+    expectedNotice: new Date(`${noticeDate}T17:00:00+09:00`).toISOString(),
+  };
+}
+
+export function soloRaidWaitingOffset(start: number, now: number) {
+  const gameDay = (at: number) => Math.floor((at + 4 * 3_600_000) / DAY_MS);
+  return now > start ? Math.max(1, gameDay(now) - gameDay(start) + 1) : 0;
+}
 
 /** Snap anchor + k * mean independently; never recur from an already rounded date. */
 export function estimateCertifiedSoloRounds(input: {

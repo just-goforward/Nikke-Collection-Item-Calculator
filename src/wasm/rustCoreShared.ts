@@ -1,5 +1,5 @@
-import { resolveRuntimeSupplyForecast } from "../lib/supplyForecastRuntime";
-import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
+import { captureSupplyForecastContext } from "../lib/supplyForecastRuntime";
+import { selectedSupplyGain } from "../solver/domain";
 import type { Kit } from "../types";
 import { assertRustStatusOk, RustSolveError } from "./rustStatus";
 import type {
@@ -39,12 +39,7 @@ export type Phase2BuildContext = {
 };
 
 export function activeSupplyForecastContext(): SupplyForecastContext {
-  const { forecastId, profile } = resolveRuntimeSupplyForecast();
-  return {
-    forecastId,
-    forecastProfileId: profile.id,
-    expectedGain: { ...profile.expectedGain },
-  };
+  return captureSupplyForecastContext();
 }
 
 export function validateSupplyForecastContext(context: SupplyForecastContext) {
@@ -61,6 +56,7 @@ export function validateSupplyForecastContext(context: SupplyForecastContext) {
     forecastId: context.forecastId,
     forecastProfileId: context.forecastProfileId,
     expectedGain: { ...context.expectedGain },
+    ...(context.referenceDays === undefined ? {} : { referenceDays: context.referenceDays }),
   };
 }
 
@@ -327,6 +323,11 @@ export function solvePhase2Slot(
   return slot;
 }
 
-export function availabilityForKit(stock: Stock, kit: Kit, horizonFactor: number) {
-  return stock[kit] + horizonFactor * EXPECTED_28_DAY_GAIN[kit];
+export function availabilityForKit(
+  stock: Stock,
+  kit: Kit,
+  horizonFactor: number,
+  expectedGain: Stock = selectedSupplyGain(),
+) {
+  return stock[kit] + horizonFactor * expectedGain[kit];
 }

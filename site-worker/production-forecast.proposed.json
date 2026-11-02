@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "environment": "production",
+  "approvalRef": "user-approved-private-log-rebuild-b0a4497",
+  "keyId": "production-v1",
+  "publicKeyBase64": "BJAu/55jE5vGF7axWWKIp3RbjZyjm1QPY4IuqSzMf9Y=",
+  "engineProfile": {
+    "id": "certified-staging-v4",
+    "environment": "staging",
+    "schemaVersion": "certified-daily-v5",
+    "recommendedHorizonDays": 14,
+    "priceVersion": "stock-plus-recurring-day-v1",
+    "solverVersion": "certified-exact-rust-wasm-v1",
+    "lawVersion": "documented-physical-supply-v2",
+    "wasmHash": "88553a72d8503d2c7c78366e3d85bbee0cd9dfd738ac94d588fb09bd9d5942ae",
+    "codeHash": "425a987dfcd2a8cd7ac1c7cd4e4a4ecd99ce66323a3370fd78419da5e2f97ba3",
+    "cacheNamespace": "certified-staging-v4:425a987dfcd2a8cd7ac1c7cd4e4a4ecd99ce66323a3370fd78419da5e2f97ba3",
+    "sessionNamespace": "collection-certified-staging-v4",
+    "diagnosticsEnvironment": "staging",
+    "recoveryEnvironment": "staging"
+  }
+}

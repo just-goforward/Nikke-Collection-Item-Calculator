@@ -2,10 +2,11 @@ import { applyD1Migrations, createExecutionContext, reset } from "cloudflare:tes
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
-import schemaSql from "../schema.sql?raw";
+import schema10Sql from "../fixtures/schema-v10.sql?raw";
 import { readHealth } from "./db";
 import { handleHttpRequest } from "./http";
 import { readOperationsHealth } from "./ops";
+import schemaSql from "./test-schema";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
 
@@ -65,7 +66,11 @@ async function health(
     new Request("https://collector.example/health", {
       headers,
     }),
-    { ...testEnv, ENVIRONMENT: environment },
+    {
+      ...testEnv,
+      ENVIRONMENT: environment,
+      ADMIN_RATE_LIMITER: { limit: vi.fn().mockResolvedValue({ success: true }) },
+    },
     createExecutionContext(),
   );
 }
@@ -94,12 +99,13 @@ async function expectReview(payload: unknown, sourceReview: PublicReview) {
 }
 
 describe("staging public advisory health", () => {
-  it("runs against the canonical staging schema21", async () => {
+  it("runs against the canonical staging schema27", async () => {
+    // The canonical staging fixture includes 0034's v5 publication tuple.
     expect(
       await testEnv.FORECAST_DB.prepare(
         "SELECT MAX(version) AS version FROM schema_migrations",
       ).first(),
-    ).toEqual({ version: 21 });
+    ).toEqual({ version: 34 });
     expect((await health()).status).toBe(200);
   });
 
@@ -366,12 +372,7 @@ describe("staging public metadata bounds and read-only access", () => {
 describe("unchanged production and protected routes", () => {
   it("leaves production schema10 health usable with no staging metadata or CORS", async () => {
     await reset();
-    // The canonical schema appends upgrades 11–21 after the schema10 tables.
-    await executeTestSql(
-      testEnv.FORECAST_DB,
-      schemaSql.slice(0, schemaSql.indexOf("CREATE TABLE IF NOT EXISTS source_processing_claims")),
-      applyD1Migrations,
-    );
+    await executeTestSql(testEnv.FORECAST_DB, schema10Sql, applyD1Migrations);
     await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
     expect(
       await testEnv.FORECAST_DB.prepare(
@@ -391,7 +392,7 @@ describe("unchanged production and protected routes", () => {
   it.each([
     ["GET", "/admin/candidates", true, 401],
     ["GET", "/admin/candidates", false, 429],
-    ["POST", "/discord/interactions", false, 429],
+    ["POST", "/discord/interactions", false, 404],
     ["OPTIONS", "/health", true, 404],
     ["POST", "/health", true, 404],
   ])("keeps %s %s protected and without CORS", async (method, path, success, status) => {
@@ -412,4 +413,69 @@ describe("unchanged production and protected routes", () => {
     expect(response.status).toBe(status);
     expect(response.headers.get("access-control-allow-origin")).toBeNull();
   });
+
+  it.each(["staging", "production"] as const)(
+    "rate-limits public %s health per address before any D1 read",
+    async (environment) => {
+      const limit = vi.fn().mockResolvedValue({ success: false });
+      const prepare = vi.spyOn(testEnv.FORECAST_DB, "prepare");
+      const guardDb = testEnv.USAGE_GUARD_DB;
+      if (!guardDb) throw new Error("missing usage guard binding");
+      const guardPrepare = vi.spyOn(guardDb, "prepare");
+      try {
+        const response = await handleHttpRequest(
+          new Request("https://collector.example/health", {
+            headers: { "cf-connecting-ip": "203.0.113.7" },
+          }),
+          { ...testEnv, ENVIRONMENT: environment, ADMIN_RATE_LIMITER: { limit } },
+          createExecutionContext(),
+        );
+        expect(response.status).toBe(429);
+        expect(limit).toHaveBeenCalledWith({ key: "health:203.0.113.7" });
+        expect(prepare).not.toHaveBeenCalled();
+        expect(guardPrepare).not.toHaveBeenCalled();
+      } finally {
+        prepare.mockRestore();
+        guardPrepare.mockRestore();
+      }
+    },
+  );
+
+  it("rejects retired Discord interactions without Usage Guard or forecast D1 reads", async () => {
+    const limit = vi.fn().mockResolvedValue({ success: false });
+    const forecastPrepare = vi.spyOn(testEnv.FORECAST_DB, "prepare");
+    const guardDb = testEnv.USAGE_GUARD_DB;
+    if (!guardDb) throw new Error("missing usage guard binding");
+    const guardPrepare = vi.spyOn(guardDb, "prepare");
+    try {
+      const response = await handleHttpRequest(
+        new Request("https://collector.example/discord/interactions", {
+          method: "POST",
+          headers: { "cf-connecting-ip": "203.0.113.7" },
+        }),
+        { ...testEnv, ENVIRONMENT: "staging", ADMIN_RATE_LIMITER: { limit } },
+        createExecutionContext(),
+      );
+      expect(response.status).toBe(404);
+      expect(limit).not.toHaveBeenCalled();
+      expect(forecastPrepare).not.toHaveBeenCalled();
+      expect(guardPrepare).not.toHaveBeenCalled();
+    } finally {
+      forecastPrepare.mockRestore();
+      guardPrepare.mockRestore();
+    }
+  });
+
+  it.each(["staging", "production"] as const)(
+    "fails closed when the %s health rate limiter binding is missing",
+    async (environment) => {
+      const { ADMIN_RATE_LIMITER: _omitted, ...withoutLimiter } = testEnv;
+      const response = await handleHttpRequest(
+        new Request("https://collector.example/health"),
+        { ...withoutLimiter, ENVIRONMENT: environment },
+        createExecutionContext(),
+      );
+      expect(response.status).toBe(503);
+    },
+  );
 });

@@ -1,14 +1,11 @@
 import { useMemo } from "react";
-import {
-  compareCertifiedSupplyPeriods,
-  isCertifiedEventClaimable,
-} from "../../shared/certifiedSupply";
+import type { CertifiedInput } from "../certified/types";
+import { compareCertifiedSupplyPeriods } from "../../shared/certifiedSupply";
 import { REQUIRED_EXP } from "../../shared/game";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { Stock } from "../types";
 import type { CertifiedCalculatorController } from "./calculatorController";
 import { resolveCertifiedStockCorrection } from "./calculatorSessionActions";
-import { certifiedClaimableEvents } from "./session";
 import { useCertifiedCalculatorActions } from "./useCertifiedCalculatorActions";
 import {
   useCertifiedCalculatorPreparation,
@@ -21,6 +18,7 @@ import {
 import {
   useCertifiedCalculatorSession,
   useCertifiedSessionPersistence,
+  type CertifiedSessionStore,
 } from "./useCertifiedCalculatorSession";
 import { useCertifiedDailyRecompute } from "./useCertifiedDailyRecompute";
 
@@ -31,10 +29,22 @@ import { useCertifiedDailyRecompute } from "./useCertifiedDailyRecompute";
  */
 export function useCertifiedCalculatorApp(
   queueStatsEvent?: (event: StatsSubmissionEvent) => void,
+  target?: CertifiedInput["target"] | null,
+  options?: { autoRecommendation?: boolean; stableRecommendation?: CertifiedInput["stableRecommendation"] },
 ): CertifiedCalculatorController {
   const store = useCertifiedCalculatorSession();
+  return useCertifiedCalculatorController(store, queueStatsEvent, target, options);
+}
+
+/** Internal composition seam for isolated local sessions; public persistence stays unchanged. */
+export function useCertifiedCalculatorController(
+  store: CertifiedSessionStore,
+  queueStatsEvent?: (event: StatsSubmissionEvent) => void,
+  target?: CertifiedInput["target"] | null,
+  options?: { autoRecommendation?: boolean; stableRecommendation?: CertifiedInput["stableRecommendation"] },
+): CertifiedCalculatorController {
   const preparation = useCertifiedCalculatorSnapshot();
-  const ownership = useCertifiedCalculatorRun(store.bridge.session, preparation);
+  const ownership = useCertifiedCalculatorRun(store.bridge.session, preparation, target, options);
   const { updateSession, actions } = useCertifiedCalculatorActions(
     store,
     ownership,
@@ -43,7 +53,13 @@ export function useCertifiedCalculatorApp(
   );
   // Keep native binding, persistence, preparation, and committed recomputation effects in order.
   useCertifiedSessionPersistence(store.bridge, store.setSaveFailed, store.accountMode);
-  useCertifiedCalculatorPreparation(preparation, store.latest, ownership.retire, updateSession);
+  useCertifiedCalculatorPreparation(
+    preparation,
+    store.latest,
+    ownership.retire,
+    updateSession,
+    ownership.calculating,
+  );
   useCertifiedActionRecomputation(
     store.bridge.session,
     store.latest,
@@ -62,8 +78,8 @@ export function useCertifiedCalculatorApp(
   const { bridge } = store;
   const { snapshot, prepareError } = preparation;
   const comparison = useMemo(
-    () => (snapshot ? compareCertifiedSupplyPeriods(snapshot, bridge.session.cohortWeights) : null),
-    [snapshot, bridge.session.cohortWeights],
+    () => (snapshot ? compareCertifiedSupplyPeriods(snapshot) : null),
+    [snapshot],
   );
   const stock = useMemo<Stock>(
     () => ({
@@ -73,12 +89,6 @@ export function useCertifiedCalculatorApp(
     }),
     [bridge.session.stock[0], bridge.session.stock[1], bridge.session.stock[2]],
   );
-  const now = Date.now();
-  const claims = snapshot
-    ? certifiedClaimableEvents(snapshot.events, bridge.session, now).filter((event) =>
-        isCertifiedEventClaimable(snapshot, event, new Date(now).toISOString()),
-      )
-    : [];
   const correction = bridge.correction
     ? resolveCertifiedStockCorrection(bridge.correction, bridge.session).view
     : null;
@@ -103,8 +113,13 @@ export function useCertifiedCalculatorApp(
     snapshot,
     prepareError,
     comparison,
-    claims,
-    run,
+    run: {
+      ...run,
+      invalidate: () => {
+        ownership.retire();
+        run.invalidate();
+      },
+    },
     statePanel: {
       ...bridge.session.state,
       requiredExp: REQUIRED_EXP[bridge.session.state.grade],
@@ -112,6 +127,7 @@ export function useCertifiedCalculatorApp(
     },
     stock,
     calculateDisabled:
+      target === null ||
       !snapshot ||
       run.busy ||
       (!!bridge.correction && !correction?.canCalculate) ||

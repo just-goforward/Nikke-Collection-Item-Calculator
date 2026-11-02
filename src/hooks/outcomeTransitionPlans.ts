@@ -3,9 +3,9 @@ import type { CollectionState, SolverInput, Stock } from "../types";
 import type { RecommendationAction } from "../ui-types";
 import {
   makeStatsEvent,
+  type OutcomeBest,
   type PendingStatsEvent,
   type RecommendedRun,
-  type SolverBest,
   type SolverResult,
   stockPiecesForKit,
   type TerminalSuccessContext,
@@ -14,7 +14,7 @@ import { stockAfterKitUse } from "./outcomeFlowHelpers";
 
 export type PreparedOutcome = {
   beforeStock: number;
-  best: SolverBest;
+  best: OutcomeBest;
   currentStock: Stock;
   input: SolverInput;
   run: RecommendedRun;
@@ -31,13 +31,23 @@ export function prepareRecommendedOutcome(
   latest: SolverResult | null,
   currentStockSnapshot: () => Stock,
 ): PreparedOutcome | null {
-  if (!latest?.possible || !latest.best || !latest.input) return null;
+  if (!latest?.input) return null;
+  const certifiedAction = latest.certified?.action;
+  const best: OutcomeBest | undefined = latest.certified
+    ? certifiedAction ? { firstAction: certifiedAction.kit } : undefined
+    : latest.possible ? latest.best : undefined;
+  if (!best) return null;
   const currentStock = currentStockSnapshot();
-  const edge = transition(latest.input.start, latest.best.firstAction);
-  const run = latest.best.run || { count: 1, success: edge.success, fail: edge.fail };
+  if (latest.certified && (
+    currentStock.blue !== latest.input.stock.blue ||
+    currentStock.purple !== latest.input.stock.purple ||
+    currentStock.yellow !== latest.input.stock.yellow
+  )) return null;
+  const edge = transition(latest.input.start, best.firstAction);
+  const run = certifiedAction?.run ?? best.run ?? { count: 1, success: edge.success, fail: edge.fail };
   return {
-    beforeStock: stockPiecesForKit(currentStock, latest.best.firstAction),
-    best: latest.best,
+    beforeStock: stockPiecesForKit(currentStock, best.firstAction),
+    best,
     currentStock,
     input: latest.input,
     run,

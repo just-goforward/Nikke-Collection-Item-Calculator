@@ -1,5 +1,7 @@
 import type { StatsEventKind } from "./statsSubmissionQueue";
+import { OUTCOME_TURNSTILE_ACTION } from "../../shared/decisionOutcomeV4";
 
+export type TurnstileAction = StatsEventKind | "decision_episode" | typeof OUTCOME_TURNSTILE_ACTION;
 export interface TurnstileApi {
   render: (container: HTMLElement, options: Record<string, unknown>) => string;
   execute: (widgetId: string) => void;
@@ -8,34 +10,35 @@ export interface TurnstileApi {
 }
 
 type LoadTurnstile = () => Promise<TurnstileApi>;
-type CreateContainer = (kind: StatsEventKind) => HTMLElement;
+type CreateContainer<Action extends TurnstileAction> = (kind: Action) => HTMLElement;
 
-type PendingToken = {
-  kind: StatsEventKind;
+type PendingToken<Action extends TurnstileAction> = {
+  kind: Action;
   resolve: (token: string) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
 
-export class TurnstileTokenProvider {
+export class TurnstileTokenProvider<Action extends TurnstileAction = StatsEventKind> {
   private api: TurnstileApi | null = null;
-  private pending: PendingToken | null = null;
+  private pending: PendingToken<Action> | null = null;
   private disposed = false;
-  private readonly widgetIds = new Map<StatsEventKind, string>();
+  private readonly widgetIds = new Map<Action, string>();
 
   constructor(
     private readonly siteKey: string,
     private readonly loadTurnstile: LoadTurnstile,
-    private readonly createContainer: CreateContainer,
+    private readonly createContainer: CreateContainer<Action>,
     private readonly timeoutMs = 12_000,
   ) {}
 
-  async issueToken(kind: StatsEventKind): Promise<string> {
+  async issueToken(kind: Action): Promise<string> {
     if (this.disposed) throw new Error("Turnstile token provider was disposed.");
     if (this.pending) throw new Error("A Turnstile token request is already pending.");
     const api = await this.getApi();
     if (this.disposed) throw new Error("Turnstile token provider was disposed.");
     const widgetId = this.ensureWidget(api, kind);
+    api.reset(widgetId);
 
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -46,7 +49,7 @@ export class TurnstileTokenProvider {
     });
   }
 
-  reset(kind: StatsEventKind): void {
+  reset(kind: Action): void {
     const widgetId = this.widgetIds.get(kind);
     if (widgetId && this.api) this.api.reset(widgetId);
   }
@@ -69,7 +72,7 @@ export class TurnstileTokenProvider {
     return this.api;
   }
 
-  private ensureWidget(api: TurnstileApi, kind: StatsEventKind): string {
+  private ensureWidget(api: TurnstileApi, kind: Action): string {
     const existing = this.widgetIds.get(kind);
     if (existing) return existing;
     const widgetId = api.render(this.createContainer(kind), {
@@ -86,7 +89,7 @@ export class TurnstileTokenProvider {
     return widgetId;
   }
 
-  private resolvePending(kind: StatsEventKind, token: string): void {
+  private resolvePending(kind: Action, token: string): void {
     if (!this.pending || this.pending.kind !== kind) return;
     const pending = this.pending;
     this.pending = null;
@@ -94,7 +97,7 @@ export class TurnstileTokenProvider {
     pending.resolve(token);
   }
 
-  private rejectPending(kind: StatsEventKind, error: Error): void {
+  private rejectPending(kind: Action, error: Error): void {
     if (!this.pending || this.pending.kind !== kind) return;
     const pending = this.pending;
     this.pending = null;

@@ -1,7 +1,9 @@
-//! H56 range-only certificates. Same ordered receipt selectors, exact endpoint
+//! H14 range-only certificates. Same ordered receipt selectors, exact endpoint
 //! proofs and exhaustive-date/gap semantics as the independent TS oracle.
 use super::*;
 use crate::supply::{Dist, Event, Outcome, Pieces, Supply};
+
+const WAITING_HORIZON: usize = risk_summary::HORIZON;
 
 #[derive(Clone)]
 struct Trajectory {
@@ -9,7 +11,7 @@ struct Trajectory {
     receipts: Vec<Json>,
 }
 fn base(status: &str, reason: Option<&str>) -> Json {
-    json!({ "status": status, "horizonDays":56, "recommendedDays":null,
+    json!({ "status": status, "horizonDays":WAITING_HORIZON, "recommendedDays":null,
         "rangeBoundary":false, "bestDayRange":null, "value":null,
         "evaluatedDays":[0], "successImprovementUpperBound":null,
         "successProbabilityInterval":null, "reason":reason, "evidence":[] })
@@ -224,30 +226,61 @@ impl Engine {
     }
     fn endpoint(&mut self, sid: usize, stock: Pieces) -> Result<Value> {
         self.kernel_calls += 1;
+        #[cfg(test)]
+        {
+            self.waiting_endpoint_solves += 1;
+        }
         let units = std::array::from_fn(|k| (stock[k] / 10).min(self.caps[sid][k] as u64) as usize);
         if units.iter().sum::<usize>() > 36 || self.arena.is_some() {
             self.ensure_guidance(sid, units);
         }
         self.get(sid, units, true)
     }
+    #[cfg(test)]
     fn expected_rows(
         &mut self,
         sid: usize,
         supports: &[Vec<Outcome>],
         priors: &[Q],
     ) -> Result<[Q; 4]> {
+        self.expected_rows_with_risk(sid, supports, priors, None)
+    }
+    fn expected_rows_with_risk(
+        &mut self,
+        sid: usize,
+        supports: &[Vec<Outcome>],
+        priors: &[Q],
+        mut risk: Option<&mut risk_summary::Accumulator<'_>>,
+    ) -> Result<[Q; 4]> {
         if supports.len() != priors.len() {
             return Err("invalid_cohort_weights");
+        }
+        if risk.is_some() {
+            risk_summary::validate_priors(priors, self.deadline)?;
         }
         let mut sum = std::array::from_fn(|_| Q::zero());
         for cohort in 0..priors.len() {
             if priors[cohort].is_zero() {
+                // No new endpoint solves for zero-prior cohorts. Still reject
+                // negative source masses, even though their weighted mass is zero.
+                if risk.is_some() {
+                    for row in &supports[cohort] {
+                        risk_summary::check_deadline(self.deadline)?;
+                        risk_summary::nonnegative_mass(&row.mass)?;
+                    }
+                }
                 continue;
             }
             let mut indices = HashMap::<Units, usize>::new();
             let mut groups: Vec<(Units, Q)> = Vec::new();
+            let mut conditional_mass = risk.as_ref().map(|_| Q::zero());
             for row in &supports[cohort] {
                 self.check()?;
+                if let Some(total) = conditional_mass.as_mut() {
+                    risk_summary::check_deadline(self.deadline)?;
+                    risk_summary::nonnegative_mass(&row.mass)?;
+                    *total += &row.mass;
+                }
                 let units = std::array::from_fn(|k| {
                     (row.pieces[k] / 10).min(self.caps[sid][k] as u64) as usize
                 });
@@ -258,6 +291,9 @@ impl Engine {
                     groups.push((units, row.mass.clone()));
                 }
             }
+            if conditional_mass.is_some_and(|total| total != Q::one()) {
+                return Err("invalid_risk_summary_mass");
+            }
             // Group only this date's expectation, in first-seen order. Physical
             // supports retain their remainders for all later convolutions.
             for (units, group_mass) in groups {
@@ -265,9 +301,18 @@ impl Engine {
                 if units.iter().sum::<usize>() > 36 || self.arena.is_some() {
                     self.ensure_guidance(sid, units);
                 }
+                #[cfg(test)]
+                {
+                    self.waiting_endpoint_solves += 1;
+                }
                 let v = self.get(sid, units, false)?;
                 let mass = &priors[cohort] * &group_mass;
-                sum[0] += &mass * rational(&v.p, &self.powers[v.exponent]);
+                let q = rational(&v.p, &self.powers[v.exponent]);
+                if let Some(accumulator) = risk.as_mut() {
+                    risk_summary::check_deadline(self.deadline)?;
+                    accumulator.observe(&mass, &q)?;
+                }
+                sum[0] += &mass * &q;
                 for k in 0..3 {
                     sum[k + 1] += &mass * rational(&v.c[k], &self.powers[v.exponent]);
                 }
@@ -297,10 +342,137 @@ impl Engine {
             .then_with(|| cost(b).cmp(&cost(a)))
             .then_with(|| (b[1].clone() + &b[2] + &b[3]).cmp(&(a[1].clone() + &a[2] + &a[3])))
     }
+    // Called only after the whole date, monotonicity check, and prefix append.
+    // Equality is of objectives, not of the representative color consumption.
+    fn completed_prefix_bound_certificate(
+        &self,
+        values: &[[Q; 4]],
+        evaluated: &[usize],
+        bound: &[Q; 4],
+    ) -> Result<Option<Json>> {
+        let last = values.last().unwrap();
+        if self.qcompare(last, bound) != Ordering::Equal {
+            return Ok(None);
+        }
+        let earliest = values
+            .iter()
+            .position(|v| self.qcompare(v, last) == Ordering::Equal)
+            .unwrap();
+        let day = evaluated[earliest];
+        let actual = &values[earliest];
+        let mut result = base("certified", None);
+        result["recommendedDays"] = json!(day);
+        result["rangeBoundary"] = json!(day == WAITING_HORIZON);
+        result["bestDayRange"] = json!([day, day]);
+        result["value"] = json!(self.qview(actual));
+        result["evaluatedDays"] = json!(evaluated);
+        result["successProbabilityInterval"] =
+            json!({"lower":wire(&actual[0]),"upper":wire(&actual[0])});
+        result["successImprovementUpperBound"] = json!(wire(&(Q::one() - &actual[0])));
+        result["evidence"] = json!([
+            "exact_cohort_conditional_distributions_single_latent_cohort",
+            "exact_rational_completed_date_prefix",
+            "exact_P_B_C_equal_unlimited_optimum_at_completed_date",
+            "earliest_exact_objective_tie_in_completed_prefix",
+            "fixed_prices_all_dates",
+            "nonnegative_nonexpiring_inventory_coupling",
+            "range_only_no_global_or_deadline_claim"
+        ]);
+        if now() >= self.deadline {
+            return Err("request_budget_exhausted");
+        }
+        Ok(Some(result))
+    }
     fn gap(result: &mut Json, lower: &Q) {
         result["successProbabilityInterval"] = json!({"lower":wire(lower),"upper":wire(&Q::one())});
         result["successImprovementUpperBound"] = json!(wire(&(Q::one() - lower)));
     }
+    fn waiting_result(
+        &self,
+        mut result: Json,
+        include_completed_dates: bool,
+        values: &[[Q; 4]],
+        evaluated: &[usize],
+    ) -> Result<Json> {
+        if !include_completed_dates {
+            return Ok(result);
+        }
+        if values.len() != evaluated.len()
+            || evaluated.len() > WAITING_HORIZON + 1
+            || evaluated.iter().any(|&day| day > WAITING_HORIZON)
+            || evaluated.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err("invalid_completed_dates");
+        }
+        if now() >= self.deadline {
+            return Err("request_budget_exhausted");
+        }
+        let mut records = Vec::new();
+        records
+            .try_reserve_exact(evaluated.len())
+            .map_err(|_| "managed_payload_ceiling")?;
+        // Borrow the already retained exact expectations: no second rational
+        // vector, extra endpoint evaluation, or inferred intermediate date.
+        // All qview arithmetic, strings and JSON nodes remain charged to the
+        // accounted WASM allocator while live; the ABI separately admits and
+        // reserves the actual encoded byte length before final serialization.
+        for (&day, value) in evaluated.iter().zip(values) {
+            if now() >= self.deadline {
+                return Err("request_budget_exhausted");
+            }
+            records.push(json!({"day":day,"value":self.qview(value)}));
+        }
+        result["completedDates"] = json!({"schemaVersion":1,"records":[]});
+        result["completedDates"]["records"] = Json::Array(records);
+        if now() >= self.deadline {
+            return Err("request_budget_exhausted");
+        }
+        Ok(result)
+    }
+    fn waiting_current_result(
+        &self,
+        result: Json,
+        include_completed_dates: bool,
+        current: &Value,
+        p: Q,
+        risk: Option<risk_summary::Summaries>,
+    ) -> Result<Json> {
+        if !include_completed_dates {
+            return risk_summary::attach(result, risk, self.deadline);
+        }
+        if now() >= self.deadline {
+            return Err("request_budget_exhausted");
+        }
+        let d = &self.powers[current.exponent];
+        let first = [
+            p,
+            rational(&current.c[0], d),
+            rational(&current.c[1], d),
+            rational(&current.c[2], d),
+        ];
+        self.waiting_summaries_result(result, true, &[first], &[0], risk)
+    }
+    fn waiting_summaries_result(
+        &self,
+        result: Json,
+        include_completed_dates: bool,
+        values: &[[Q; 4]],
+        evaluated: &[usize],
+        risk: Option<risk_summary::Summaries>,
+    ) -> Result<Json> {
+        let result = self.waiting_result(result, include_completed_dates, values, evaluated)?;
+        risk_summary::attach(result, risk, self.deadline)
+    }
+    fn retain_boundary_evidence(result: &mut Json, boundary: Option<Json>) {
+        if let Some(mut boundary) = boundary {
+            result["strictBoundaryWitness"] = boundary["strictBoundaryWitness"].take();
+            result["evidence"]
+                .as_array_mut()
+                .unwrap()
+                .extend(boundary["evidence"].as_array_mut().unwrap().drain(..));
+        }
+    }
+    #[cfg(test)]
     pub fn waiting(
         &mut self,
         supply: &mut Supply,
@@ -308,8 +480,41 @@ impl Engine {
         stock: Units,
         complete: bool,
     ) -> Result<Json> {
+        self.waiting_with_completed_dates(supply, sid, stock, complete, false)
+    }
+    #[cfg(test)]
+    pub fn waiting_with_completed_dates(
+        &mut self,
+        supply: &mut Supply,
+        sid: usize,
+        stock: Units,
+        complete: bool,
+        include_completed_dates: bool,
+    ) -> Result<Json> {
+        self.waiting_with_summaries(supply, sid, stock, complete, include_completed_dates, false)
+    }
+    pub fn waiting_with_summaries(
+        &mut self,
+        supply: &mut Supply,
+        sid: usize,
+        stock: Units,
+        complete: bool,
+        include_completed_dates: bool,
+        include_risk_summaries: bool,
+    ) -> Result<Json> {
         let current = self.current_root.clone().ok_or("current_not_completed")?;
         let p = rational(&current.p, &self.powers[current.exponent]);
+        let mut risk = if include_risk_summaries {
+            if !self.current_request.is_some_and(|(state, previous, _)| {
+                state == sid && previous == stock
+            }) {
+                return Err("risk_summary_current_binding_mismatch");
+            }
+            risk_summary::validate_priors(&supply.priors, self.deadline)?;
+            Some(risk_summary::Summaries::new(&p, self.deadline)?)
+        } else {
+            None
+        };
         self.ensure_relaxed(sid)?;
         let equal = self.compare_exact(&current, &self.relaxed[sid].as_ref().unwrap().value)
             == Ordering::Equal;
@@ -340,31 +545,38 @@ impl Engine {
                     "exact_all_dates_same_inventory"
                 ])
             };
-            return Ok(result);
+            return self.waiting_current_result(result, include_completed_dates, &current, p, risk);
         }
         if !complete {
             let mut result = base("unresolved", Some("future_coverage_incomplete"));
-            result["bestDayRange"] = json!([0, 56]);
-            return Ok(result);
+            result["bestDayRange"] = json!([0, WAITING_HORIZON]);
+            return self.waiting_current_result(result, include_completed_dates, &current, p, risk);
         }
-        let events = supply.model.events.clone();
-        let prior: Vec<_> = events.iter().filter(|e| e.day != 56).cloned().collect();
-        let last: Vec<_> = events.iter().filter(|e| e.day == 56).cloned().collect();
+        let events: Vec<_> = supply
+            .model
+            .events
+            .iter()
+            .filter(|event| event.day <= WAITING_HORIZON)
+            .cloned()
+            .collect();
+        let prior: Vec<_> = events.iter().filter(|e| e.day < WAITING_HORIZON).cloned().collect();
+        let last: Vec<_> = events.iter().filter(|e| e.day == WAITING_HORIZON).cloned().collect();
+        let mut boundary_certificate = None;
         if !last.is_empty() {
             if let Some((cohort, before, after, bv, av)) =
                 self.boundary(supply, sid, stock, &prior, &last)?
             {
                 let mut result = base("certified", None);
-                result["recommendedDays"] = json!(56);
+                result["recommendedDays"] = json!(WAITING_HORIZON);
                 result["rangeBoundary"] = json!(true);
-                result["bestDayRange"] = json!([56, 56]);
+                result["bestDayRange"] = json!([WAITING_HORIZON, WAITING_HORIZON]);
                 Self::gap(&mut result, &p);
                 result["evidence"] = json!([
                     "fixed_prices_all_dates",
                     "nonnegative_nonexpiring_inventory_coupling",
                     "single_latent_cohort_positive_prior",
-                    "positive_mass_receipt_witness_strict_lex_day55_to56",
-                    "all_prior_dates_bounded_by_day55",
+                    "positive_mass_receipt_witness_strict_lex_day13_to14",
+                    "all_prior_dates_bounded_by_day13",
                     "PH_lower_bound_from_exact_current_P_and_inventory_coupling",
                     "range_only_no_global_or_deadline_claim"
                 ]);
@@ -372,7 +584,13 @@ impl Engine {
                 receipts.extend(after.receipts);
                 result["strictBoundaryWitness"] = json!({"cohort":cohort,"receipts":receipts,"beforeStock":before.stock,
                     "afterStock":after.stock,"beforeValue":self.actual_view(&bv),"afterValue":self.actual_view(&av)});
-                return Ok(result);
+                if !include_risk_summaries {
+                    return self.waiting_current_result(result, include_completed_dates, &current, p, risk);
+                }
+                // This proves the range optimum, not H14's expectation or a
+                // risk-selector result. Keep it while the same engine, memo,
+                // prices, deadline and incremental supports collect real dates.
+                boundary_certificate = Some(result);
             }
         }
         let caps = std::array::from_fn(|k| self.caps[sid][k] as u64 * 10);
@@ -392,8 +610,24 @@ impl Engine {
         ];
         let mut values = vec![first];
         let mut evaluated = vec![0];
-        let evaluation = (|| -> Result<()> {
-            for day in 1..=56 {
+        let relaxed = &self.relaxed[sid].as_ref().unwrap().value;
+        let d = &self.powers[relaxed.exponent];
+        let bound = [
+            rational(&relaxed.p, d),
+            rational(&relaxed.c[0], d),
+            rational(&relaxed.c[1], d),
+            rational(&relaxed.c[2], d),
+        ];
+        let evaluation = (|| -> Result<Option<Json>> {
+            if risk.is_some() {
+                // Summaries already reserves its fifteen records. Reserve the
+                // matching prefix slots before any date commits as well.
+                values.try_reserve_exact(WAITING_HORIZON)
+                    .map_err(|_| "managed_payload_ceiling")?;
+                evaluated.try_reserve_exact(WAITING_HORIZON)
+                    .map_err(|_| "managed_payload_ceiling")?;
+            }
+            for day in 1..=WAITING_HORIZON {
                 if now() >= self.deadline {
                     return Err("request_budget_exhausted");
                 }
@@ -415,20 +649,47 @@ impl Engine {
                         }
                     }
                 }
+                let mut date_mass = None;
                 let v = if arrivals.is_empty() {
                     values.last().unwrap().clone()
                 } else {
-                    self.expected_rows(sid, &supports, &supply.priors)?
+                    let mut accumulator = risk.as_ref().map(|summary| summary.accumulator());
+                    let value = self.expected_rows_with_risk(
+                        sid,
+                        &supports,
+                        &supply.priors,
+                        accumulator.as_mut(),
+                    )?;
+                    date_mass = accumulator
+                        .map(|accumulator| accumulator.finish(self.deadline))
+                        .transpose()?;
+                    value
                 };
                 if self.qcompare(&v, values.last().unwrap()) == Ordering::Less {
                     return Err("certified_inventory_monotonicity_failed");
                 }
+                if let Some(summary) = risk.as_mut() {
+                    summary.complete_date(day, &v[0], date_mass, self.deadline)?;
+                }
                 values.push(v);
                 evaluated.push(day);
+                if let Some(result) =
+                    self.completed_prefix_bound_certificate(&values, &evaluated, &bound)?
+                {
+                    return Ok(Some(result));
+                }
             }
-            Ok(())
+            Ok(None)
         })();
-        if let Err(reason) = evaluation {
+        let reason = match evaluation {
+            Ok(Some(mut result)) => {
+                Self::retain_boundary_evidence(&mut result, boundary_certificate);
+                return self.waiting_summaries_result(result, include_completed_dates, &values, &evaluated, risk);
+            }
+            Ok(None) => None,
+            Err(reason) => Some(reason),
+        };
+        if let Some(reason) = reason {
             if ![
                 "request_budget_exhausted",
                 "exact_support_limit",
@@ -439,15 +700,30 @@ impl Engine {
             {
                 return Err(reason);
             }
-            let mut result = base("unresolved", Some(reason));
+            let boundary_retained = boundary_certificate.is_some();
+            let mut result = boundary_certificate
+                .unwrap_or_else(|| base("unresolved", Some(reason)));
+            // A catchable collection stop does not undo the completed boundary
+            // proof. status/recommendedDays still describe that proof; reason
+            // and the actual prefix describe the incomplete date calculation.
+            // Hard deadline/output guards below remain fatal, preserving the
+            // host's existing failedRequest/Current-only contract.
+            result["reason"] = json!(reason);
             result["evaluatedDays"] = json!(evaluated);
-            result["bestDayRange"] = json!([0, 56]);
+            if !boundary_retained {
+                result["bestDayRange"] = json!([0, WAITING_HORIZON]);
+            }
             Self::gap(&mut result, &values.last().unwrap()[0]);
-            result["evidence"] = json!([
+            let mut evidence = vec![
                 "PH_lower_bound_from_last_exact_completed_date_and_nonnegative_inventory_coupling",
-                "UNKNOWN_is_not_equality_or_false"
-            ]);
-            return Ok(result);
+                "UNKNOWN_is_not_equality_or_false",
+            ];
+            if boundary_retained {
+                evidence.push("strict_boundary_certificate_retained_date_collection_incomplete");
+            }
+            result["evidence"].as_array_mut().unwrap()
+                .extend(evidence.into_iter().map(|item| json!(item)));
+            return self.waiting_summaries_result(result, include_completed_dates, &values, &evaluated, risk);
         }
         let h = values.last().unwrap();
         let earliest = values
@@ -456,15 +732,15 @@ impl Engine {
             .unwrap();
         let mut result = base("certified", None);
         result["recommendedDays"] = json!(earliest);
-        result["rangeBoundary"] = json!(earliest == 56);
+        result["rangeBoundary"] = json!(earliest == WAITING_HORIZON);
         result["bestDayRange"] = json!([earliest, earliest]);
-        result["value"] = json!(self.qview(h));
+        result["value"] = json!(self.qview(&values[earliest]));
         result["evaluatedDays"] = json!(evaluated);
         result["successProbabilityInterval"] = json!({"lower":wire(&h[0]),"upper":wire(&h[0])});
         result["successImprovementUpperBound"] = json!(wire(&(Q::one() - &h[0])));
         result["evidence"] = json!([
             "exact_cohort_conditional_distributions_single_latent_cohort",
-            "exact_rational_all_57_date_expectations",
+            "exact_rational_all_15_date_expectations",
             "fixed_prices_all_dates",
             "nonnegative_nonexpiring_inventory_coupling",
             if earliest == 0 {
@@ -474,7 +750,8 @@ impl Engine {
             },
             "range_only_no_global_or_deadline_claim"
         ]);
-        Ok(result)
+        Self::retain_boundary_evidence(&mut result, boundary_certificate);
+        self.waiting_summaries_result(result, include_completed_dates, &values, &evaluated, risk)
     }
 }
 
@@ -677,5 +954,9 @@ impl Engine {
 }
 
 #[cfg(test)]
-#[path = "waiting_tests.rs"]
-mod tests;
+mod tests {
+    include!("waiting_tests.rs");
+    include!("waiting_completed_dates_tests.rs");
+    include!("waiting_risk_summary_tests.rs");
+    include!("waiting_boundary_continuation_tests.rs");
+}

@@ -102,7 +102,7 @@ export function buildRustRootResult(args: RustRootResultArgs) {
   const edge = transition(args.input.start, args.root.firstAction);
   const totalExpectedKits = totalKits(args.root.vector);
   const pressure = pressureScore(args.root.vector, args.input.stockUses);
-  const legacySupplyCost = legacySupplyCostScore(args.root.vector);
+  const legacySupplyCost = legacySupplyCostScore(args.root.vector, args.expectedGain);
   const availabilityCost = availabilityCostScore(
     args.root.vector,
     args.input.stock,

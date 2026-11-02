@@ -19,7 +19,7 @@ const workerUrl = pathToFileURL(join(directory, "src/certifiedRuntime/nodeFixtur
 const { createNodeCertifiedClient } = await import(pathToFileURL(join(directory, "src/certifiedRuntime/nodeClient.js")).href);
 const { certifiedWorkerFixture } = await import(pathToFileURL(join(directory, "src/certifiedRuntime/integrationFixture.js")).href);
 const { createCertifiedForecastIdentity } = await import(pathToFileURL(join(directory, "shared/certifiedForecastIdentity.js")).href);
-const { assertCertifiedOutputBinding } = await import(pathToFileURL(join(directory, "src/certifiedRuntime/outputBinding.js")).href);
+const { assertCertifiedOutputBinding, bindCertifiedOutput } = await import(pathToFileURL(join(directory, "src/certifiedRuntime/outputBinding.js")).href);
 after(() => {
   assert.ok(directory.startsWith(process.cwd() + sep));
   return rm(directory, { recursive: true, force: true });
@@ -47,6 +47,370 @@ function harness({ terminationDelayMs = 0, initializationDelayMs = 0, binding = 
   return { client, request, state };
 }
 const code = (expected) => (error) => error.code === expected;
+
+test("target request binding normalizes alpha and defaults without changing no-target output", async () => {
+  const identity = await createCertifiedForecastIdentity((await certifiedWorkerFixture()).snapshot);
+  const body = { provenance: { snapshotRevision: identity.snapshotRevision,
+    snapshotSourceHash: identity.sourceHash } };
+  const input = { target: { version: "target-v1",
+    alpha: { numerator: "2", denominator: "4" } } };
+  const target = { version: "target-v1", alpha: { numerator: "1", denominator: "2" },
+    maxDays: 14, status: "unresolved", minimumDays: null, probabilities: [],
+    earliestNotRuledOutDay: null, attainedByDay: null, completedThroughDay: null,
+    value: null, reason: "target_in_progress" };
+  const bound = bindCertifiedOutput({ ...body, target }, identity, input);
+  assert.doesNotThrow(() => assertCertifiedOutputBinding(bound, identity, input));
+  const historical = bindCertifiedOutput(body, identity);
+  const unrequested = bindCertifiedOutput(body, identity, {});
+  assert.equal(JSON.stringify(unrequested), JSON.stringify(historical));
+  assert.equal(Object.hasOwn(unrequested, "target"), false);
+  for (const changed of [
+    undefined,
+    { ...target, alpha: { numerator: "3", denominator: "4" } },
+    { ...target, maxDays: 13 },
+    { ...target, maxDays: undefined },
+    { ...target, version: "other" },
+    { ...target, alpha: { numerator: "1", denominator: "0" } },
+  ]) {
+    assert.throws(() => bindCertifiedOutput({ ...body, target: changed }, identity, input));
+    assert.throws(() => assertCertifiedOutputBinding({ ...bound, target: changed }, identity, input));
+  }
+  assert.throws(() => bindCertifiedOutput({ ...body, target }, identity, {}));
+  assert.throws(() => assertCertifiedOutputBinding(bound, identity, {}));
+});
+
+test("target mismatch is rejected on both current and result with matching envelopes", async () => {
+  const identity = await createCertifiedForecastIdentity((await certifiedWorkerFixture()).snapshot);
+  const input = { target: { version: "target-v1", alpha: { numerator: "1", denominator: "2" } } };
+  const target = { ...input.target, maxDays: 14, status: "unresolved",
+    earliestNotRuledOutDay: null, attainedByDay: null, completedThroughDay: null,
+    minimumDays: null, probabilities: [], value: null, reason: "target_in_progress" };
+  const good = bindCertifiedOutput({ target, provenance: {
+    snapshotRevision: identity.snapshotRevision, snapshotSourceHash: identity.sourceHash,
+  } }, identity, input);
+  const bad = { ...good, target: { ...target, maxDays: 13 } };
+  for (const phase of ["current", "result"]) {
+    const published = [];
+    const { client } = harness({ binding: {
+      bindForecastIdentity: async () => identity,
+      validateOutputBinding: assertCertifiedOutputBinding,
+    } });
+    try {
+      await assert.rejects(client.request({ ...input, partial: phase === "current" ? bad : good,
+        value: bad, delayMs: 5 }, { sessionId: phase, engineProfile,
+        onCurrent: output => published.push(output) }), code("worker"));
+      assert.deepEqual(published, phase === "current" ? [] : [good]);
+    } finally { await client.dispose(); }
+  }
+});
+
+test("target certificate checks inequalities, missing prefixes and selected exact value", async () => {
+  const identity = await createCertifiedForecastIdentity((await certifiedWorkerFixture()).snapshot);
+  const q = (numerator, denominator = 1) => ({ numerator: String(numerator), denominator: String(denominator) });
+  const value = p => ({ successP: p, weightedExpectedConsumptionB: q(0),
+    expectedTotalConsumptionC: q(0), expectedConsumed: [q(0), q(0), q(0)] });
+  const input = { target: { version: "target-v1", alpha: q(1, 2), maxDays: 2 } };
+  const body = { current: { value: value(q(0)) }, claimNotice: null,
+    provenance: { snapshotRevision: identity.snapshotRevision, snapshotSourceHash: identity.sourceHash } };
+  const target = { ...input.target, status: "certified", minimumDays: 1,
+    earliestNotRuledOutDay: 1, attainedByDay: 1, completedThroughDay: 2,
+    probabilities: [{ day: 0, successP: q(0) }, { day: 1, successP: q(1, 2) },
+      { day: 2, successP: q(0) }], value: value(q(1, 2)), reason: null };
+  const accept = t => bindCertifiedOutput({ ...body, target: t }, identity, input);
+  assert.doesNotThrow(() => accept(target));
+  for (const completedThroughDay of [2, 3, 14])
+    assert.doesNotThrow(() => accept({ ...target, completedThroughDay }));
+  for (const completedThroughDay of [-1, 1, 15, 2.5, null])
+    assert.throws(() => accept({ ...target, completedThroughDay }));
+  const gap = { ...target, status: "unresolved", minimumDays: null, value: null,
+    earliestNotRuledOutDay: 1, attainedByDay: 2, completedThroughDay: 0,
+    probabilities: [{ day: 0, successP: q(0) }, { day: 2, successP: q(1) }],
+    reason: "missing_exact_dates" };
+  assert.doesNotThrow(() => accept(gap));
+  for (const corrupt of [
+    { ...target, minimumDays: 2 },
+    { ...target, attainedByDay: 2 },
+    { ...target, completedThroughDay: 0 },
+    { ...target, value: value(q(1)) },
+    { ...target, value: { ...value(q(1, 2)), expectedTotalConsumptionC: q(1) } },
+    { ...target, probabilities: [{ day: 0, successP: q(1) }, ...target.probabilities.slice(1)] },
+    { ...target, probabilities: [...target.probabilities, { day: 2, successP: q(1) }] },
+    { ...gap, status: "certified", minimumDays: 2, value: value(q(1)) },
+    { ...gap, completedThroughDay: 2 },
+    { ...target, status: "not_reached_within_limit", minimumDays: null, value: null },
+  ]) assert.throws(() => accept(corrupt));
+});
+
+test("output binding receives submitted input snapshot for current and result", async () => {
+  const identity = await createCertifiedForecastIdentity((await certifiedWorkerFixture()).snapshot);
+  const seen = [];
+  const { client } = harness({ binding: {
+    bindForecastIdentity: async () => identity,
+    validateOutputBinding: (output, actualIdentity, input) => {
+      assert.deepEqual(actualIdentity, identity);
+      assert.equal(input.context, "submitted");
+      assert.equal(output.context, input.context);
+      seen.push(output.phase);
+    },
+  } });
+  try {
+    const input = { context: "submitted", partial: { context: "submitted", phase: "current" },
+      value: { context: "submitted", phase: "result" }, delayMs: 5 };
+    const pending = client.request(input, { sessionId: "input-context", engineProfile });
+    input.context = "caller-mutated";
+    const result = await pending;
+    assert.deepEqual(seen, ["current", "result"]);
+    assert.deepEqual(result.output, input.value);
+    assert.equal(Object.hasOwn(result.output, "target"), false);
+  } finally { await client.dispose(); }
+});
+
+async function targetLifecycleHarness() {
+  const identity = await createCertifiedForecastIdentity((await certifiedWorkerFixture()).snapshot);
+  const input = { target: { version: "target-v1", alpha: { numerator: "1", denominator: "2" } } };
+  const target = { ...input.target, maxDays: 14, status: "unresolved", minimumDays: null,
+    probabilities: [], value: null, earliestNotRuledOutDay: null, attainedByDay: null,
+    completedThroughDay: null, reason: "target_in_progress" };
+  const output = bindCertifiedOutput({ target, provenance: {
+    snapshotRevision: identity.snapshotRevision, snapshotSourceHash: identity.sourceHash,
+  } }, identity, input);
+  const ports = [];
+  const started = [];
+  const waiters = [];
+  const preserved = [];
+  const client = createCertifiedClient({
+    bindForecastIdentity: async () => identity,
+    validateOutputBinding: assertCertifiedOutputBinding,
+    preservePartial: (partial, reason) => { preserved.push(reason); return partial; },
+    createWorker: () => {
+      const port = { receive: null };
+      ports.push(port);
+      return { runtime: "node", terminate: async () => {},
+        listen: receive => { port.receive = receive; return () => {}; },
+        postMessage: message => {
+          if (message.type === "init") queueMicrotask(() => port.receive({
+            type: "initComplete", generation: message.generation, engineProfile }));
+          else {
+            const run = { port, message };
+            const waiter = waiters.shift();
+            if (waiter) waiter(run); else started.push(run);
+          }
+        },
+      };
+    },
+  });
+  const next = () => started.length ? Promise.resolve(started.shift())
+    : new Promise(resolve => waiters.push(resolve));
+  const emit = (run, type, extra = {}) => run.port.receive({
+    type, generation: run.message.generation, id: run.message.id,
+    engineProfile, forecastIdentity: identity, output, ...extra,
+  });
+  return { client, input, output, next, emit, preserved };
+}
+
+test("target failures preserve only previously validated partials", async () => {
+  for (const failureCode of ["solver_execution_failure", "request_total_deadline",
+    "protocol_invariant", "response_payload_ceiling"]) {
+    for (const hasCurrent of [false, true]) {
+      const h = await targetLifecycleHarness();
+      try {
+        const pending = h.client.request(h.input, { sessionId: "failure", engineProfile });
+        const allowed = hasCurrent && ["solver_execution_failure", "request_total_deadline"].includes(failureCode);
+        const settled = allowed ? pending : assert.rejects(pending, code("worker"));
+        const run = await h.next();
+        if (hasCurrent) h.emit(run, "current");
+        h.emit(run, "error", { code: failureCode, message: "synthetic failure" });
+        const result = await settled;
+        if (allowed) assert.deepEqual(result.output, h.output);
+        assert.deepEqual(h.preserved, allowed
+          ? [failureCode === "request_total_deadline" ? "deadline" : "worker"] : []);
+      } finally { await h.client.dispose(); }
+    }
+  }
+});
+
+test("target cancelled and superseded runs cannot publish late current or results", async () => {
+  for (const mode of ["aborted", "superseded"]) {
+    for (const hasCurrent of [false, true]) {
+      const h = await targetLifecycleHarness();
+      try {
+        const controller = new AbortController();
+        const published = [];
+        const old = h.client.request(h.input, { sessionId: "same", engineProfile,
+          signal: controller.signal, onCurrent: value => published.push(value) });
+        const settled = mode === "aborted" && hasCurrent ? old : assert.rejects(old, code(mode));
+        const oldRun = await h.next();
+        if (hasCurrent) h.emit(oldRun, "current");
+        if (mode === "aborted") controller.abort();
+        const replacement = h.client.request(h.input, { sessionId: "same", engineProfile,
+          onCurrent: value => published.push(value) });
+        const result = await settled;
+        if (mode === "aborted" && hasCurrent) assert.deepEqual(result.output, h.output);
+        const live = await h.next();
+        const corrupt = { ...h.output, target: { ...h.output.target, minimumDays: 999 } };
+        // Retired generation, then wrong request ID within the live generation.
+        for (const type of ["current", "result"]) {
+          h.emit(oldRun, type, { output: corrupt });
+          h.emit(live, type, { id: oldRun.message.id, output: corrupt });
+        }
+        assert.equal(published.length, hasCurrent ? 1 : 0);
+        h.emit(live, "result");
+        assert.deepEqual((await replacement).output, h.output);
+        assert.deepEqual(h.preserved, mode === "aborted" && hasCurrent ? ["aborted"] : []);
+      } finally { await h.client.dispose(); }
+    }
+  }
+});
+
+test("target corrupt current is neither published nor preserved after worker failure", async () => {
+  const h = await targetLifecycleHarness();
+  try {
+    let published = 0;
+    const pending = h.client.request(h.input, { sessionId: "corrupt", engineProfile,
+      onCurrent: () => published++ });
+    const rejected = assert.rejects(pending, code("worker"));
+    const run = await h.next();
+    h.emit(run, "current", { output: { ...h.output,
+      target: { ...h.output.target, attainedByDay: 1 } } });
+    h.emit(run, "error", { code: "solver_execution_failure", message: "late failure" });
+    await rejected;
+    assert.equal(published, 0);
+    assert.deepEqual(h.preserved, []);
+  } finally { await h.client.dispose(); }
+});
+
+test("target validation time consumes the original response deadline", async () => {
+  const h = await targetLifecycleHarness();
+  const originalNow = Date.now;
+  try {
+    let published = 0;
+    const pending = h.client.request(h.input, { sessionId: "validation-expiry", engineProfile,
+      onCurrent: () => published++ });
+    const rejected = assert.rejects(pending, code("deadline"));
+    const run = await h.next();
+    const output = { ...h.output, target: { ...h.output.target } };
+    // Configuration is read inside host binding; no new timeout is started.
+    Object.defineProperty(output.target, "alpha", { enumerable: true, get() {
+      Date.now = () => run.message.deadlineAt;
+      return h.input.target.alpha;
+    } });
+    h.emit(run, "result", { output });
+    await rejected;
+    assert.equal(published, 0);
+    assert.deepEqual(h.preserved, []);
+  } finally { Date.now = originalNow; await h.client.dispose(); }
+});
+
+test("target large exact probabilities use shared capacity, not the response byte cap", async () => {
+  const h = await targetLifecycleHarness();
+  try {
+    const p = { numerator: "9".repeat(10000), denominator: "1" + "0".repeat(10000) };
+    const input = { target: { version: "target-v1", alpha: { numerator: "1", denominator: "1" } } };
+    const output = { ...h.output, current: { value: { successP: p } },
+      target: { ...h.output.target, alpha: input.target.alpha, status: "not_reached_within_limit",
+        probabilities: Array.from({ length: 15 }, (_, day) => ({ day, successP: p })),
+        completedThroughDay: 14, reason: null } };
+    assert.ok(Buffer.byteLength(JSON.stringify(output)) < 2 * 1024 * 1024);
+    let held = 0;
+    let peak = 0;
+    const budget = { check() {}, reserve(bytes) { held += bytes; peak = Math.max(peak, held); },
+      release(bytes) { held -= bytes; } };
+    assertCertifiedOutputBinding(output, h.output.runtimeBinding.forecastIdentity, input, budget);
+    assert.ok(peak > 2 * 1024 * 1024);
+    assert.equal(held, 0);
+    const exhausted = Object.assign(new Error("capacity exhausted"), { code: "memory" });
+    const limited = { ...budget, reserve(bytes) { held += bytes; throw exhausted; } };
+    assert.throws(() => assertCertifiedOutputBinding(output,
+      h.output.runtimeBinding.forecastIdentity, input, limited), error => error === exhausted);
+    assert.equal(held, 0, "failed reserve must also be released");
+    const invalid = { ...output, target: { ...output.target, attainedByDay: 2 } };
+    assert.throws(() => assertCertifiedOutputBinding(invalid,
+      h.output.runtimeBinding.forecastIdentity, input, budget), /target_evidence_binding_mismatch/);
+    assert.equal(held, 0, "schema failure must release admitted workspace");
+  } finally { await h.client.dispose(); }
+});
+
+test("real Worker target rollback preserves current while binding memory and corruption stay failures", async () => {
+  const workerPath = join(directory, "target-boundary-worker.mjs");
+  await build({
+    entryPoints: ["src/certifiedRuntime/nodeWorker.ts"], outfile: workerPath,
+    bundle: true, platform: "node", format: "esm", logLevel: "silent",
+    plugins: [{ name: "synthetic-solver-only", setup(builder) {
+      builder.onResolve({ filter: /\/certified\/wasm(?:Solver|Backend)\.ts$/ }, () => ({
+        path: join(process.cwd(), "src/certifiedRuntime/targetBoundarySolverFixture.mjs"),
+      }));
+    } }],
+  });
+  const input = { ...await certifiedWorkerFixture(),
+    target: { version: "target-v1", alpha: { numerator: "1", denominator: "2" } } };
+  const identity = await createCertifiedForecastIdentity(input.snapshot);
+  const output = {
+    status: "partial", current: { value: { successP: { numerator: "0", denominator: "1" } } },
+    target: { ...input.target, maxDays: 14, status: "unresolved", minimumDays: null,
+      probabilities: [], value: null, earliestNotRuledOutDay: null, attainedByDay: null,
+      completedThroughDay: null, reason: "target_in_progress" },
+    provenance: { snapshotRevision: identity.snapshotRevision, snapshotSourceHash: identity.sourceHash },
+  };
+  for (const mode of ["rollback", "binding-memory", "invalid-binding"]) {
+    const replies = [];
+    const published = [];
+    let preserved = 0;
+    const client = createCertifiedClient({
+      bindForecastIdentity: async () => identity,
+      validateOutputBinding: assertCertifiedOutputBinding,
+      preservePartial: partial => { preserved++; return partial; },
+      createWorker: () => {
+        const worker = new Worker(pathToFileURL(workerPath), { workerData: { mode, output } });
+        return { runtime: "node", postMessage: message => worker.postMessage(message),
+          terminate: () => worker.terminate(), listen: (receive, error) => {
+            const message = reply => { replies.push(reply); receive(reply); };
+            worker.on("message", message); worker.on("error", error);
+            return () => { worker.off("message", message); worker.off("error", error); };
+          } };
+      },
+    });
+    try {
+      const pending = client.request(input, { sessionId: mode, engineProfile,
+        onCurrent: current => published.push(current) });
+      if (mode === "rollback") {
+        const result = await pending;
+        assert.deepEqual(result.output.current, output.current);
+        assert.equal(result.output.target.status, "unresolved");
+        assert.equal(result.output.refusal.reason, "managed_payload_ceiling");
+        assert.equal(replies.at(-1).type, "result");
+      } else {
+        await assert.rejects(pending, code(mode === "binding-memory" ? "memory" : "worker"));
+        assert.equal(replies.at(-1).code,
+          mode === "binding-memory" ? "managed_payload_ceiling" : "protocol_invariant");
+      }
+      assert.equal(published.length, 1);
+      assert.deepEqual(published[0].current, output.current);
+      assert.equal(preserved, 0, "normal final result or hard binding failure; no expanded recovery");
+    } finally { await client.dispose(); }
+  }
+});
+
+test("input binding mismatch fails without publishing corrupt current or result", async () => {
+  const identity = await createCertifiedForecastIdentity((await certifiedWorkerFixture()).snapshot);
+  for (const phase of ["current", "result"]) {
+    const published = [];
+    const { client } = harness({ binding: {
+      bindForecastIdentity: async () => identity,
+      validateOutputBinding: (output, _identity, input) => {
+        if (output.context !== input.context) throw new Error("input mismatch");
+      },
+    } });
+    try {
+      await assert.rejects(client.request({
+        context: "submitted",
+        partial: { context: phase === "current" ? "wrong" : "submitted" },
+        value: { context: "wrong" }, delayMs: 5,
+      }, { sessionId: phase, engineProfile, onCurrent: output => published.push(output) }),
+      code("worker"));
+      assert.deepEqual(published, phase === "current" ? [] : [{ context: "submitted" }]);
+    } finally { await client.dispose(); }
+  }
+});
 
 test("completed signal cannot cancel a newer request; input is snapshotted", async () => {
   const { client, request } = harness();

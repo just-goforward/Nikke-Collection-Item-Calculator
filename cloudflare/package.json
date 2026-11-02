@@ -4,13 +4,15 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config vitest.config.ts",
+    "test:decision-analytics": "node --test backend-tests/decision-analytics-v3.test.mjs backend-tests/decision-analytics-maintenance.test.mjs",
+    "test:outcome-facts": "node backend-tests/run-outcome-tests.mjs",
     "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
   "dependencies": {
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.4.3",
+    "@cloudflare/vitest-plugin": "1.4.6",
     "@vitest/coverage-v8": "5.0.5",
     "vitest": "5.0.5"
   }

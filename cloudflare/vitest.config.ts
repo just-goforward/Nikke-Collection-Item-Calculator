@@ -8,6 +8,9 @@ export default defineConfig({
       main: "./src/worker.ts",
       miniflare: {
         compatibilityDate: "2026-08-09",
+        outboundService() {
+          throw new Error("Unexpected outbound request in Stats tests");
+        },
         bindings: {
           ADMIN_TOKEN: "test-admin-token",
           ALLOWED_ORIGINS: "https://test.example",

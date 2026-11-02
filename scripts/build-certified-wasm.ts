@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   assertCertifiedWasmBuild,
@@ -27,9 +28,10 @@ const result = spawnSync(
 );
 if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status ?? 1);
-const source = new URL(
-  "../rust/certified/target/wasm32-unknown-unknown/release/certified_wasm.wasm",
-  import.meta.url,
+const source = resolve(
+  crate,
+  process.env['CARGO_TARGET_DIR'] ?? "target",
+  "wasm32-unknown-unknown/release/certified_wasm.wasm",
 );
 const bytes = readFileSync(source);
 const hash = createHash("sha256").update(bytes).digest("hex");

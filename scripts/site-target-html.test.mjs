@@ -1,0 +1,62 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { runInNewContext } from "node:vm";
+import { siteTargetHtml } from "./build-site-production.ts";
+
+test("production removes staging configuration while staging keeps gateway selectors and UI", () => {
+  const html = `<main>Unchanged calculator</main><script>
+window.COLLECTION_STATS_CONFIG = {
+  production: { endpoint: "https://nikkecollection.com", turnstileSiteKey: "production-key" },
+  staging: { endpoint: "https://legacy-stats.workers.dev", turnstileSiteKey: "staging-key" }
+};
+</script>`;
+  const configuration = (value) => {
+    const context = { window: {} };
+    runInNewContext(value.match(/<script>([\s\S]*?)<\/script\s*>/i)[1], context);
+    return JSON.parse(JSON.stringify(context.window.COLLECTION_STATS_CONFIG));
+  };
+  const production = siteTargetHtml(html, "production");
+  assert.deepEqual(configuration(production), {
+    production: { endpoint: "https://nikkecollection.com", turnstileSiteKey: "production-key" },
+  });
+  const staging = siteTargetHtml(html, "staging");
+  assert.deepEqual(configuration(staging), {
+    production: { endpoint: "https://staging.nikkecollection.com", turnstileSiteKey: "staging-key" },
+    staging: { endpoint: "https://staging.nikkecollection.com", turnstileSiteKey: "staging-key" },
+  });
+  for (const packaged of [production, staging]) {
+    assert.equal(packaged.slice(0, packaged.indexOf("<script>")), "<main>Unchanged calculator</main>");
+    assert.equal(siteTargetHtml(packaged, packaged === production ? "production" : "staging"), packaged);
+  }
+});
+
+test("legal HTML stays unchanged while declared application pages require statistics configuration", () => {
+  const legal = "<html><main>Privacy policy</main></html>";
+  for (const target of ["production", "staging"]) {
+    for (const path of ["privacy.html", "en/privacy.html", "ja/terms.html"]) {
+      assert.equal(siteTargetHtml(legal, target, path), legal);
+    }
+    for (const path of ["index.html", "en/index.html", "ja/index.html"]) {
+      assert.throws(
+        () => siteTargetHtml(legal, target, path),
+        /Expected exactly one stats configuration script/,
+      );
+    }
+  }
+});
+
+test("script case and closing whitespace preserve config isolation and exact-one semantics", () => {
+  const config = '\r\nwindow.COLLECTION_STATS_CONFIG = {\r\n  production: { endpoint: "https://nikkecollection.com" },\r\n  staging: { endpoint: "https://old.invalid", turnstileSiteKey: "key" }\r\n};\r\n';
+  const production = '\r\nwindow.COLLECTION_STATS_CONFIG = {\r\n  production: { endpoint: "https://nikkecollection.com" },\r\n};\r\n';
+  const prefix = `<pre>${config.trim()}</pre><!-- <script>${config}</script> --><script>window.unrelated = true;</script >`;
+  const opening = `<SCRIPT data-note='quoted > " boundary'>`;
+  const suffix = '<p data-note="unchanged">After script</p>';
+  for (const closing of ["</ScRiPt \t>", "</script\t\n bar>", '</script foo="bar">']) {
+    const script = opening + config + closing;
+    const output = siteTargetHtml(prefix + script + suffix, "production");
+    assert.equal(output, prefix + opening + production + closing + suffix);
+    assert.equal(siteTargetHtml(output, "production"), output);
+    assert.throws(() => siteTargetHtml(script + script, "production"), /exactly one/);
+  }
+  assert.throws(() => siteTargetHtml(opening + config, "production"), /Unclosed stats configuration script/);
+});

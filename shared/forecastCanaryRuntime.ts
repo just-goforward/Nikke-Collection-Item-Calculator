@@ -1,52 +1,33 @@
-export const FORECAST_CANARY_POLICY_ID = "forecast-canary-v10-live-contract-v1" as const;
-export const FORECAST_RUNTIME_TELEMETRY_SOURCE =
-  "cloudflare-workers-observability-scheduled-v2" as const;
+import { errorCode } from "./errorCodes.ts";
+import {
+  assertForecastRuntimeTelemetryEvidence,
+  type ForecastRuntimeComponent,
+  type ForecastRuntimeSample,
+  type ForecastRuntimeTelemetryEvidence,
+  isRecord,
+  requiredFinite,
+  requiredString,
+} from "./forecastCanaryRuntimeEvidence.ts";
+
+export const FORECAST_CANARY_POLICY_ID = "forecast-canary-v2-monitor-contract-v1" as const;
+export const FORECAST_RUNTIME_EVIDENCE_MAX_AGE_MS = 180_000;
+// Warning-only performance target, separate from the configured runaway guard.
+export const FORECAST_COLLECTOR_CPU_TARGET_MS = 100;
 
 export const FORECAST_RUNTIME_WORKERS = {
   collector: {
     scriptName: "collection-kit-forecast-collector-staging",
-    configuredLimitMs: 50,
+    // Must equal the deployed cpu_ms (owner decision 2026-10-20: 300 ms).
+    configuredLimitMs: 300,
   },
   dispatcher: {
     scriptName: "collection-kit-forecast-dispatcher-staging",
     configuredLimitMs: 25,
   },
-} as const;
-
-export type ForecastRuntimeComponent = keyof typeof FORECAST_RUNTIME_WORKERS;
-
-export type ForecastRuntimeSample = {
-  slot: string;
-  requestIdHash: string;
-  scriptVersionId: string | null;
-  scriptVersionTag: string | null;
-  identitySource: "tag" | "version_id" | "marker";
-  eventType: "scheduled";
-  cpuTimeMs: number | null;
-  outcome: string | null;
-};
-
-export type ForecastRuntimeTelemetryEvidence = {
-  version: 2;
-  source: typeof FORECAST_RUNTIME_TELEMETRY_SOURCE;
-  canaryId: string;
-  deploymentSha: string;
-  collectorScriptVersion: string;
-  dispatcherScriptVersion: string;
-  collectorScriptVersionId: string;
-  dispatcherScriptVersionId: string;
-  startedAt: string;
-  endedAt: string;
-  observedAt: string;
-  collectionErrors?: string[];
-  workers: Array<{
-    component: ForecastRuntimeComponent;
-    scriptName: string;
-    configuredLimitMs: number;
-    headSamplingRate: 1;
-    samples: ForecastRuntimeSample[];
-  }>;
-};
+} as const satisfies Record<
+  ForecastRuntimeComponent,
+  { scriptName: string; configuredLimitMs: number }
+>;
 
 export type CpuDistribution = {
   samples: number;
@@ -89,6 +70,7 @@ export type RuntimeEvaluation = {
 };
 
 export type CpuPerformanceEvidence = {
+  coverageBasis?: "scheduled";
   scriptName: string;
   configuredLimitMs: number;
   expectedSlots: number;
@@ -123,10 +105,16 @@ type EvaluationInput = {
   endedAt: string;
   collectorExpectedSlots: string[];
   dispatcherExpectedSlots: string[];
-  collectorD1Slots: string[];
-  dispatcherD1Slots: string[];
   baseline?: unknown;
-};
+} & (
+  | { coverageBasis?: "d1"; collectorD1Slots: string[]; dispatcherD1Slots: string[] }
+  | {
+      coverageBasis: "scheduled";
+      nowMs: number;
+      collectorD1Slots?: never;
+      dispatcherD1Slots?: never;
+    }
+);
 
 type WorkerEvaluation = {
   summary: CpuPerformanceEvidence;
@@ -149,17 +137,18 @@ type WorkerSampleInspection = {
 
 export function evaluateForecastRuntimeTelemetry(input: EvaluationInput): RuntimeEvaluation {
   const parsed = parseEvaluationInput(input);
-  if ("error" in parsed) return incompleteRuntime(parsed.error);
+  if ("error" in parsed)
+    return incompleteRuntime(parsed.error, input.coverageBasis === "scheduled");
   const identityErrors = runtimeIdentityErrors(parsed.telemetry, input);
   const workers = workerMap(parsed.telemetry);
   const missing = missingWorkerErrors(workers);
   if (identityErrors.length > 0 || missing.length > 0) {
-    return incompleteRuntime([...identityErrors, ...missing]);
+    return incompleteRuntime([...identityErrors, ...missing], input.coverageBasis === "scheduled");
   }
   const collectorTelemetry = workers.get("collector");
   const dispatcherTelemetry = workers.get("dispatcher");
   if (!collectorTelemetry || !dispatcherTelemetry) {
-    return incompleteRuntime("runtime_worker_lookup_failed");
+    return incompleteRuntime("runtime_worker_lookup_failed", input.coverageBasis === "scheduled");
   }
   const collector = evaluateWorkerFromInput("collector", collectorTelemetry, input);
   const dispatcher = evaluateWorkerFromInput("dispatcher", dispatcherTelemetry, input);
@@ -173,7 +162,9 @@ function parseEvaluationInput(input: EvaluationInput) {
       baseline: input.baseline == null ? null : assertCpuPerformanceBaseline(input.baseline),
     };
   } catch (error) {
-    return { error: errorCode(error) };
+    // Evidence errors are rendered in canary reports and CI output: a registered code or
+    // fixed category only, never the parser's raw message.
+    return { error: errorCode(error, "canary_runtime") };
   }
 }
 
@@ -200,6 +191,12 @@ function runtimeIdentityErrors(
     telemetry.endedAt !== input.endedAt ? "runtime_window_end_mismatch" : null,
     Date.parse(telemetry.observedAt) < Date.parse(input.endedAt)
       ? "runtime_observed_before_window_end"
+      : null,
+    input.coverageBasis === "scheduled" &&
+    (!Number.isFinite(input.nowMs) ||
+      Date.parse(telemetry.observedAt) > input.nowMs ||
+      input.nowMs - Date.parse(telemetry.observedAt) > FORECAST_RUNTIME_EVIDENCE_MAX_AGE_MS)
+      ? "runtime_observation_stale_or_future"
       : null,
     ...(telemetry.collectionErrors ?? []),
   ].filter((value): value is string => value !== null);
@@ -229,7 +226,11 @@ function evaluateWorkerFromInput(
     input.startedAt,
     input.endedAt,
     collector ? input.collectorExpectedSlots : input.dispatcherExpectedSlots,
-    collector ? input.collectorD1Slots : input.dispatcherD1Slots,
+    input.coverageBasis === "scheduled"
+      ? null
+      : collector
+        ? input.collectorD1Slots
+        : input.dispatcherD1Slots,
   );
 }
 
@@ -338,21 +339,28 @@ function evaluateWorker(
   startedAt: string,
   endedAt: string,
   expectedSlots: string[],
-  d1Slots: string[],
+  d1Slots: string[] | null,
 ): WorkerEvaluation {
   const expected = new Set(expectedSlots.map(normalizeSlot));
-  const d1 = new Set(d1Slots.map(normalizeSlot));
+  const d1 = d1Slots === null ? null : new Set(d1Slots.map(normalizeSlot));
   const inspection = inspectWorkerSamples(
-    worker.samples,
+    worker.samples.filter(
+      (sample) => worker.component !== "collector" || isAdmittedV2Sample(sample),
+    ),
     expectedScriptVersion,
     expectedScriptVersionId,
   );
   const summary = buildWorkerSummary(worker, inspection, expected, d1, startedAt, endedAt);
+  let successfulMaxMs = 0;
+  for (const sample of worker.samples) {
+    if (sample.outcome !== null && isSuccessfulOutcome(sample.outcome))
+      successfulMaxMs = Math.max(successfulMaxMs, sample.cpuTimeMs ?? 0);
+  }
   return {
     summary,
-    hardFailures: workerHardFailures(component, worker, inspection, summary),
-    evidenceErrors: workerEvidenceErrors(component, summary),
-    warnings: workerWarnings(component, summary),
+    hardFailures: workerHardFailures(component, worker, inspection, summary, successfulMaxMs),
+    evidenceErrors: workerEvidenceErrors(component, summary, worker),
+    warnings: workerWarnings(component, summary, successfulMaxMs),
   };
 }
 
@@ -425,32 +433,40 @@ function buildWorkerSummary(
   worker: ForecastRuntimeTelemetryEvidence["workers"][number],
   inspection: WorkerSampleInspection,
   expected: Set<string>,
-  d1: Set<string>,
+  d1: Set<string> | null,
   startedAt: string,
   endedAt: string,
 ): CpuPerformanceEvidence {
   const telemetrySlots = new Set(inspection.slotCounts.keys());
   const runtimeSlots = new Set(inspection.runtimeSlotCounts.keys());
   const duplicateSlots = [...inspection.slotCounts.values()].filter((count) => count > 1).length;
+  // V2 monitors are not an invocation ledger. Scheduled coverage uses the
+  // independently calculated Cron slots, never telemetry copied into D1 evidence.
+  const coverageSlots = d1 ?? expected;
   const unmatchedTelemetrySlots = [...telemetrySlots].filter(
-    (slot) => !expected.has(slot) || !d1.has(slot),
+    (slot) => !expected.has(slot) || !coverageSlots.has(slot),
   ).length;
-  const missingTelemetrySlots = [...d1].filter((slot) => !telemetrySlots.has(slot)).length;
-  const missingRuntimeSlots = [...d1].filter((slot) => !runtimeSlots.has(slot)).length;
+  const missingTelemetrySlots = [...coverageSlots].filter(
+    (slot) => !telemetrySlots.has(slot),
+  ).length;
+  const missingRuntimeSlots = [...coverageSlots].filter((slot) => !runtimeSlots.has(slot)).length;
   const splitMs = Date.parse(startedAt) + (Date.parse(endedAt) - Date.parse(startedAt)) / 2;
-  const runtimeSamples = worker.samples.filter(hasRuntimeSummary);
+  const runtimeSamples = worker.samples
+    .filter((sample) => worker.component !== "collector" || isAdmittedV2Sample(sample))
+    .filter(hasRuntimeSummary);
   const full = distribution(runtimeSamples.map((sample) => sample.cpuTimeMs));
   return {
+    ...(d1 === null ? { coverageBasis: "scheduled" as const } : {}),
     scriptName: worker.scriptName,
     configuredLimitMs: worker.configuredLimitMs,
     expectedSlots: expected.size,
-    d1ObservedSlots: d1.size,
+    d1ObservedSlots: d1?.size ?? 0,
     telemetryObservedSlots: telemetrySlots.size,
     missingTelemetrySlots,
-    coverage: ratio(d1.size - missingTelemetrySlots, d1.size),
+    coverage: ratio(coverageSlots.size - missingTelemetrySlots, coverageSlots.size),
     runtimeObservedSlots: runtimeSlots.size,
     missingRuntimeSlots,
-    runtimeCoverage: ratio(d1.size - missingRuntimeSlots, d1.size),
+    runtimeCoverage: ratio(coverageSlots.size - missingRuntimeSlots, coverageSlots.size),
     exceededCpu: inspection.exceededCpu,
     unsuccessfulOutcomes: inspection.unsuccessfulOutcomes,
     duplicateSlots,
@@ -489,6 +505,7 @@ function workerHardFailures(
   worker: ForecastRuntimeTelemetryEvidence["workers"][number],
   inspection: WorkerSampleInspection,
   summary: CpuPerformanceEvidence,
+  successfulMaxMs: number,
 ) {
   const contract = FORECAST_RUNTIME_WORKERS[component];
   return [
@@ -504,6 +521,9 @@ function workerHardFailures(
     summary.unmatchedTelemetrySlots > 0 ? `runtime_slot_identity_conflict:${component}` : null,
     summary.unsuccessfulOutcomes > 0 ? `runtime_unsuccessful_outcome:${component}` : null,
     summary.exceededCpu > 0 ? `runtime_exceeded_cpu:${component}` : null,
+    component === "collector" && successfulMaxMs > contract.configuredLimitMs
+      ? "runtime_success_above_configured_limit:collector"
+      : null,
     inspection.invalidSamples > 0 ? `runtime_sample_invalid:${component}` : null,
   ].filter((value): value is string => value !== null);
 }
@@ -511,8 +531,17 @@ function workerHardFailures(
 function workerEvidenceErrors(
   component: ForecastRuntimeComponent,
   summary: CpuPerformanceEvidence,
+  worker: ForecastRuntimeTelemetryEvidence["workers"][number],
 ) {
   return [
+    summary.coverageBasis === "scheduled" &&
+    worker.samples.some((sample) => sample.scriptVersionId === null)
+      ? `runtime_version_metadata_missing:${component}`
+      : null,
+    summary.coverageBasis === "scheduled" &&
+    (summary.runtimeCoverage < 0.99 || summary.missingRuntimeSlots > 1)
+      ? `runtime_completion_coverage_incomplete:${component}`
+      : null,
     summary.coverage < 0.99 || summary.missingTelemetrySlots > 1
       ? `runtime_telemetry_coverage_incomplete:${component}`
       : null,
@@ -522,14 +551,24 @@ function workerEvidenceErrors(
   ].filter((value): value is string => value !== null);
 }
 
-function workerWarnings(component: ForecastRuntimeComponent, summary: CpuPerformanceEvidence) {
+function workerWarnings(
+  component: ForecastRuntimeComponent,
+  summary: CpuPerformanceEvidence,
+  successfulMaxMs: number,
+) {
   return [
+    component === "collector" && successfulMaxMs > FORECAST_COLLECTOR_CPU_TARGET_MS
+      ? "runtime_success_above_target:collector"
+      : null,
+    component === "collector" && summary.full.p99Ms > FORECAST_COLLECTOR_CPU_TARGET_MS
+      ? "runtime_p99_above_target:collector"
+      : null,
     summary.runtimeCoverage < 0.99 ? `runtime_cpu_sample_coverage_partial:${component}` : null,
     summary.markerOnlyIdentities > 0 ? `runtime_version_metadata_unavailable:${component}` : null,
     summary.versionIdOnlyIdentities > 0 ? `runtime_version_tag_unavailable:${component}` : null,
     summary.p99LimitRatio >= 0.8 ? `runtime_p99_headroom_low:${component}` : null,
     summary.p99LimitRatio >= 0.95 ? `runtime_p99_headroom_critical:${component}` : null,
-    summary.full.maxMs > summary.configuredLimitMs
+    component !== "collector" && summary.full.maxMs > summary.configuredLimitMs
       ? `runtime_success_above_configured_limit:${component}`
       : null,
   ].filter((value): value is string => value !== null);
@@ -567,141 +606,16 @@ function exceedsAverage(
   return current.averageMs > Math.max(baseline.averageMs * 1.15, baseline.averageMs + 2);
 }
 
-export function assertForecastRuntimeTelemetryEvidence(
-  value: unknown,
-): ForecastRuntimeTelemetryEvidence {
-  if (!isRecord(value)) throw new Error("runtime_telemetry_not_object");
-  if (value["version"] !== 2 || value["source"] !== FORECAST_RUNTIME_TELEMETRY_SOURCE) {
-    throw new Error("runtime_telemetry_version_invalid");
-  }
-  const canaryId = requiredString(value["canaryId"], "runtime_canary_id_invalid");
-  const deploymentSha = requiredString(value["deploymentSha"], "runtime_deployment_sha_invalid");
-  const collectorScriptVersion = requiredString(
-    value["collectorScriptVersion"],
-    "runtime_collector_script_version_invalid",
-  );
-  const dispatcherScriptVersion = requiredString(
-    value["dispatcherScriptVersion"],
-    "runtime_dispatcher_script_version_invalid",
-  );
-  const collectorScriptVersionId = requiredVersionId(
-    value["collectorScriptVersionId"],
-    "runtime_collector_version_id_invalid",
-  );
-  const dispatcherScriptVersionId = requiredVersionId(
-    value["dispatcherScriptVersionId"],
-    "runtime_dispatcher_version_id_invalid",
-  );
-  if (!/^fc-[0-9a-f]{32}$/.test(canaryId)) throw new Error("runtime_canary_id_invalid");
-  if (!/^[0-9a-f]{40}$/.test(deploymentSha)) throw new Error("runtime_deployment_sha_invalid");
-  const startedAt = requiredTimestamp(value["startedAt"], "runtime_started_at_invalid");
-  const endedAt = requiredTimestamp(value["endedAt"], "runtime_ended_at_invalid");
-  const observedAt = requiredTimestamp(value["observedAt"], "runtime_observed_at_invalid");
-  const collectionErrors = parseCollectionErrors(value["collectionErrors"]);
-  if (Date.parse(endedAt) <= Date.parse(startedAt)) throw new Error("runtime_window_invalid");
-  if (!Array.isArray(value["workers"]) || value["workers"].length !== 2) {
-    throw new Error("runtime_workers_invalid");
-  }
-  const workers = value["workers"].map(parseWorker);
-  if (new Set(workers.map((worker) => worker.component)).size !== workers.length) {
-    throw new Error("runtime_workers_duplicate");
-  }
-  return {
-    version: 2,
-    source: FORECAST_RUNTIME_TELEMETRY_SOURCE,
-    canaryId,
-    deploymentSha,
-    collectorScriptVersion,
-    dispatcherScriptVersion,
-    collectorScriptVersionId,
-    dispatcherScriptVersionId,
-    startedAt,
-    endedAt,
-    observedAt,
-    ...(collectionErrors.length > 0 ? { collectionErrors } : {}),
-    workers,
-  };
+export function isAdmittedV2Sample(sample: ForecastRuntimeSample) {
+  return sample.admission === "admitted" && (sample.mode === "on" || sample.mode === "hold");
 }
 
-function parseCollectionErrors(value: unknown) {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > 8) {
-    throw new Error("runtime_collection_errors_invalid");
-  }
-  return value.map((error) => {
-    if (typeof error !== "string" || !/^[a-z0-9_:-]{1,120}$/.test(error)) {
-      throw new Error("runtime_collection_error_invalid");
-    }
-    return error;
-  });
-}
-
-function parseWorker(value: unknown): ForecastRuntimeTelemetryEvidence["workers"][number] {
-  if (!isRecord(value)) throw new Error("runtime_worker_invalid");
-  const component = value["component"];
-  if (component !== "collector" && component !== "dispatcher") {
-    throw new Error("runtime_component_invalid");
-  }
-  const configuredLimitMs = requiredFinite(value["configuredLimitMs"], "runtime_limit_invalid");
-  if (value["headSamplingRate"] !== 1) throw new Error("runtime_sampling_rate_invalid");
-  if (!Array.isArray(value["samples"]) || value["samples"].length > 1_000) {
-    throw new Error("runtime_samples_invalid");
-  }
-  return {
-    component,
-    scriptName: requiredString(value["scriptName"], "runtime_script_name_invalid"),
-    configuredLimitMs,
-    headSamplingRate: 1,
-    samples: value["samples"].map(parseSample),
-  };
-}
-
-function parseSample(value: unknown): ForecastRuntimeSample {
-  if (!isRecord(value)) throw new Error("runtime_sample_invalid");
-  if (value["eventType"] !== "scheduled") throw new Error("runtime_event_type_invalid");
-  const requestIdHash = requiredString(value["requestIdHash"], "runtime_request_hash_invalid");
-  if (!/^[0-9a-f]{64}$/.test(requestIdHash)) throw new Error("runtime_request_hash_invalid");
-  const scriptVersionId = optionalVersionId(value["scriptVersionId"]);
-  const scriptVersionTag = optionalString(value["scriptVersionTag"], "runtime_script_tag_invalid");
-  const identitySource = value["identitySource"];
-  if (identitySource !== "tag" && identitySource !== "version_id" && identitySource !== "marker") {
-    throw new Error("runtime_identity_source_invalid");
-  }
-  if (identitySource === "tag" && scriptVersionTag === null) {
-    throw new Error("runtime_identity_source_invalid");
-  }
-  if (identitySource === "version_id" && scriptVersionId === null) {
-    throw new Error("runtime_identity_source_invalid");
-  }
-  if (identitySource === "marker" && (scriptVersionId !== null || scriptVersionTag !== null)) {
-    throw new Error("runtime_identity_source_invalid");
-  }
-  const runtime = parseOptionalRuntimeSummary(value);
-  return {
-    slot: requiredTimestamp(value["slot"], "runtime_slot_invalid"),
-    requestIdHash,
-    scriptVersionId,
-    scriptVersionTag,
-    identitySource,
-    eventType: "scheduled",
-    ...runtime,
-  };
-}
-
-function parseOptionalRuntimeSummary(value: Record<string, unknown>) {
-  const cpuTimeMs = value["cpuTimeMs"];
-  const outcome = value["outcome"];
-  if (cpuTimeMs === null && outcome === null) return { cpuTimeMs: null, outcome: null };
-  if (cpuTimeMs === null || outcome === null) throw new Error("runtime_summary_partial");
-  return {
-    cpuTimeMs: requiredFinite(cpuTimeMs, "runtime_cpu_invalid"),
-    outcome: requiredString(outcome, "runtime_outcome_invalid"),
-  };
-}
-
-function incompleteRuntime(errors: string | string[]): RuntimeEvaluation {
+function incompleteRuntime(errors: string | string[], scheduled = false): RuntimeEvaluation {
   const values = Array.isArray(errors) ? errors : [errors];
-  const empty = emptyCpuPerformance();
+  const empty = {
+    ...emptyCpuPerformance(),
+    ...(scheduled ? { coverageBasis: "scheduled" as const } : {}),
+  };
   return {
     evidence: { status: "incomplete", errors: values },
     runtimeSafety: { status: "incomplete", failureCodes: [] },
@@ -779,49 +693,7 @@ function ratio(numerator: number, denominator: number) {
   return denominator === 0 ? 0 : numerator / denominator;
 }
 
-function isSuccessfulOutcome(value: string) {
+export function isSuccessfulOutcome(value: string) {
   const normalized = value.toLowerCase();
   return normalized === "ok" || normalized === "success";
-}
-
-function requiredString(value: unknown, code: string) {
-  if (typeof value !== "string" || value.length === 0 || value.length > 240) throw new Error(code);
-  return value;
-}
-
-function optionalString(value: unknown, code: string) {
-  if (value === null) return null;
-  return requiredString(value, code);
-}
-
-function requiredVersionId(value: unknown, code: string) {
-  const versionId = requiredString(value, code);
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(versionId)) {
-    throw new Error(code);
-  }
-  return versionId.toLowerCase();
-}
-
-function optionalVersionId(value: unknown) {
-  if (value === null) return null;
-  return requiredVersionId(value, "runtime_script_version_id_invalid");
-}
-
-function requiredTimestamp(value: unknown, code: string) {
-  const timestampMs = Date.parse(requiredString(value, code));
-  if (!Number.isFinite(timestampMs)) throw new Error(code);
-  return new Date(timestampMs).toISOString();
-}
-
-function requiredFinite(value: unknown, code: string) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error(code);
-  return value;
-}
-
-function errorCode(error: unknown) {
-  return error instanceof Error ? error.message.slice(0, 120) : "runtime_telemetry_invalid";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

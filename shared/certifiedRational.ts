@@ -26,6 +26,8 @@ export function q(n: bigint | number, d: bigint | number = 1n): Q {
     nn = -nn;
     dd = -dd;
   }
+  if (dd === 1n) return { n: nn, d: dd };
+  if (nn === 0n) return ZERO;
   const g = gcd(nn, dd);
   return g === 1n ? { n: nn, d: dd } : { n: nn / g, d: dd / g };
 }
@@ -33,10 +35,22 @@ export function q(n: bigint | number, d: bigint | number = 1n): Q {
 export const add = (a: Q, b: Q): Q => {
   if (a.n === 0n) return b;
   if (b.n === 0n) return a;
-  return q(a.n * b.d + b.n * a.d, a.d * b.d);
+  if (a.d === b.d) return q(a.n + b.n, a.d);
+  // Reduced inputs can cancel only factors shared by their denominators.
+  const common = gcd(a.d, b.d);
+  const left = a.d / common;
+  const right = b.d / common;
+  const numerator = a.n * right + b.n * left;
+  const cancel = gcd(numerator, common);
+  return { n: numerator / cancel, d: left * (b.d / cancel) };
 };
 export const sub = (a: Q, b: Q): Q => q(a.n * b.d - b.n * a.d, a.d * b.d);
-export const mul = (a: Q, b: Q): Q => (a.n === 0n || b.n === 0n ? ZERO : q(a.n * b.n, a.d * b.d));
+export const mul = (a: Q, b: Q): Q => {
+  if (a.n === 0n || b.n === 0n) return ZERO;
+  const left = gcd(a.n, b.d);
+  const right = gcd(b.n, a.d);
+  return { n: (a.n / left) * (b.n / right), d: (a.d / right) * (b.d / left) };
+};
 export const div = (a: Q, b: Q): Q => {
   if (b.n === 0n) throw new RangeError("rational: division by zero");
   return q(a.n * b.d, a.d * b.n);

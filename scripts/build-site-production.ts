@@ -3,9 +3,13 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Manifest } from "vite";
+import { parse, type DefaultTreeAdapterMap } from "parse5";
 import { SITE_LOCALE_ORDER, SITE_LOCALES, siteLocaleUrl } from "../shared/siteLocales.ts";
 import type { CertifiedBundleBoundary } from "./certified-bundle-boundary.ts";
 import { localizedSeoBlock, renderSitemap } from "./localized-pages.ts";
+import { assertProductionForecastContract } from "./forecast-runtime-build.ts";
+import productionProposal from "../site-worker/production-forecast.proposed.json" with { type: "json" };
+import { assertProductionAssetReferences, stageProductionAssetCoexistence } from "./production-asset-coexistence.ts";
 
 const RECEIPT = ".vite/site-production.json";
 const ASSETS_IGNORE = "/.vite/\n";
@@ -24,12 +28,39 @@ async function filesIn(directory: string, prefix = ""): Promise<string[]> {
   return paths.flat().sort();
 }
 
-function statsScript(html: string): string {
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].filter((match) =>
-    match[1]?.includes("window.COLLECTION_STATS_CONFIG"),
-  );
+type ScriptBodyLocation = { start: number; end: number };
+
+function statsScriptLocation(html: string): ScriptBodyLocation {
+  const scripts: ScriptBodyLocation[] = [];
+  const nodes: DefaultTreeAdapterMap["node"][] = [parse(html, { sourceCodeLocationInfo: true })];
+  for (const node of nodes) {
+    if ("tagName" in node && node.tagName === "script") {
+      const location = node.sourceCodeLocation;
+      if (location?.startTag) {
+        const start = location.startTag.endOffset;
+        const end = location.endTag?.startOffset ?? html.length;
+        if (html.slice(start, end).includes("window.COLLECTION_STATS_CONFIG")) {
+          if (!location.endTag) throw new Error("Unclosed stats configuration script");
+          scripts.push({ start, end });
+        }
+      }
+    }
+    if ("childNodes" in node) nodes.push(...node.childNodes);
+    if ("content" in node) nodes.push(node.content);
+  }
   if (scripts.length !== 1) throw new Error("Expected exactly one stats configuration script");
-  return (scripts[0]?.[1] ?? "").replace(/\r\n?/g, "\n").trim();
+  return scripts[0]!;
+}
+
+function statsScript(html: string): string {
+  const { start, end } = statsScriptLocation(html);
+  return html.slice(start, end).replace(/\r\n?/g, "\n").trim();
+}
+
+function siteApplicationLocale(path: string) {
+  return SITE_LOCALE_ORDER.find(
+    (value) => `${SITE_LOCALES[value].path.slice(1)}index.html` === path,
+  );
 }
 
 export function assertProductionHtml(html: string, path: string, sourceConfig: string): void {
@@ -42,9 +73,7 @@ export function assertProductionHtml(html: string, path: string, sourceConfig: s
   if (/<mark class="placeholder"|<p class="placeholder-block"/.test(html)) {
     throw new Error(`Unfilled legal placeholder in ${path}`);
   }
-  const locale = SITE_LOCALE_ORDER.find(
-    (value) => `${SITE_LOCALES[value].path.slice(1)}index.html` === path,
-  );
+  const locale = siteApplicationLocale(path);
   if (!locale) return;
   // The ordinary Vite build preserves this inline script; normalize line endings only.
   if (statsScript(html) !== sourceConfig) {
@@ -63,6 +92,7 @@ export function productionHeaders(
   boundary: CertifiedBundleBoundary,
   files: readonly string[],
   publicFiles: readonly string[],
+  retainedFiles: readonly string[] = [],
 ): string {
   const outputs = new Set<string>();
   for (const chunk of Object.values(manifest)) {
@@ -73,12 +103,14 @@ export function productionHeaders(
   for (const worker of boundary.perWorker) {
     for (const chunk of worker.chunks) outputs.add(chunk.file);
   }
+  for (const file of retainedFiles) if (/\.(?:js|css)$/.test(file)) outputs.add(file);
   // Only metadata-owned JS/CSS matching the current Vite [name]-[hash] output
   // convention qualify. Public files and unknown output formats revalidate.
   const fingerprinted = [...outputs]
     .filter(
       (file) =>
-        /^assets\/[^/]+-[A-Za-z0-9_-]{8}\.(?:js|css)$/.test(file) && !publicFiles.includes(file),
+        /^assets\/[^/]+-[A-Za-z0-9_-]{8}\.(?:js|css)$/.test(file) &&
+          (!publicFiles.includes(file) || retainedFiles.includes(file)),
     )
     .sort();
   for (const file of outputs) {
@@ -101,16 +133,47 @@ async function productionAssetExclusions(directory: string, check: boolean): Pro
   }
 }
 
-export async function buildSiteProduction(directory: string, check = false): Promise<void> {
+export async function buildSiteProduction(
+  directory: string, check = false, productionContract?: unknown, target = "production",
+): Promise<void> {
+  if (target !== "production" && target !== "staging") throw new Error("Invalid site target");
+  // The CLI/default stays bundled. Online packaging requires a separately reviewed,
+  // complete contract and a matching receipt; this parameter cannot activate a service.
+  if (productionContract !== undefined) {
+    // Caller-supplied/synthetic approval is not authority for the formal packaging path.
+    const configured = assertProductionForecastContract(productionProposal);
+    const requested = assertProductionForecastContract(productionContract);
+    if (JSON.stringify(configured) !== JSON.stringify(requested))
+      throw new Error("production_forecast_configured_contract_mismatch");
+    await assertForecastBuild(directory, "production", configured);
+  } else await assertForecastBuild(directory, "bundled");
+  const releaseAssets = await stageProductionAssetCoexistence(directory, check);
   const files = await filesIn(directory);
+  for (const file of files.filter((path) => !path.startsWith(".vite/"))) {
+    if (
+      /^(?:e2e|scripts|src|shared|evidence|deliverables|benchmarks|node_modules|test-results|coverage|playwright-report|debug|diagnostic|rollback)\//.test(file) ||
+      /(?:\.test\.|\.spec\.|\.map$|(?:^|\/)\.env(?:\.|$))/.test(file)
+    ) throw new Error(`production_developer_export:${file}`);
+    if (!/\.(?:js|html|json|css|md)$/.test(file)) continue;
+    const text = await readFile(join(directory, file), "utf8");
+    for (const marker of [
+      "BEGIN PRIVATE KEY", "CLOUDFLARE_API_TOKEN=", "NPM_TOKEN=",
+      "forecast-async-test", "native_worker_prohibited", "C:/Users/",
+    ]) {
+      if (text.includes(marker)) throw new Error(`production_selected_marker:${file}:${marker}`);
+    }
+  }
   const source = await readFile(join(ROOT, "index.html"), "utf8");
-  const sourceConfig = statsScript(source);
+  const sourceConfig = statsScript(siteTargetHtml(source, target));
   for (const locale of SITE_LOCALE_ORDER) {
     const path = `${SITE_LOCALES[locale].path.slice(1)}index.html`;
     if (!files.includes(path)) throw new Error(`Missing production locale: ${path}`);
   }
   for (const path of files.filter((file) => file.endsWith(".html"))) {
-    assertProductionHtml(await readFile(join(directory, path), "utf8"), path, sourceConfig);
+    const html = await readFile(join(directory, path), "utf8");
+    const packaged = siteTargetHtml(html, target, path);
+    if (!check && packaged !== html) await writeFile(join(directory, path), packaged);
+    assertProductionHtml(check ? html : packaged, path, sourceConfig);
   }
   for (const [file, expected] of [
     ["robots.txt", await readFile(join(ROOT, "public/robots.txt"), "utf8")],
@@ -126,7 +189,9 @@ export async function buildSiteProduction(directory: string, check = false): Pro
   const boundary: CertifiedBundleBoundary = JSON.parse(
     await readFile(join(directory, ".vite/certified-boundary.json"), "utf8"),
   );
-  const headers = productionHeaders(manifest, boundary, files, await filesIn(join(ROOT, "public")));
+  await assertProductionAssetReferences(directory, manifest, boundary);
+  const headers = productionHeaders(manifest, boundary, files, await filesIn(join(ROOT, "public")),
+    releaseAssets.retainedFiles.map((asset) => asset.file));
   if (files.includes("_headers")) {
     const previous = await readFile(join(directory, "_headers"), "utf8");
     if (previous !== headers)
@@ -147,7 +212,7 @@ export async function buildSiteProduction(directory: string, check = false): Pro
           .digest("hex"),
       ]),
   );
-  const receipt = `${JSON.stringify({ version: 1, files: Object.fromEntries(hashes) }, null, 2)}\n`;
+  const receipt = `${JSON.stringify({ version: 1, releaseAssets, files: Object.fromEntries(hashes) }, null, 2)}\n`;
   if (check) {
     if ((await readFile(join(directory, RECEIPT), "utf8")) !== receipt) {
       throw new Error("Production artifact content changed; rebuild before deployment");
@@ -157,6 +222,33 @@ export async function buildSiteProduction(directory: string, check = false): Pro
   }
 }
 
+export function siteTargetHtml(html: string, target: string, path?: string): string {
+  if (target !== "production" && target !== "staging") throw new Error("Invalid site target");
+  if (path !== undefined && !siteApplicationLocale(path)) return html;
+  const script = statsScriptLocation(html);
+  const config = html.slice(script.start, script.end);
+  const replaceConfig = (replacement: string) => {
+    return html.slice(0, script.start) + replacement + html.slice(script.end);
+  };
+  const gatewayConfig = config.replace(
+    /(staging:\s*\{[\s\S]*?endpoint:\s*)"[^"]+"/,
+    '$1"https://staging.nikkecollection.com"',
+  );
+  if (target === "production") {
+    const productionConfig = config.replace(/[ \t]*\bstaging:\s*\{[^{}]*\},?[ \t]*\r?\n?/g, "");
+    if (/\bstaging\s*:/.test(productionConfig))
+      throw new Error("Unsupported nested staging statistics configuration");
+    return replaceConfig(productionConfig);
+  }
+  // Both selectors stay on staging; an ordinary staging page must never submit to production.
+  const key = config.match(/staging:\s*\{[\s\S]*?turnstileSiteKey:\s*"([^"]+)"/)?.[1];
+  if (!key) throw new Error("Missing staging statistics configuration");
+  const staged = gatewayConfig
+    .replace(/endpoint:\s*"[^"]+"/g, 'endpoint: "https://staging.nikkecollection.com"')
+    .replace(/turnstileSiteKey:\s*"[^"]+"/, `turnstileSiteKey: "${key}"`);
+  return replaceConfig(staged);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
   if (args.length > 1 || (args.length === 1 && args[0] !== "--check")) {
@@ -164,3 +256,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   await buildSiteProduction(resolve("dist"), args[0] === "--check");
 }
+
+import { assertForecastBuild } from "./forecast-runtime-build.ts";

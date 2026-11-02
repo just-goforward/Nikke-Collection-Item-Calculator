@@ -1,15 +1,14 @@
-import { env } from "cloudflare:workers";
 import { beforeEach, expect, it, vi } from "vitest";
 import { createSession } from "./auth";
 import { putConsent } from "./consent";
 import { workspaceBody } from "./http";
 import { applyPrivacyChange, reconcilePrivacyIntents, withPrivacyIntent } from "./privacy";
 import { admitAccount, EMPTY_DOCUMENT, putWorkspace } from "./store";
-import { type FixtureEnv, resetFixture } from "./test-fixture";
+import { fixtureEnv, resetFixture } from "./test-fixture";
 import type { PersonalEnv, SqlDatabase, SqlStatement } from "./types";
 import worker, { scheduledLane } from "./worker";
 
-const dbs = env as unknown as FixtureEnv;
+const dbs = fixtureEnv();
 const NOW = Date.UTC(2026, 8, 2);
 const maintenance: PersonalEnv = {
   ...dbs,

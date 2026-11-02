@@ -1,0 +1,45 @@
+# Generated from scripts/production-operating-catalog.mjs; do not edit.
+name = "collection-kit-forecast-dispatcher-v2-production"
+main = "src/worker.ts"
+compatibility_date = "2026-08-22"
+workers_dev = false
+preview_urls = false
+routes = []
+upload_source_maps = false
+compatibility_flags = ["nodejs_compat"]
+
+[limits]
+cpu_ms = 25
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 0.25
+
+[triggers]
+crons = []
+
+[[d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector"
+database_id = "2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853"
+
+[[d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[vars]
+FORECAST_V2_NOTIFICATIONS_ENABLED = "false"
+ENVIRONMENT = "production"
+DEPLOY_SHA = "local"
+PUBLICATION_MODE = "off"
+DISCORD_APPROVAL_CHANNEL_ID = "unset"
+DISCORD_CHANNEL_ID = "unset"
+DISCORD_ACTIVITY_CHANNEL_ID = "unset"
+DISCORD_ALERT_CHANNEL_ID = "unset"
+DISCORD_FALLBACK_CHANNEL_ID = "unset"
+DISPATCH_ENABLED = "false"
+
+[secrets]
+required = ["DISCORD_BOT_TOKEN"]

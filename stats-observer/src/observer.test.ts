@@ -1,7 +1,7 @@
 import { reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import statsSchema from "../../cloudflare/schema.sql?raw";
+import statsSchema from "../fixtures/stats-schema.sql?raw";
 import {
   buildMetricEvidence,
   CLOUDFLARE_PAID_INCLUDED_LIMITS,
@@ -541,6 +541,25 @@ describe("stats observer D1 integration", () => {
       }),
     ).toEqual({ rows: 3, deltas: 3, alerts: 2 });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the invocation error authoritative when the failure record itself cannot be written", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await env.OBSERVER_DB.prepare(
+      `CREATE TRIGGER fail_failure_record BEFORE UPDATE ON observer_runs
+       WHEN NEW.status='failure'
+       BEGIN SELECT RAISE(ABORT, 'forced failure-record failure'); END;`,
+    ).run();
+    await seedGuard(env.GUARD_DB, NOW - 2 * 60 * 60_000);
+
+    // The poll error still propagates, and the broken failure record is separately logged.
+    await expect(runObserver(observerEnv(), NOW, { now: () => NOW })).rejects.toThrow(
+      "telemetry_budget_disabled",
+    );
+    expect(errorLog.mock.calls.map(([line]) => JSON.parse(String(line)))).toContainEqual(
+      expect.objectContaining({ event: "observer_run_failure_record_failed" }),
+    );
+    errorLog.mockRestore();
   });
 
   it.each([

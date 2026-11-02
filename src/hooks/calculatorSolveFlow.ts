@@ -1,12 +1,16 @@
-import { type Dispatch, type SetStateAction, useCallback, useRef } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef } from "react";
 import { message, useI18n } from "../i18n/locale";
 import type { LocalizedMessage } from "../i18n/messages.ko";
+import { ignoreExpectedError } from "../lib/errorHandling";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
+import { SUPPLY_UNAVAILABLE_MESSAGE } from "../lib/supplyForecastRuntime";
 import type { SolverInput } from "../types";
 import type { DetailView, LoadingView, RecommendationAction, ResultView } from "../ui-types";
 import { makeSolverDiagnosticEvent, makeSolverRecoveryEvent } from "./calculatorDiagnostics";
 import {
   DEFAULT_LOADING_TEXT,
+  EMPTY_DETAIL,
+  EMPTY_RESULT,
   inputKey,
   LOADING_DETAIL,
   LOADING_RESULT,
@@ -18,10 +22,18 @@ import { resolvePendingStockCorrection } from "./calculatorStockCorrection";
 import type { ConvertApplyResult, OutcomeApplyResult } from "./outcomeFlowTypes";
 import { SolverRecoveryFailure } from "./solverRecovery";
 import { WorkerTaskCancelled } from "./solverWorkerClient";
+import { SERVICE_CERTIFIED_SOLVER } from "../lib/serviceCertified";
+import { withoutRecommendedWait } from "./serviceCertifiedPresentation";
+import { ServiceCertifiedCancelled, type ServiceCertifiedSolveOutcome } from "./serviceCertifiedTypes";
+import { observeDecision, type DecisionLifecycle } from "../analytics/decisionLifecycle";
+import { isOutcomeReportPending, retainPendingOutcomeSettlement, withAcceptedOutcomeCapture } from "../analytics/acceptedOutcome";
 
 type MutableRef<T> = { current: T };
 
 type SolveFlowOptions = {
+  lifecycle?: DecisionLifecycle;
+  observerOwner?: unknown;
+  checkForecastBoundary?: () => boolean;
   applyConvert: () => ConvertApplyResult | null;
   applyOutcome: (outcome: "success" | "fail") => OutcomeApplyResult;
   collectInput: () => SolverInput;
@@ -38,7 +50,10 @@ type SolveFlowOptions = {
   setManualStockEditRequired: (required: boolean) => void;
   setPendingStatsEvent: (event: PendingStatsEvent | null) => void;
   setResultView: Dispatch<SetStateAction<ResultView>>;
-  solveBestAvailable: (input: SolverInput) => Promise<SolveOutcome>;
+  solveBestAvailable: (
+    input: SolverInput,
+    onCurrent?: (result: SolverResult) => void,
+  ) => Promise<SolveOutcome | ServiceCertifiedSolveOutcome>;
 };
 
 type SolveAndRenderOptions = {
@@ -132,6 +147,9 @@ export function solveFailurePresentation(
   error: unknown,
   failureContext?: SolveAndRenderOptions["failureContext"],
 ) {
+  if (!failureContext && error instanceof Error && error.message === SUPPLY_UNAVAILABLE_MESSAGE) {
+    return { reason: "solver_failure" as const, message: message("staging.supplyUnavailable") };
+  }
   const capacityFailure = isPrecisionCapacityFailure(error);
   if (failureContext === "outcome") {
     return {
@@ -166,8 +184,19 @@ function handleSolveFailure({
   latestResultRef,
   queueStatsEvent,
 }: SolveFailureOptions): SolveFailureResolution {
+  if (error instanceof ServiceCertifiedCancelled) {
+    const keepNewerViews = inputRevisionRef.current !== inputRevision;
+    if (!error.unmounted && !keepNewerViews) latestResultRef.current = null;
+    return {
+      result: false,
+      restorePreviousViews: false,
+      skipUiCleanup: error.unmounted,
+      ...(!error.unmounted && !keepNewerViews
+        ? { views: { result: EMPTY_RESULT, detail: EMPTY_DETAIL } } : {}),
+    };
+  }
   if (inputRevisionRef.current !== inputRevision) {
-    return { result: false, restorePreviousViews: true, skipUiCleanup: false };
+    return { result: false, restorePreviousViews: !SERVICE_CERTIFIED_SOLVER, skipUiCleanup: false };
   }
   if (
     error instanceof WorkerTaskCancelled &&
@@ -177,7 +206,7 @@ function handleSolveFailure({
     return { result: false, restorePreviousViews: false, skipUiCleanup: true };
   }
   if (error instanceof SolverRecoveryFailure) {
-    const recoveryEvent = makeSolverRecoveryEvent(input, error.trace);
+    const recoveryEvent = makeSolverRecoveryEvent(input, error.trace, error.supplyForecast);
     if (recoveryEvent) queueStatsEvent(recoveryEvent);
     if (preservesExistingResult(error, latestResultRef.current, input)) {
       return { result: false, restorePreviousViews: true, skipUiCleanup: false };
@@ -202,6 +231,8 @@ function handleSolveFailure({
 
 type ExecuteSolveOptions = Pick<
   SolveFlowOptions,
+  | "lifecycle"
+  | "checkForecastBoundary"
   | "getCurrentViews"
   | "inputRevisionRef"
   | "latestResultRef"
@@ -215,6 +246,8 @@ type ExecuteSolveOptions = Pick<
   | "solveBestAvailable"
 > & {
   busyRef: MutableRef<boolean>;
+  unmountedRef: MutableRef<boolean>;
+  executionRef: MutableRef<number>;
   calculationLocale: ReturnType<typeof useI18n>["locale"];
 };
 
@@ -223,51 +256,66 @@ async function executeSolveAndRender(
   input: SolverInput,
   options: SolveAndRenderOptions,
 ) {
-  if (context.busyRef.current) return false;
+  if (context.busyRef.current || context.unmountedRef.current) return false;
+  context.checkForecastBoundary?.();
   context.busyRef.current = true;
+  const execution = ++context.executionRef.current;
+  const observerOwner = observeDecision(context.lifecycle ? () => context.lifecycle!.begin(input) : undefined);
+  const owns = () => execution === context.executionRef.current && !context.unmountedRef.current;
   const inputRevision = context.inputRevisionRef.current;
   const loadingSession = startDeferredLoading(
     context.setLoading,
     options.loadingText ?? DEFAULT_LOADING_TEXT,
   );
-  const previousViews = context.getCurrentViews();
+  const previous = context.getCurrentViews();
+  const previousViews = { ...previous, detail: withoutRecommendedWait(previous.detail) };
   context.setCalculateBusy(true);
   context.setResultView(LOADING_RESULT);
-  if (previousViews.detail.type !== "metrics") context.setDetailView(LOADING_DETAIL);
+  context.setDetailView(previousViews.detail.type === "metrics" ? previousViews.detail : LOADING_DETAIL);
   let completedResult: SolverResult | null = null;
   let failureViews: { detail: DetailView; result: ResultView } | null = null;
   let restorePreviousViews = false;
   let skipUiCleanup = false;
+  let intendedResult = true;
   try {
     context.prepareForSolve();
-    const outcome = await context.solveBestAvailable(input);
-    if (context.inputRevisionRef.current !== inputRevision) {
-      restorePreviousViews = true;
-      return false;
-    }
-    const result = outcome.result;
-    completedResult = result;
-    const diagnosticEvent = makeSolverDiagnosticEvent(outcome, context.calculationLocale);
-    if (diagnosticEvent) context.queueStatsEvent(diagnosticEvent);
-    const recoveryEvent = makeSolverRecoveryEvent(result.input, outcome.recoveryTrace);
-    if (recoveryEvent) context.queueStatsEvent(recoveryEvent);
-    return true;
-  } catch (error) {
-    const failure = handleSolveFailure({
-      ...context,
-      error,
-      failureContext: options.failureContext,
-      input,
-      inputRevision,
+    const outcome = await context.solveBestAvailable(input, (checkpoint) => {
+      if (owns() && context.inputRevisionRef.current === inputRevision)
+        context.renderResult(checkpoint, options.previousAction);
     });
-    failureViews = failure.views ?? null;
-    restorePreviousViews = failure.restorePreviousViews;
-    skipUiCleanup = failure.skipUiCleanup;
-    return failure.result;
+    if (!owns() || context.inputRevisionRef.current !== inputRevision) {
+      restorePreviousViews = !SERVICE_CERTIFIED_SOLVER;
+      intendedResult = false;
+    } else {
+      const result = outcome.result;
+      completedResult = result;
+      if (!("kind" in outcome)) queueOutcomeDiagnostics(context, outcome);
+    }
+  } catch (error) {
+    if (!owns()) {
+      intendedResult = false;
+      skipUiCleanup = true;
+    } else {
+      const failure = handleSolveFailure({
+        ...context,
+        error,
+        failureContext: options.failureContext,
+        input,
+        inputRevision,
+      });
+      failureViews = failure.views ?? null;
+      restorePreviousViews = failure.restorePreviousViews;
+      skipUiCleanup = failure.skipUiCleanup;
+      intendedResult = failure.result;
+    }
   } finally {
-    await loadingSession.finish(skipUiCleanup);
-    if (!skipUiCleanup) {
-      if (completedResult) {
+    await loadingSession.finish(skipUiCleanup || !owns());
+    if (execution === context.executionRef.current) context.busyRef.current = false;
+    if (!skipUiCleanup && owns()) {
+      const forecastCurrent = context.checkForecastBoundary?.() !== false;
+      if (SERVICE_CERTIFIED_SOLVER && context.inputRevisionRef.current !== inputRevision) {
+        // A reset/account switch during the minimum loading delay owns the new views.
+      } else if (completedResult) {
         context.renderResult(completedResult, options.previousAction);
       } else if (failureViews) {
         context.setResultView(failureViews.result);
@@ -278,8 +326,39 @@ async function executeSolveAndRender(
       }
       context.setCalculateBusy(false);
       context.setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
+      if (forecastCurrent && owns() && context.inputRevisionRef.current === inputRevision &&
+          completedResult && observerOwner !== undefined) {
+        const retainedResult = completedResult;
+        const origin = retainedResult.certified?.final === false ? "current_checkpoint" : "final";
+        observeDecision(context.lifecycle ?
+          () => context.lifecycle!.accepted(observerOwner, input, retainedResult, origin) : undefined);
+      }
     }
-    context.busyRef.current = false;
+  }
+  // A supersession during the deferred loading cleanup must not report success
+  // to calculateAndClearStale, which would otherwise clear the new stale marker.
+  return intendedResult && owns() &&
+    (!SERVICE_CERTIFIED_SOLVER || context.inputRevisionRef.current === inputRevision);
+}
+
+export function queueOutcomeDiagnostics(
+  context: Pick<ExecuteSolveOptions, "calculationLocale" | "queueStatsEvent">,
+  outcome: SolveOutcome,
+) {
+  try {
+    const diagnostic = makeSolverDiagnosticEvent(outcome, context.calculationLocale);
+    if (diagnostic) context.queueStatsEvent(diagnostic);
+    const recovery = makeSolverRecoveryEvent(
+      outcome.result.input,
+      outcome.recoveryTrace,
+      outcome.result.stats?.supplyForecast ?? outcome.supplyForecast,
+    );
+    if (recovery) context.queueStatsEvent(recovery);
+    return true;
+  } catch (error) {
+    // Telemetry delivery cannot revoke an already completed solve.
+    ignoreExpectedError("Optional diagnostics could not be emitted; calculation retained", error);
+    return false;
   }
 }
 
@@ -303,7 +382,11 @@ export function consumePendingStockCorrection({
   );
   if (resolution.status === "none") return true;
   if (resolution.status === "invalid" && !resolution.canCalculate) return false;
-  if (resolution.status === "valid") queueStatsEvent(resolution.event);
+  if (resolution.status === "valid") {
+    if (isOutcomeReportPending(pendingStatsEventRef.current!))
+      retainPendingOutcomeSettlement(pendingStatsEventRef.current!, resolution.event);
+    else queueStatsEvent(resolution.event);
+  }
   setPendingStatsEvent(null);
   setManualStockEditRequired(false);
   return true;
@@ -354,6 +437,9 @@ function useManualCalculation({
 }
 
 export function useSolveFlow({
+  lifecycle,
+  observerOwner,
+  checkForecastBoundary,
   applyConvert,
   applyOutcome,
   collectInput,
@@ -374,13 +460,36 @@ export function useSolveFlow({
 }: SolveFlowOptions) {
   const { locale } = useI18n();
   const busyRef = useRef(false);
+  const unmountedRef = useRef(false);
+  const executionRef = useRef(0);
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      ++executionRef.current;
+      busyRef.current = false;
+    };
+  }, []);
+  const captureCalculationOwnership = useCallback(() => {
+    const execution = executionRef.current;
+    const revision = inputRevisionRef.current;
+    return () => !unmountedRef.current && executionRef.current === execution &&
+      (!SERVICE_CERTIFIED_SOLVER || inputRevisionRef.current === revision);
+  }, [inputRevisionRef]);
   const isBusy = useCallback(() => busyRef.current, []);
+  // Product action eligibility belongs to the rendered core execution, even
+  // when analytics is disabled or its parent event could not be queued.
+  const ownsRenderedAction = captureCalculationOwnership();
 
   const solveAndRenderInput = useCallback(
     (input: SolverInput, options: SolveAndRenderOptions = {}) =>
       executeSolveAndRender(
         {
+          ...(lifecycle ? { lifecycle } : {}),
+          ...(checkForecastBoundary ? { checkForecastBoundary } : {}),
           busyRef,
+          unmountedRef,
+          executionRef,
           calculationLocale: locale,
           getCurrentViews,
           inputRevisionRef,
@@ -398,6 +507,8 @@ export function useSolveFlow({
         options,
       ),
     [
+      lifecycle,
+      checkForecastBoundary,
       getCurrentViews,
       latestResultRef,
       inputRevisionRef,
@@ -425,19 +536,37 @@ export function useSolveFlow({
 
   const applyOutcomeAndMaybeCalculate = useCallback(
     async (outcome: "success" | "fail") => {
-      if (busyRef.current) return null;
-      const applied = applyOutcome(outcome);
-      if (!applied) return null;
+      if (busyRef.current || !ownsRenderedAction()) return null;
+      let prepared: unknown;
+      let legacySettlement: StatsSubmissionEvent | undefined;
+      const capture = observerOwner !== undefined && lifecycle?.prepareOutcome
+        ? (context: Parameters<NonNullable<DecisionLifecycle["prepareOutcome"]>>[1]) => {
+            prepared = observeDecision(() => lifecycle.prepareOutcome!(observerOwner, context));
+            return prepared !== undefined;
+          }
+        : undefined;
+      let applied: OutcomeApplyResult;
+      try {
+        applied = withAcceptedOutcomeCapture(capture, () => applyOutcome(outcome), event => {
+          legacySettlement = event;
+          observeDecision(() => lifecycle?.retainLegacySettlement?.(observerOwner, event));
+        });
+        if (!applied) return null;
+        if (observerOwner !== undefined)
+          observeDecision(lifecycle ? () => lifecycle.outcomeConfirmed(observerOwner, outcome, prepared, legacySettlement) : undefined);
+      } finally {
+        observeDecision(() => lifecycle?.releaseOutcomePreparation?.(prepared));
+      }
       const next = calculationAfterOutcome(applied);
       if (!next) return applied;
       const started = await solveAndRenderInput(next.calculation.nextInput, next.options);
       return started ? applied : null;
     },
-    [applyOutcome, solveAndRenderInput],
+    [applyOutcome, solveAndRenderInput, lifecycle, observerOwner, ownsRenderedAction],
   );
 
   const applyConvertAndCalculate = useCallback(async () => {
-    if (busyRef.current) return null;
+    if (busyRef.current || !ownsRenderedAction()) return null;
     const applied = applyConvert();
     if (!applied) return null;
     if (applied.needsStockEdit) return applied;
@@ -445,7 +574,7 @@ export function useSolveFlow({
       failureContext: "conversion",
     });
     return started ? applied : null;
-  }, [applyConvert, solveAndRenderInput]);
+  }, [applyConvert, solveAndRenderInput, ownsRenderedAction]);
 
-  return { applyConvertAndCalculate, applyOutcomeAndMaybeCalculate, runCalculation };
+  return { applyConvertAndCalculate, applyOutcomeAndMaybeCalculate, runCalculation, captureCalculationOwnership };
 }

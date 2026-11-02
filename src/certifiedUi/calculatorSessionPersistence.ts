@@ -50,8 +50,8 @@ function restorePendingEnvelope(value: Record<string, unknown>): CertifiedCalcul
   if (value["kind"] !== PENDING_KIND || value["version"] !== 1) return invalidStorage();
   const correction = pendingBatchFromValue(value["correction"]);
   const session = sessionFromValue(value["session"]);
-  // Only observed state and entered stock may differ. Normalized native sessions make
-  // equivalent rational weights compare equally, and reject injected receipts/outcomes.
+  // Only observed state and entered stock may differ. Native-session normalization
+  // removes old cohort preferences and still rejects injected receipts/outcomes.
   const expected = { ...unresolvedCertifiedSuccess(correction), stock: session.stock };
   if (JSON.stringify(session) !== JSON.stringify(expected)) return invalidStorage();
   return { session, correction };

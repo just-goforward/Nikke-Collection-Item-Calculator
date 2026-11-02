@@ -9,19 +9,19 @@ export type CollectorEnv = {
   DEPLOY_SHA: string;
   POLL_MODE: "both" | "alternating";
   COLLECT_ENABLED?: "true" | "false";
-  DISCORD_APPROVAL_MODE?: "disabled" | "test" | "staging_adoption";
-  DISCORD_INTERACTION_OWNER?: "collector" | "router";
-  DISCORD_PUBLIC_KEY?: string;
-  DISCORD_APPLICATION_ID?: string;
-  DISCORD_APPROVER_USER_ID?: string;
-  DISCORD_GUILD_ID?: string;
-  DISCORD_CHANNEL_ID?: string;
+  FORECAST_V2_MODE?: "off" | "hold" | "on";
+  FORECAST_V2_BOOTSTRAP_CUTOFF?: string;
+  COLLECTION_SCHEDULE?: string;
+  NAVER_BOARD48_PAGE_SIZE?: string;
+  COLLECTOR_PROFILE_PHASE?: string;
+  RUNTIME_INGESTION_ENABLED?: "true" | "false";
+  RUNTIME_NOTICE_DAILY_LIMIT?: string;
 };
 
-export type SourceKind = "naver-board-48" | "naver-board-56" | "x-nikke-kr";
+export type SourceKind = "naver-board-11" | "naver-board-48" | "naver-board-56" | "x-nikke-kr";
 export type NaverSourceKind = Extract<SourceKind, `naver-${string}`>;
 
-export type NaverFeedMetadata = {
+type NaverFeedMetadata = {
   source: NaverSourceKind;
   itemId: string;
   url: string;
@@ -45,13 +45,23 @@ export type NormalizedSourceItem = {
 
 export type ScheduleEvent = {
   eventId: string;
-  eventType: "solo" | "cooperation" | "collaboration" | "schedule_change" | "reward";
+  eventType: "solo" | "cooperation" | "collaboration" | "schedule_change" | "reward" | "grant";
   sourceItem: NormalizedSourceItem;
   startsAt: string | null;
   endsAt: string | null;
   scheduleStatus: "confirmed" | "estimated";
   manualReview: boolean;
   reason: string | null;
+  segment?: SoloSegment | undefined;
+  segments?: SoloSegment[];
+};
+
+export type SoloSegment = {
+  round: number;
+  segment: number;
+  kind: "initial" | "suspend" | "reopen";
+  effectiveFrom: string;
+  effectiveUntil: string;
 };
 
 export type XProbeResult = {
@@ -65,24 +75,10 @@ export type CandidateBuildResult = {
   payloadHash: string;
 };
 
-export type CollectionSummary = {
-  outcome: "completed" | "circuit_open" | "failure" | "held";
-  polledSources: number;
-  queuedItems: number;
-};
-
 export type SourceQueueItem = NaverFeedMetadata & {
   status: "pending" | "processed" | "ignored" | "manual_review";
   attempts: number;
   errorCode: string | null;
 };
 
-export type SourceQueueResult = {
-  source: NaverSourceKind;
-  itemId: string;
-  outcome: "processed" | "ignored" | "manual_review" | "retry";
-  errorCode?: string;
-  item?: NormalizedSourceItem;
-  event?: ScheduleEvent;
-};
 /// <reference path="../worker-configuration.d.ts" />

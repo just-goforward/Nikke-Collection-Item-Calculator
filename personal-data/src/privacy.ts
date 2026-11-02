@@ -1,4 +1,5 @@
 import { HttpError } from "./http";
+import { logFailure } from "./log";
 import type { PersonalEnv } from "./types";
 
 /**
@@ -246,7 +247,7 @@ async function reapplyTombstonePage(
     const page = JSON.parse(checkpoint.page) as ReplayUser[];
     const current = `EXISTS (SELECT 1 FROM restore_replay WHERE singleton = 1
       AND intent_version = ? AND cursor = ? AND page = ?)`;
-    await env.PERSONAL_DB.batch([
+    const applied = await env.PERSONAL_DB.batch([
       env.PERSONAL_DB.prepare(
         `DELETE FROM accounts WHERE user_id IN
          (SELECT json_extract(value, '$.user_id') FROM json_each(?)
@@ -268,6 +269,9 @@ async function reapplyTombstonePage(
         checkpoint.page,
       ),
     ]);
+    // A page whose checkpoint was not advanced is replayed forever; report the stuck state.
+    if (applied[2]?.meta.changes !== 1)
+      logFailure("personal_data_restore_checkpoint_failed", "incomplete_write");
     return { complete: false, jobs: checkpoint.jobs };
   }
   const result = await env.PRIVACY_CONTROL_DB.batch<ReplayUser>([
@@ -323,11 +327,16 @@ export async function reapplyTombstones(
   }
 }
 
+export interface PrivacyChangeResult {
+  fenceGeneration: number;
+  status: "complete" | "pending";
+}
+
 export async function applyPrivacyChange(
   env: PersonalEnv,
   change: PrivacyChange,
   now: number,
-): Promise<{ fenceGeneration: number; status: "complete" }> {
+): Promise<PrivacyChangeResult> {
   return withPrivacyIntent(env, (intent) => applyPrivacyChangeCore(env, change, now, intent));
 }
 
@@ -336,14 +345,19 @@ async function applyPrivacyChangeCore(
   change: PrivacyChange,
   now: number,
   intent: PrivacyIntent,
-): Promise<{ fenceGeneration: number; status: "complete" }> {
+): Promise<PrivacyChangeResult> {
   const fenceGeneration = await blockPublication(env, now, intent);
   await recordPrivacyChange(env, change, fenceGeneration, now);
   await reapplyUserTombstones(env, change.userId);
-  await env.PRIVACY_CONTROL_DB.prepare(
+  const completed = await env.PRIVACY_CONTROL_DB.prepare(
     "UPDATE privacy_operations SET state = 'complete' WHERE op_id = ? AND user_id = ? AND kind = ?",
   )
     .bind(change.opId, change.userId, change.kind)
     .run();
+  // The operation stays 'pending' and the fence stays closed; report it instead of completion.
+  if (completed.meta.changes !== 1) {
+    logFailure("personal_data_privacy_completion_failed", "incomplete_write");
+    return { fenceGeneration, status: "pending" };
+  }
   return { fenceGeneration, status: "complete" };
 }

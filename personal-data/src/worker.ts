@@ -42,15 +42,16 @@ import {
   workspaceBody,
 } from "./http";
 import { runInactivityDeletion } from "./inactivity";
+import { failureCode, logFailure } from "./log";
 import { reapplyUserTombstones, runRestoreMaintenance } from "./privacy";
 import { publishWeekly } from "./publication";
 import {
   getWorkspace,
   provisioningStatements,
   putWorkspace,
-  type WorkspaceRow,
   workspaceRead,
   workspaceResult,
+  workspaceRow,
 } from "./store";
 import type { PersonalEnv } from "./types";
 
@@ -294,6 +295,8 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
       return response({ redirect: "/" }, 200, headers);
     } catch (error) {
       if (error instanceof HttpError) throw error;
+      // Provider/state failures stay out of the response, but a real exchange failure is reported.
+      logFailure("personal_data_request_failed", "auth_failed");
       throw new HttpError(401, "auth_failed");
     }
   }
@@ -489,9 +492,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
               "SELECT created_at, last_active_at FROM accounts WHERE user_id = ?",
             ).bind(account.userId),
           ]);
-          const workspace = workspaceResult(
-            (data[0]?.results[0] as unknown as WorkspaceRow | undefined) ?? null,
-          );
+          const workspace = workspaceResult(workspaceRow(data[0]?.results[0]));
           const metadata = data[4]?.results[0] as
             | { created_at: number; last_active_at: number }
             | undefined;
@@ -533,6 +534,8 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
             error instanceof HttpError
               ? (reasons[error.reason] ?? "unknown")
               : "service_unavailable";
+          if (!(error instanceof HttpError))
+            logFailure("personal_data_request_failed", "unexpected");
           return new Response(null, {
             status: 303,
             headers: {
@@ -547,6 +550,8 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           error instanceof HttpError
             ? response({ error: error.reason }, error.status)
             : response({ error: "service_unavailable" }, 503);
+        // A typed rejection is already the caller's error path; an unexpected exception is not.
+        if (!(error instanceof HttpError)) logFailure("personal_data_request_failed", "unexpected");
         return result;
       }
     },
@@ -569,25 +574,33 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
             "DELETE FROM sessions WHERE idle_expires_at <= ? OR max_expires_at <= ?",
           ).bind(time, time),
         ]);
-      } catch {
+      } catch (error) {
+        logFailure("personal_data_expiry_cleanup_failed", failureCode(error), lane);
         failed = true;
       }
       try {
         if (lane === 3) await runInactivityDeletion(env, time);
-      } catch {
+      } catch (error) {
+        logFailure("personal_data_inactivity_failed", failureCode(error), lane);
         failed = true;
       }
       try {
         if (lane === 2) await runPrivacyMaintenance(env, time, "consent");
         else if (lane === 1) await runPrivacyMaintenance(env, time, "deletion");
-      } catch {
+      } catch (error) {
+        logFailure("personal_data_privacy_maintenance_failed", failureCode(error), lane);
         failed = true;
       }
       try {
         if (lane === 4 && env.PRIVACY_RECONCILE_QUIESCENT !== "true")
           await publishWeekly(env, time);
         else if (lane === 5) await runRestoreMaintenance(env, time);
-      } catch {
+      } catch (error) {
+        logFailure(
+          lane === 4 ? "personal_data_publication_failed" : "personal_data_restore_failed",
+          failureCode(error),
+          lane,
+        );
         failed = true;
       }
       if (failed) throw new Error("maintenance_failed");

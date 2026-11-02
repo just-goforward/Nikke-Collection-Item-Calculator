@@ -4,15 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import schemaSql from "../../forecast-collector/schema.sql?raw";
 import { executeTestSql } from "../../shared/testD1Sql";
 import {
+  expireBudgetIncidents,
   listDueAlerts,
   markAlertSendFailed,
   markAlertSent,
-  markDispatchAccepted,
-  markDispatchRequested,
   raiseOpsAlert,
-  readActionableWork,
-  reserveNextDispatch,
   resolveOpsAlert,
+  retireLegacyBudgetAlerts,
 } from "./db";
 import type { DispatcherEnv } from "./types";
 
@@ -35,113 +33,6 @@ afterEach(() => {
   } finally {
     vi.unstubAllGlobals();
   }
-});
-
-describe("forecast dispatcher D1 reservations", () => {
-  it("preserves the canonical SHA-256 identity for empty work without runtime hashing", async () => {
-    const work = await readActionableWork(testEnv.FORECAST_DB, "staging");
-
-    expect(work).toMatchObject({
-      pendingCount: 0,
-      candidateCount: 0,
-      fingerprint: "faee245f61e12ff37e07bdd6778379da818d2c3dbf1b76e545babc3e5e012c6b",
-    });
-  });
-
-  it("grants one owner per three-minute slot and suppresses a recently accepted fingerprint", async () => {
-    const now = Date.parse("2026-08-31T00:00:00.000Z");
-    await insertPending("100", now);
-    const work = await readActionableWork(testEnv.FORECAST_DB, "staging");
-
-    const first = await reserveNextDispatch(testEnv.FORECAST_DB, {
-      environment: "staging",
-      invocationId: "invocation-a",
-      deploymentSha: "test-sha",
-      work,
-      nowMs: now,
-    });
-    const duplicate = await reserveNextDispatch(testEnv.FORECAST_DB, {
-      environment: "staging",
-      invocationId: "invocation-b",
-      deploymentSha: "test-sha",
-      work,
-      nowMs: now,
-    });
-
-    expect(first).toMatchObject({ mode: "work", pendingCount: 1, attempt: 1 });
-    expect(duplicate).toBeNull();
-    if (!first) throw new Error("Expected a reservation.");
-    await markDispatchRequested(testEnv.FORECAST_DB, first.dispatchId, "invocation-a", now);
-    await markDispatchAccepted(testEnv.FORECAST_DB, first.dispatchId, "invocation-a", now, {
-      status: 204,
-      runId: null,
-      runUrl: null,
-    });
-
-    await expect(
-      reserveNextDispatch(testEnv.FORECAST_DB, {
-        environment: "staging",
-        invocationId: "invocation-c",
-        deploymentSha: "test-sha",
-        work,
-        nowMs: now + 19 * 60 * 1_000,
-      }),
-    ).resolves.toBeNull();
-    await expect(
-      reserveNextDispatch(testEnv.FORECAST_DB, {
-        environment: "staging",
-        invocationId: "invocation-d",
-        deploymentSha: "test-sha",
-        work,
-        nowMs: now + 21 * 60 * 1_000,
-      }),
-    ).resolves.toMatchObject({ mode: "work", attempt: 2 });
-  });
-
-  it("reclaims a smoke reservation only after its five-minute lease expires", async () => {
-    const now = Date.parse("2026-08-31T00:00:00.000Z");
-    const fingerprint = "a".repeat(64);
-    await testEnv.FORECAST_DB.prepare(
-      `INSERT INTO workflow_dispatches (
-         dispatch_id, slot_key, environment, dispatch_mode, work_fingerprint,
-         pending_count, candidate_count, attempt, state, created_at, next_attempt_at
-       ) VALUES (?, 'smoke:test', 'staging', 'smoke', ?, 0, 0, 1, 'pending', ?, ?)`,
-    )
-      .bind(
-        `fd-${"b".repeat(32)}`,
-        fingerprint,
-        new Date(now).toISOString(),
-        new Date(now).toISOString(),
-      )
-      .run();
-    const work = await readActionableWork(testEnv.FORECAST_DB, "staging");
-
-    const first = await reserveNextDispatch(testEnv.FORECAST_DB, {
-      environment: "staging",
-      invocationId: "smoke-a",
-      deploymentSha: "test-sha",
-      work,
-      nowMs: now,
-    });
-    const duringLease = await reserveNextDispatch(testEnv.FORECAST_DB, {
-      environment: "staging",
-      invocationId: "smoke-b",
-      deploymentSha: "test-sha",
-      work,
-      nowMs: now + 4 * 60 * 1_000,
-    });
-    const afterLease = await reserveNextDispatch(testEnv.FORECAST_DB, {
-      environment: "staging",
-      invocationId: "smoke-c",
-      deploymentSha: "test-sha",
-      work,
-      nowMs: now + 6 * 60 * 1_000,
-    });
-
-    expect(first).toMatchObject({ mode: "smoke", attempt: 1 });
-    expect(duringLease).toBeNull();
-    expect(afterLease).toMatchObject({ mode: "smoke", attempt: 2 });
-  });
 });
 
 describe("forecast dispatcher alert grouping", () => {
@@ -342,6 +233,102 @@ describe("forecast dispatcher recurrence-linked alert completion", () => {
   );
 });
 
+describe("forecast dispatcher budget incidents", () => {
+  const now = Date.parse("2026-10-18T10:00:00.000Z"); // 19:00 KST, mid game day
+  const incidentKey = "forecast-v2:staging:budget:metadata:2026-10-18";
+
+  async function raiseIncident(atMs: number, key = incidentKey) {
+    await raiseOpsAlert(testEnv.FORECAST_DB, {
+      alertKey: key,
+      environment: "staging",
+      severity: "warning",
+      component: "collector",
+      errorCode: "budget_exhausted",
+      context: { gameDay: "2026-10-18", kind: "metadata", used: 240, limit: 240 },
+      nowMs: atMs,
+    });
+  }
+
+  it("delivers once and never renews while later holds raise the occurrence count", async () => {
+    await raiseIncident(now);
+    const first = await dueAlert(now);
+    expect(first).toMatchObject({ alertKey: incidentKey, occurrenceCount: 1 });
+    await markAlertSent(testEnv.FORECAST_DB, first, "123456789012345678", now);
+    await raiseIncident(now + 60_000);
+    await raiseIncident(now + 120_000);
+    await expect(listDueAlerts(testEnv.FORECAST_DB, "staging", now + 120_000)).resolves.toEqual([]);
+    await expect(
+      listDueAlerts(testEnv.FORECAST_DB, "staging", now + 31 * 60 * 1_000),
+    ).resolves.toEqual([]);
+    expect(await deliveryState(incidentKey)).toMatchObject({
+      occurrence_count: 3,
+      last_sent_occurrence_count: 1,
+    });
+  });
+
+  it("never delivers an incident whose game day already ended", async () => {
+    await raiseIncident(now);
+    const nextDay = Date.parse("2026-10-18T20:00:00.000Z"); // 05:00 KST
+    await expect(listDueAlerts(testEnv.FORECAST_DB, "staging", nextDay)).resolves.toEqual([]);
+  });
+
+  it("closes an ended incident silently, without a recovery delivery", async () => {
+    await raiseIncident(now);
+    await markAlertSent(testEnv.FORECAST_DB, await dueAlert(now), "123456789012345678", now);
+    const nextDay = Date.parse("2026-10-18T20:00:00.000Z");
+    await expireBudgetIncidents(testEnv.FORECAST_DB, "staging", nextDay);
+    expect(await deliveryState(incidentKey)).toMatchObject({
+      state: "resolved",
+      resolved_at: new Date(nextDay).toISOString(),
+      recovery_sent_at: new Date(nextDay).toISOString(),
+    });
+    await expect(listDueAlerts(testEnv.FORECAST_DB, "staging", nextDay + 60_000)).resolves.toEqual(
+      [],
+    );
+  });
+
+  it("suppresses the retired legacy keys but keeps unexplained budget alerts deliverable", async () => {
+    const legacyKey = "forecast-v2:staging:A:budget_exhausted";
+    const unexplainedKey = "forecast-v2:staging:A:budget_unexplained";
+    await raiseIncident(now, legacyKey);
+    await raiseIncident(now, unexplainedKey);
+    const due = await listDueAlerts(testEnv.FORECAST_DB, "staging", now);
+    expect(due.map((alert) => alert.alertKey)).toEqual([unexplainedKey]);
+    await retireLegacyBudgetAlerts(testEnv.FORECAST_DB, "staging", now);
+    expect(await deliveryState(legacyKey)).toMatchObject({
+      state: "resolved",
+      recovery_sent_at: new Date(now).toISOString(),
+    });
+    await expect(listDueAlerts(testEnv.FORECAST_DB, "staging", now)).resolves.toHaveLength(1);
+  });
+
+  it("stops sweeping legacy keys after the sunset", async () => {
+    const { LEGACY_BUDGET_SUNSET_MS } = await import("../../shared/forecastOpsAlerts.ts");
+    expect(await retireLegacyBudgetAlerts(testEnv.FORECAST_DB, "staging", now)).toBe(true);
+    expect(
+      await retireLegacyBudgetAlerts(testEnv.FORECAST_DB, "staging", LEGACY_BUDGET_SUNSET_MS + 1),
+    ).toBe(false);
+  });
+
+  it("reports invalid legacy context instead of hiding it behind the fallback", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await testEnv.FORECAST_DB.prepare(
+      `INSERT INTO forecast_ops_alerts (alert_key,environment,severity,component,error_code,state,
+        context_json,notify_after_count,occurrence_count,first_seen_at,last_seen_at,next_send_at)
+       VALUES ('fixture:broken-context','staging','warning','collector','fixture','open','{oops',1,1,?,?,?)`,
+    )
+      .bind(new Date(now).toISOString(), new Date(now).toISOString(), new Date(now).toISOString())
+      .run();
+    const due = await dueAlert(now);
+    expect(due.context).toEqual({ invalidContext: true });
+    expect(JSON.parse(String(warn.mock.calls.at(-1)?.[0]))).toMatchObject({
+      event: "forecast_ops_context_invalid",
+      alertKey: "fixture:broken-context",
+      code: "invalid_json",
+    });
+  });
+});
+
 async function dueAlert(nowMs: number) {
   const alerts = await listDueAlerts(testEnv.FORECAST_DB, "staging", nowMs);
   const alert = alerts[0];
@@ -368,16 +355,4 @@ async function deliveryState(alertKey: string) {
       recovery_sent_at: string | null;
       last_send_error: string | null;
     }>();
-}
-
-async function insertPending(itemId: string, nowMs: number) {
-  const now = new Date(nowMs).toISOString();
-  await testEnv.FORECAST_DB.prepare(
-    `INSERT INTO source_queue (
-       source, item_id, url, title, published_at, official, status,
-       attempts, first_seen_at, updated_at
-     ) VALUES ('naver-board-56', ?, ?, '솔로 레이드 안내', ?, 1, 'pending', 0, ?, ?)`,
-  )
-    .bind(itemId, `https://game.naver.com/lounge/nikke/board/detail/${itemId}`, now, now, now)
-    .run();
 }

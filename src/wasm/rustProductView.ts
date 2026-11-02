@@ -49,7 +49,7 @@ export function buildPhase2TopCandidates(
     const firstProbability = transition(input.start, candidate.firstAction).probability;
     const totalExpectedKits = totalKits(candidate.vector);
     const pressure = pressureScore(candidate.vector, input.stockUses);
-    const legacySupplyCost = legacySupplyCostScore(candidate.vector);
+    const legacySupplyCost = legacySupplyCostScore(candidate.vector, expectedGain);
     const availabilityCost = availabilityCostScore(candidate.vector, input.stock, expectedGain);
     const vector = Object.fromEntries(
       KIT_ORDER.map((kit) => [kit, round(candidate.vector[kit], 4)]),

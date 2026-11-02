@@ -1,3 +1,4 @@
+import { type AppErrorCode, errorCode } from "../../shared/errorCodes";
 import { clientEnvironment } from "./client-environment";
 import { kstGameDateKeyFromUnixSeconds } from "./date-key";
 import type { WorkerEnv } from "./env";
@@ -9,7 +10,8 @@ import type {
   ValidatedSubmission,
 } from "./event-validation-types";
 import { HttpError } from "./http-error";
-import { logError, sanitizedError } from "./logger";
+import { kitResultAggregateStatement } from "./kit-result-aggregate";
+import { logError } from "./logger";
 
 type StatsEventKind = "kit_result" | "runtime_invariant" | "solver_diagnostic" | "solver_recovery";
 
@@ -19,7 +21,8 @@ export type SubmissionRejection = {
   eventKind: StatsEventKind;
   policyVersion: string;
   recoveryVersion: string;
-  rejectionCode: string;
+  /** Persisted per rejected event and aggregated per game day: a registered code only. */
+  rejectionCode: AppErrorCode;
 };
 
 export async function commitSubmissionRejection(
@@ -53,18 +56,25 @@ export async function commitSubmissionRejection(
         now,
       ),
     ]);
-  } catch {
-    const duplicate = await env.DB.prepare(
-      `SELECT 1 AS event_exists FROM stats_rejection_event_ids
-       WHERE event_id = ?`,
-    )
-      .bind(rejection.eventId)
-      .first<{ event_exists?: number }>()
-      .catch(() => null);
+  } catch (primaryWriteError) {
+    let duplicate: { event_exists?: number } | null = null;
+    let lookupError: unknown = null;
+    try {
+      duplicate = await env.DB.prepare(
+        `SELECT 1 AS event_exists FROM stats_rejection_event_ids
+         WHERE event_id = ?`,
+      )
+        .bind(rejection.eventId)
+        .first<{ event_exists?: number }>();
+    } catch (error) {
+      lookupError = error;
+    }
     if (duplicate?.event_exists === 1) return;
     logError("statistics_rejection_storage_failed", {
       eventKind: rejection.eventKind,
       rejectionCode: rejection.rejectionCode,
+      primaryWriteError: errorCode(primaryWriteError),
+      ...(lookupError === null ? {} : { duplicateLookupError: errorCode(lookupError) }),
     });
     throw new HttpError(503, "rejection_storage_unavailable", true);
   }
@@ -523,9 +533,12 @@ async function commitKitResultEvent(
   dateKey: string,
   now: number,
 ) {
-  const successAttempt = event.successAttempt || 0;
-  const attempts = event.outcome === "great_success" ? successAttempt : event.recommendedUses;
-  const greatSuccesses = event.outcome === "great_success" ? 1 : 0;
+  const aggregate = kitResultAggregateStatement(env.DB, {
+    dateKey, grade: event.start.grade, level: event.start.level, expBucket: event.start.exp,
+    kit: event.kit, recommendedUses: event.recommendedUses, outcome: event.outcome,
+    successAttempt: event.successAttempt, nowSeconds: now,
+  });
+  if (!aggregate) throw new HttpError(400, "invalid_success_attempt");
   const environment = clientEnvironment(request);
 
   return commitEvent(
@@ -534,29 +547,7 @@ async function commitKitResultEvent(
     now,
     "kit_result",
     appendDeliveryHealthStatement(env, dateKey, deliveryHealth, now, [
-      env.DB.prepare(
-        `INSERT INTO event_aggregates_game_day
-      (date_key, grade, level, exp_bucket, kit, recommended_uses, outcome, success_attempt, events, attempts, great_successes, last_seen)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-     ON CONFLICT(date_key, grade, level, exp_bucket, kit, recommended_uses, outcome, success_attempt)
-     DO UPDATE SET
-      events = events + 1,
-      attempts = attempts + excluded.attempts,
-      great_successes = great_successes + excluded.great_successes,
-      last_seen = excluded.last_seen`,
-      ).bind(
-        dateKey,
-        event.start.grade,
-        event.start.level,
-        event.start.exp,
-        event.kit,
-        event.recommendedUses,
-        event.outcome,
-        successAttempt,
-        attempts,
-        greatSuccesses,
-        now,
-      ),
+      aggregate,
       env.DB.prepare(
         `INSERT INTO referrer_aggregates_game_day
       (date_key, source_host, events, last_seen)
@@ -609,15 +600,15 @@ async function commitEvent(
     } catch (lookupError) {
       logError("statistics_event_storage_lookup_failed", {
         eventKind,
-        duplicateLookupError: sanitizedError(lookupError),
-        primaryWriteError: sanitizedError(error),
+        duplicateLookupError: errorCode(lookupError),
+        primaryWriteError: errorCode(error),
       });
       throw new HttpError(503, "storage_unavailable", true);
     }
     if (existing?.event_exists === 1) return true;
     logError("statistics_event_storage_failed", {
       eventKind,
-      primaryWriteError: sanitizedError(error),
+      primaryWriteError: errorCode(error),
     });
     throw new HttpError(503, "storage_unavailable", true);
   }

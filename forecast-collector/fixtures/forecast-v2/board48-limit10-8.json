@@ -1,0 +1,89 @@
+{
+  "code": 200,
+  "content": {
+    "totalCount": 229,
+    "offset": 8,
+    "feeds": [
+      {
+        "feedId": 6385380,
+        "title": "7월 18일(금) 무점검 업데이트 안내​​​​​​",
+        "createdDate": "20250718203936",
+        "updatedDate": "20250718205948",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6377898,
+        "title": "7월 17일(목) 업데이트 개선사항 안내",
+        "createdDate": "20250717180016",
+        "updatedDate": "20250717180016",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6360810,
+        "title": "[점검 완료][점검&업데이트] 7월 17일(목) 업데이트 소식 사전 안내",
+        "createdDate": "20250714173353",
+        "updatedDate": "20250717184915",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6317385,
+        "title": "7월 7일(월) 무점검 업데이트 안내​​​​​​",
+        "createdDate": "20250707202455",
+        "updatedDate": "20250707202455",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6280133,
+        "title": "7월 1일(화) 무점검 업데이트 안내​​​​​​",
+        "createdDate": "20250701141933",
+        "updatedDate": "20250701141933",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6276795,
+        "title": "[점검 완료][점검&업데이트] 7월 3일(목) 업데이트 소식 사전 안내(7/3 내용 추가)",
+        "createdDate": "20250630184717",
+        "updatedDate": "20250708163744",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6241570,
+        "title": "[점검 완료]6월 24일(화) 업데이트 소식 사전 안내​​​​​​",
+        "createdDate": "20250623161707",
+        "updatedDate": "20250624160009",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6189043,
+        "title": "6월 12일(목) 무점검 업데이트 안내​​​​​​",
+        "createdDate": "20250612214333",
+        "updatedDate": "20250612214656",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6180791,
+        "title": "6월 12일(목) 업데이트 개선사항 안내(6/24 내용 추가)",
+        "createdDate": "20250612070030",
+        "updatedDate": "20250624092331",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6162954,
+        "title": "[점검 완료][점검&업데이트] 6월 12일(목) 업데이트 소식 사전 안내(6/11 내용 수정)",
+        "createdDate": "20250609180220",
+        "updatedDate": "20250612091140",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      }
+    ]
+  }
+}

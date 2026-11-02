@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "allowJs": true,
+    "skipLibCheck": true,
+    "types": ["node", "vite/client"],
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  "include": [
+    "../vitest.operational-ci.config.ts",
+    "../playwright.operational-ci.config.ts",
+    "../playwright.analytics-ci.config.ts",
+    "../src/certified/wasmBackend.spec.ts",
+    "decision-analytics.spec.ts",
+    "operational-*.ts"
+  ]
+}

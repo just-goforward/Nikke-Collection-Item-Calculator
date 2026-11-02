@@ -1,18 +1,25 @@
-import { deriveSoloRaidCadenceDays, SOLO_RAID_CADENCE_SUMMARY } from "../../shared/soloRaidCadence";
 import {
-  assertForecastCandidateInvariants,
-  SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
-  supplyForecastCandidateSchema,
+  type CertifiedSupplyBuildInput,
+  createCertifiedSupplyRule,
+} from "../../shared/certifiedSupplyModel";
+import {
+  certifiedVersionPolicy,
+  forecastVersionsForSnapshot,
+} from "../../shared/certifiedVersionPolicy";
+import { gameDayStartCeilMs, gameDayStartMs } from "../../shared/gameDay";
+import { deriveSoloRaidCadenceDays, SOLO_RAID_CADENCE_SUMMARY } from "../../shared/soloRaidCadence";
+import { buildScheduleForecastSnapshot } from "../../shared/supplyForecastBuild";
+import {
+  buildV3SupplyForecastCandidate,
+  type SupplyForecastGrant,
+  type SupplyForecastV5SoloPeriod,
 } from "../../shared/supplyForecastCandidate";
 import {
-  buildScheduleForecastProfiles,
   DISPATCH_POLICY_ID,
-  gameDayStartCeilMs,
-  gameDayStartMs,
   SUPPLY_PROFILE_HORIZON_DAYS,
-  SUPPLY_RULES_VERSION,
-} from "../../shared/supplyForecastModel";
+} from "../../shared/supplyForecastProjection";
 import { sha256Hex, stableJson } from "./crypto";
+import { collapseSoloSegments, eventRound } from "./solo-interruptions";
 import type {
   CandidateBuildResult,
   NormalizedSourceItem,
@@ -35,7 +42,7 @@ export function resolveSoloSchedule(
   events: readonly ScheduleEvent[],
   nowMs: number,
 ): ResolvedSchedule | null {
-  const solo = events
+  const solo = collapseSoloSegments(events)
     .filter(
       (event) =>
         event.eventType === "solo" && event.scheduleStatus === "confirmed" && !event.manualReview,
@@ -117,7 +124,16 @@ export function resolveSoloSchedule(
     soloEvents,
     scheduleStatus: focus.scheduleStatus,
     cadenceDays: cadenceMs / DAY_MS,
-    evidenceEvents: uniqueStarts,
+    evidenceEvents: uniqueStarts.flatMap((event) =>
+      event.segments
+        ? events.filter(
+            (source) =>
+              source.eventType === "solo" &&
+              !source.manualReview &&
+              eventRound(source) === eventRound(event),
+          )
+        : [event],
+    ),
   };
 }
 
@@ -127,6 +143,8 @@ export async function buildForecastCandidate(
   xProbe: XProbeResult,
   nowMs: number,
   revision: number,
+  grants: readonly SupplyForecastGrant[] = [],
+  options: Pick<CertifiedSupplyBuildInput, "version" | "cadenceVersion" | "confirmedRounds"> = {},
 ): Promise<CandidateBuildResult> {
   const gameDayStart = gameDayStartMs(nowMs);
   const generatedAt = new Date(gameDayStart).toISOString();
@@ -156,23 +174,7 @@ export async function buildForecastCandidate(
     ...relevantCollaborationEvents.map((event) => event.sourceItem),
   ];
   if (xProbe.sourceItem) sourceEvidence.push(xProbe.sourceItem);
-  const evidenceByKey = new Map<string, NormalizedSourceItem>();
-  for (const item of sourceEvidence) {
-    const key = `${item.source}:${item.itemId}`;
-    const previous = evidenceByKey.get(key);
-    if (previous && previous.contentHash !== item.contentHash) {
-      throw new Error("candidate_source_content_hash_conflict");
-    }
-    evidenceByKey.set(key, item);
-  }
-  const deduplicatedEvidence = [...evidenceByKey.values()].map((item) => ({
-    source: item.source,
-    itemId: item.itemId,
-    url: item.url,
-    publishedAt: item.publishedAt,
-    excerpt: item.excerpt,
-    contentHash: item.contentHash,
-  }));
+  const deduplicatedEvidence = candidateEvidence(sourceEvidence);
   const collaborationPeriods = relevantCollaborationEvents
     .map((event) => ({ effectiveFrom: event.startsAt, effectiveUntil: event.endsAt }))
     .filter(uniquePeriod)
@@ -183,13 +185,9 @@ export async function buildForecastCandidate(
         left.effectiveFrom.localeCompare(right.effectiveFrom) ||
         left.effectiveUntil.localeCompare(right.effectiveUntil),
     );
-  const profiles = buildScheduleForecastProfiles({
-    forecastId,
-    effectiveFrom: generatedAt,
-    soloPeriods,
-    collaborationPeriods,
-  });
   const identity = stableJson({
+    ...(options.confirmedRounds ? { confirmedRounds: options.confirmedRounds } : {}),
+    grants,
     forecastDate,
     schedule: {
       status: resolved.scheduleStatus,
@@ -202,40 +200,168 @@ export async function buildForecastCandidate(
     sourceStatus: xProbe.status,
     sourceHashes: deduplicatedEvidence.map((evidence) => evidence.contentHash).sort(),
   });
-  const candidateId = `forecast-${(await sha256Hex(identity)).slice(0, 24)}`;
-  const candidate = supplyForecastCandidateSchema.parse({
-    payloadVersion: SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
+  const sourceHash = await sha256Hex(identity);
+  const certifiedSnapshot = buildScheduleForecastSnapshot({
+    ...options,
+    grants: grants.map(({ claimUntil, ...grant }) => ({
+      ...grant,
+      ...(claimUntil === undefined ? {} : { claimUntil }),
+    })),
+    asOf: generatedAt,
+    revision: sourceHash,
+    sourceHash,
+    sourceStatus: "uncertain",
+    soloPeriods: resolved.soloEvents
+      .filter(hasConcreteSchedule)
+      .map((event) => snapshotSoloPeriod(event, options.cadenceVersion === "observed-median-v2")),
+    collaborationPeriods,
+    provenance: deduplicatedEvidence.map((evidence) => evidence.url).sort(),
+  });
+  if (!certifiedVersionPolicy(certifiedSnapshot.version).segmentsAndGrants)
+    throw new Error("forecast_snapshot_version");
+  const ledgerPeriods = candidateLedgerPeriods(certifiedSnapshot, options);
+  const primary =
+    ledgerPeriods.find(
+      (period) =>
+        resolved.event.segments &&
+        period.round === eventRound(resolved.event) &&
+        Date.parse(period.effectiveUntil) > nowMs,
+    ) ??
+    ledgerPeriods.find((period) => period.effectiveFrom === resolved.event.startsAt) ??
+    ledgerPeriods.find((period) => Date.parse(period.effectiveUntil) > nowMs);
+  if (!primary) throw new Error("forecast_primary_period_missing");
+  const ledgerHash = await sha256Hex(stableJson(certifiedSnapshot));
+  const rulesVersion = forecastVersionsForSnapshot(certifiedSnapshot.version).rulesVersion;
+  const identityHash = await sha256Hex(stableJson({ rulesVersion, sourceHash, ledgerHash }));
+  const candidateId = `forecast-${identityHash.slice(0, 24)}`;
+  const candidate = buildV3SupplyForecastCandidate({
     candidateId,
     forecastId,
-    rulesVersion: SUPPLY_RULES_VERSION,
     dispatchPolicyId: DISPATCH_POLICY_ID,
     generatedAt,
     sourceStatus: xProbe.status,
     schedule: {
       status: resolved.scheduleStatus,
       cadenceDays: resolved.cadenceDays,
-      soloStart: resolved.event.startsAt,
-      soloEnd: resolved.event.endsAt,
-      soloPeriods,
+      soloStart: primary.effectiveFrom,
+      soloEnd: primary.effectiveUntil,
+      soloPeriods: ledgerPeriods,
       collaborationPeriods,
     },
     sourceEvidence: deduplicatedEvidence,
-    profiles,
-    warnings: [
-      ...(soloPeriods.some((period) => period.scheduleStatus === "estimated")
-        ? ["Some Solo Raid reference windows use cadence estimates."]
-        : []),
-      ...(resolved.cadenceDays === null
-        ? ["New-round cadence could not be derived from the available history."]
-        : []),
-      ...(xProbe.status === "x_unavailable"
-        ? ["X is advisory and is evaluated during proposal review."]
-        : []),
-      ...(xProbe.status === "conflict" ? ["Official sources report conflicting schedules."] : []),
-    ],
+    certifiedSnapshot,
+    grants: [...grants],
+    warnings: candidateWarnings(soloPeriods, resolved.cadenceDays, xProbe.status),
   });
-  assertForecastCandidateInvariants(candidate);
   return { candidate, payloadHash: await sha256Hex(stableJson(candidate)) };
+}
+
+function candidateWarnings(
+  soloPeriods: ReturnType<typeof schedulePeriod>[],
+  cadenceDays: number | null,
+  status: XProbeResult["status"],
+) {
+  return [
+    ...(soloPeriods.some((period) => period.scheduleStatus === "estimated")
+      ? ["Some Solo Raid reference windows use cadence estimates."]
+      : []),
+    ...(cadenceDays === null
+      ? ["New-round cadence could not be derived from the available history."]
+      : []),
+    ...(status === "x_unavailable"
+      ? ["X is advisory and is evaluated during proposal review."]
+      : []),
+    ...(status === "conflict" ? ["Official sources report conflicting schedules."] : []),
+  ];
+}
+
+function snapshotSoloPeriod(event: ConcreteScheduleEvent, median = false) {
+  return {
+    ...schedulePeriod(event),
+    ...(event.segments?.[0] ? { round: event.segments[0].round } : {}),
+    segments: (
+      event.segments ?? [
+        {
+          segment: 1,
+          kind: "initial" as const,
+          effectiveFrom: event.startsAt,
+          effectiveUntil: event.endsAt,
+        },
+      ]
+    ).map((segment, index, segments) => ({
+      segment: segment.segment,
+      kind: segment.kind === "suspend" ? ("initial" as const) : segment.kind,
+      effectiveFrom: segment.effectiveFrom,
+      effectiveUntil: segment.effectiveUntil,
+      rewardFromGameDate: new Date(gameDayStartMs(Date.parse(segment.effectiveFrom)) + 9 * 3600000)
+        .toISOString()
+        .slice(0, 10),
+      rewardUntilGameDate: new Date(
+        Math.min(
+          gameDayStartCeilMs(Date.parse(segment.effectiveUntil)),
+          median && segments[index + 1]
+            ? gameDayStartMs(Date.parse(segments[index + 1]!.effectiveFrom))
+            : Infinity,
+          gameDayStartMs(Date.parse(segment.effectiveFrom)) +
+            createCertifiedSupplyRule(segment.effectiveFrom).soloDays.length * DAY_MS,
+        ) +
+          9 * 3600000,
+      )
+        .toISOString()
+        .slice(0, 10),
+      sourceIds: [event.sourceItem.url],
+    })),
+  };
+}
+
+function candidateLedgerPeriods(
+  snapshot: ReturnType<typeof buildScheduleForecastSnapshot>,
+  options: Pick<CertifiedSupplyBuildInput, "cadenceVersion"> = {},
+) {
+  return snapshot.soloRounds.flatMap((round): SupplyForecastV5SoloPeriod[] => {
+    if (round.segments)
+      return round.segments.map((segment) => ({
+        round: round.round,
+        segment: segment.segment,
+        effectiveFrom: segment.effectiveFrom,
+        effectiveUntil: segment.effectiveUntil,
+        scheduleStatus:
+          options.cadenceVersion === "observed-median-v2" && round.status === "estimated"
+            ? "estimated"
+            : "confirmed",
+      }));
+    if (round.status !== "estimated" || !round.endGameDate) return [];
+    const start = (date: string) => new Date(`${date}T05:00:00+09:00`).toISOString();
+    return [
+      {
+        round: round.round,
+        segment: 1,
+        effectiveFrom: start(round.startGameDate),
+        effectiveUntil: start(round.endGameDate),
+        scheduleStatus: "estimated",
+      },
+    ];
+  });
+}
+
+function candidateEvidence(sourceEvidence: readonly NormalizedSourceItem[]) {
+  const evidenceByKey = new Map<string, NormalizedSourceItem>();
+  for (const item of sourceEvidence) {
+    const key = `${item.source}:${item.itemId}`;
+    const previous = evidenceByKey.get(key);
+    if (previous && previous.contentHash !== item.contentHash) {
+      throw new Error("candidate_source_content_hash_conflict");
+    }
+    evidenceByKey.set(key, item);
+  }
+  return [...evidenceByKey.values()].map((item) => ({
+    source: item.source,
+    itemId: item.itemId,
+    url: item.url,
+    publishedAt: item.publishedAt,
+    excerpt: item.excerpt,
+    contentHash: item.contentHash,
+  }));
 }
 
 function estimatedSoloEvent(

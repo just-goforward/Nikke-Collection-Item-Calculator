@@ -1,9 +1,10 @@
 import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { isAppErrorCode } from "../../shared/errorCodes.ts";
 import { executeTestSql } from "../../shared/testD1Sql";
-import schemaSql from "../schema.sql?raw";
-import { pollNaverSource } from "./source-queue";
+import { upsertOpsAlert } from "./ops";
+import schemaSql from "./test-schema";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";
@@ -35,6 +36,37 @@ describe("forecast collector runtime switch", () => {
 });
 
 describe("forecast collector route dispatch boundary", () => {
+  it.each([
+    "/admin/ops-alerts/watchdog-fallback",
+    "/admin/ops-alerts/watchdog-notification-failed",
+    "/admin/ops-alerts/source-processor-internal",
+    "/admin/probe",
+    "/admin/dispatcher-smoke",
+    `/admin/workflow-dispatches/fd-${"a".repeat(32)}/status`,
+    "/admin/discord-test-approvals",
+    "/admin/discord-staging-adoptions",
+    `/admin/discord-staging-adoptions/discord-staging-${"a".repeat(36)}/message`,
+    `/admin/discord-staging-adoptions/discord-staging-${"a".repeat(36)}/adoption-pr`,
+    "/discord/interactions",
+  ])("rejects retired %s without touching forecast storage", async (path) => {
+    const prepare = vi.fn(() => {
+      throw new Error("retired_route_database_access");
+    });
+    const response = await invokeAdmin(
+      {
+        FORECAST_DB: { prepare } as unknown as D1Database,
+        ADMIN_RATE_LIMITER: {
+          limit: vi.fn().mockResolvedValue({ success: true }),
+        } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      { token: "expected-token", path, method: "POST", body: "{}" },
+    );
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("Not found");
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["/admin/probe", "probe"],
     ["/admin/dispatcher-smoke", "dispatcher-smoke"],
@@ -100,36 +132,16 @@ describe("forecast collector route dispatch boundary", () => {
 
 describe("forecast collector boundary recovery", () => {
   it("keeps boundary recovery behind production admin authentication and rate limiting", async () => {
-    const responseFor = (ids: readonly number[]) =>
-      Response.json({
-        code: 200,
-        content: {
-          feeds: ids.map((feedId) => ({
-            feed: {
-              feedId,
-              loungeId: "nikke",
-              title: `공지 ${feedId}`,
-              createdDate: "20260824120000",
-            },
-            user: { userRoleCode: "game_manager" },
-            board: { boardId: 48 },
-          })),
-        },
-      });
-    await pollNaverSource(
-      testEnv.FORECAST_DB,
-      48,
-      vi.fn<typeof fetch>().mockResolvedValue(responseFor([100])),
-      "production",
-    );
-    await expect(
-      pollNaverSource(
-        testEnv.FORECAST_DB,
-        48,
-        vi.fn<typeof fetch>().mockResolvedValue(responseFor([110])),
-        "production",
-      ),
-    ).rejects.toThrow("naver_scan_boundary_missing");
+    await testEnv.FORECAST_DB.prepare(`INSERT INTO source_poll_state
+      (source,committed_item_id,committed_published_at,updated_at)
+      VALUES('naver-board-48','100','2026-08-24T03:00:00Z','2026-08-24T03:00:00Z')`).run();
+    await upsertOpsAlert(testEnv.FORECAST_DB, {
+      alertKey: "naver-boundary:production:48",
+      environment: "production",
+      severity: "critical",
+      component: "collector",
+      errorCode: "naver_scan_boundary_missing",
+    });
     const options = {
       path: "/admin/source-queue/process",
       method: "POST",
@@ -146,7 +158,7 @@ describe("forecast collector boundary recovery", () => {
       ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit,
       ADMIN_TOKEN: "expected-token",
     };
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => responseFor([141, 100]));
+    const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetcher);
     try {
       expect((await invokeAdmin(bindings, options)).status).toBe(401);
@@ -156,13 +168,13 @@ describe("forecast collector boundary recovery", () => {
       );
       expect(fetcher).not.toHaveBeenCalled();
       limit.mockClear();
+      const before = await testEnv.FORECAST_DB.prepare(
+        "SELECT committed_item_id, next_offset FROM source_poll_state WHERE source = 'naver-board-48'",
+      ).first();
       const response = await invokeAdmin(bindings, { ...options, token: "expected-token" });
-      expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toEqual({
-        recovered: true,
-        source: "naver-board-48",
-        queuedItems: 1,
-      });
+      expect(response.status).toBe(404);
+      expect(await response.text()).toBe("Not found");
+      expect(fetcher).not.toHaveBeenCalled();
       expect(limit.mock.calls).toEqual([
         [{ key: "admin-unauth:unknown" }],
         [{ key: "admin-auth:POST:source-queue" }],
@@ -170,11 +182,11 @@ describe("forecast collector boundary recovery", () => {
       const state = await testEnv.FORECAST_DB.prepare(
         "SELECT committed_item_id, next_offset FROM source_poll_state WHERE source = 'naver-board-48'",
       ).first();
-      expect(state).toEqual({ committed_item_id: "141", next_offset: 0 });
+      expect(state).toEqual(before);
       const hold = await testEnv.FORECAST_DB.prepare(
         "SELECT state FROM forecast_ops_alerts WHERE alert_key = 'naver-boundary:production:48'",
       ).first();
-      expect(hold).toEqual({ state: "resolved" });
+      expect(hold).toEqual({ state: "open" });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -239,8 +251,8 @@ describe("forecast collector admin boundary", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      version: 10,
-      policyId: "forecast-canary-v10-live-contract-v1",
+      version: 11,
+      policyId: "forecast-canary-v2-monitor-contract-v1",
       canaryId: null,
       pollMode: "missing",
       acceptance: { windowMode: "fixed_8_hours", windowHours: null },
@@ -277,40 +289,46 @@ describe("forecast collector admin boundary", () => {
     });
   });
 
-  it("persists an unexpected source processor failure as a critical operations alert", async () => {
-    const limit = vi.fn().mockResolvedValue({ success: true });
-    const response = await invokeAdmin(
-      {
-        ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit,
-        ADMIN_TOKEN: "expected-token",
-      },
-      {
-        token: "expected-token",
-        path: "/admin/ops-alerts/source-processor-internal",
-        method: "POST",
-        body: JSON.stringify({
-          runId: 123456,
-          runUrl:
-            "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/123456",
-        }),
-      },
-    );
-
-    expect(response.status).toBe(200);
-    const alert = await testEnv.FORECAST_DB.prepare(
-      `SELECT severity, component, error_code FROM forecast_ops_alerts
-       WHERE alert_key = 'source-processor-internal:staging:123456'`,
-    ).first<{ severity: string; component: string; error_code: string }>();
-    expect(alert).toEqual({
-      severity: "critical",
-      component: "source-processor",
-      error_code: "source_processor_internal",
-    });
-  });
+  it.each(["/admin/canary-report", "/admin/canary-deployments/start"])(
+    "returns only a sanitized code from %s and never echoes request text",
+    async (path) => {
+      // The request text itself is the sentinel: these error bodies are returned to
+      // operators and some of them are persisted, so no part of the request may come back.
+      const sentinel = "SENTINEL_secret_9f3a";
+      const response = await invokeAdmin(
+        {
+          ADMIN_RATE_LIMITER: {
+            limit: vi.fn().mockResolvedValue({ success: true }),
+          } as unknown as RateLimit,
+          ADMIN_TOKEN: "expected-token",
+        },
+        {
+          token: "expected-token",
+          path,
+          method: "POST",
+          body: JSON.stringify({
+            canaryId: sentinel,
+            collectorCron: sentinel,
+            dispatcherCron: sentinel,
+            collectorVersionId: sentinel,
+            dispatcherVersionId: sentinel,
+            quotaEvidence: null,
+          }),
+        },
+      );
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      const text = await response.text();
+      expect(text).not.toContain(sentinel);
+      const payload = JSON.parse(text) as { error: string };
+      // Whatever failed, the body is a registered code (or fixed category), never text.
+      expect(isAppErrorCode(payload.error) || payload.error === "D1_ERROR").toBe(true);
+    },
+  );
 });
 
 async function invokeAdmin(
-  bindings: Pick<CollectorEnv, "ADMIN_RATE_LIMITER" | "ADMIN_TOKEN">,
+  bindings: Pick<CollectorEnv, "ADMIN_RATE_LIMITER" | "ADMIN_TOKEN"> &
+    Partial<Pick<CollectorEnv, "FORECAST_DB">>,
   options: {
     sourceAddress?: string;
     token?: string;
@@ -324,7 +342,6 @@ async function invokeAdmin(
     ...testEnv,
     ...bindings,
     ENVIRONMENT: options.environment ?? "staging",
-    DISCORD_APPROVAL_MODE: "staging_adoption",
   } as CollectorEnv;
   const context = {
     passThroughOnException: vi.fn(),

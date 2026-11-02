@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { statsSubmissionConfig } from "../lib/statsRuntime";
 import {
   type BrowserStatsOutbox,
-  createBrowserStatsOutbox,
+  createMemoryStatsOutbox,
   type StatsOutboxRecord,
 } from "../lib/statsSubmissionOutbox";
 import {
@@ -33,7 +33,7 @@ function useStatsDeliveryHealthStore(statsEndpoint: string | null): DeliveryHeal
       return Promise.resolve(null);
     }
     storeRef.current ??= import("../lib/statsDeliveryHealth").then((module) =>
-      module.createBrowserStatsDeliveryHealth(statsEndpoint),
+      module.createMemoryStatsDeliveryHealth(statsEndpoint),
     );
     return storeRef.current;
   }, [statsEndpoint]);
@@ -95,7 +95,7 @@ export function useStatsSubmission(onKitResultCommitted: () => void) {
   const warnedEventIdsRef = useRef(new Set<string>());
   const [statsEndpoint] = useState(() => statsSubmissionConfig()?.endpoint ?? null);
   const [outbox] = useState(() => {
-    return statsEndpoint ? createBrowserStatsOutbox(statsEndpoint) : null;
+    return statsEndpoint ? createMemoryStatsOutbox(statsEndpoint) : null;
   });
 
   const getDeliveryHealthStore = useStatsDeliveryHealthStore(statsEndpoint);

@@ -1,5 +1,3 @@
-import { env } from "cloudflare:workers";
-import type { D1Migration } from "@cloudflare/vitest-plugin";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FLOW_COOKIE,
@@ -13,15 +11,11 @@ import type { AccountCallbackError } from "./contracts";
 import { fakeIssuer, TEST_CLIENT, TEST_ORIGIN, TEST_SECRET } from "./fake-issuer";
 import { googleProvider } from "./google";
 import { HttpError, MAX_BODY_BYTES } from "./http";
-import { resetFixture } from "./test-fixture";
+import { fixtureEnv, resetFixture } from "./test-fixture";
 import type { PersonalEnv } from "./types";
 import { createWorker } from "./worker";
 
-const bindings = env as unknown as PersonalEnv & {
-  PERSONAL_MIGRATIONS: D1Migration[];
-  PRIVACY_MIGRATIONS: D1Migration[];
-  PUBLIC_MIGRATIONS: D1Migration[];
-};
+const bindings = fixtureEnv();
 const databases: PersonalEnv = {
   ...bindings,
   SITE_ORIGIN: TEST_ORIGIN,

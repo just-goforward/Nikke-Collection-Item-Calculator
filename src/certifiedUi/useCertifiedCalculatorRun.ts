@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import type { CertifiedInput } from "../certified/types";
 import type { CertifiedSession } from "./session";
 import type { CertifiedSnapshotState } from "./useCertifiedCalculatorPreparation";
 import type { CertifiedSessionStore } from "./useCertifiedCalculatorSession";
@@ -8,9 +9,11 @@ import { useCertifiedRun } from "./useCertifiedRun";
 export function useCertifiedCalculatorRun(
   session: CertifiedSession,
   preparation: CertifiedSnapshotState,
+  target?: CertifiedInput["target"] | null,
+  options?: { autoRecommendation?: boolean; stableRecommendation?: CertifiedInput["stableRecommendation"] },
 ) {
   const { snapshot, setSnapshot, snapshotRef } = preparation;
-  const native = useCertifiedRun(session, snapshot, setSnapshot);
+  const native = useCertifiedRun(session, snapshot, setSnapshot, target, options);
   const nativeRef = useRef(native);
   const nativeSession = useRef(session);
   const ownedSession = useRef<CertifiedSession | null>(null);

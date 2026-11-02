@@ -2,7 +2,10 @@ import { useCallback, useRef } from "react";
 
 import type { WorkerSolverBackend } from "../../shared/workerProtocol";
 import { parallelValidationFromRuntime, solverBackendFromRuntime } from "../lib/solverRuntime";
-import { resolveRuntimeSupplyForecast } from "../lib/supplyForecastRuntime";
+import {
+  captureSupplyForecastContext,
+  type SupplyForecastContext,
+} from "../lib/supplyForecastRuntime";
 import type { ProgressEvent, SolverInput } from "../types";
 import type { RuntimeInvariantReporter } from "./calculatorDiagnostics";
 import {
@@ -14,7 +17,7 @@ import {
   type SolverResult,
 } from "./calculatorShared";
 import { validateWithJsFallback } from "./solverFallback";
-import { solveWithClientRecovery } from "./solverRecovery";
+import { SolverRecoveryFailure, solveWithClientRecovery } from "./solverRecovery";
 import { WORKER_ERROR_TRAITS } from "./solverRecoveryPolicy";
 import {
   classifyWorkerFailure,
@@ -27,22 +30,26 @@ const SOLVE_CACHE_LIMIT = 32;
 const VALIDATION_CACHE_LIMIT = 16;
 const HEAVY_PHASE2_WORKER_RELEASE_MS = 30_000;
 
-function activeForecastCachePrefix() {
-  const { forecastId, profile } = resolveRuntimeSupplyForecast();
+function forecastCachePrefix({
+  forecastId,
+  forecastProfileId,
+  expectedGain,
+}: SupplyForecastContext) {
   return [
     forecastId,
-    profile.id,
-    profile.expectedGain.blue,
-    profile.expectedGain.purple,
-    profile.expectedGain.yellow,
+    forecastProfileId,
+    expectedGain.blue,
+    expectedGain.purple,
+    expectedGain.yellow,
   ].join("|");
 }
 
 export function makeSolveCacheKey(
   backend: ReturnType<typeof solverBackendFromRuntime>,
   input: SolverInput,
+  supplyForecast = captureSupplyForecastContext(),
 ) {
-  return `${activeForecastCachePrefix()}|${backend}|${inputKey(input)}`;
+  return `${forecastCachePrefix(supplyForecast)}|${backend}|${inputKey(input)}`;
 }
 
 export function readSolveCache(
@@ -127,9 +134,10 @@ export function useSolverWorker(
   const solveBestAvailable = useCallback(
     async (input: SolverInput) => {
       const backend = solverBackendFromRuntime();
-      const key = makeSolveCacheKey(backend, input);
+      const supplyForecast = captureSupplyForecastContext();
+      const key = makeSolveCacheKey(backend, input, supplyForecast);
       const cached = readSolveCache(solveCacheRef.current, key, backend);
-      if (cached) return cached;
+      if (cached) return { ...cached, supplyForecast };
       const recovered = await solveWithClientRecovery({
         input,
         onProgress: onSolveProgress,
@@ -137,10 +145,14 @@ export function useSolverWorker(
         primaryBackend: backend,
         requestWorkerTask: requestSharedTask,
         resetFailedWorker: resetSharedWorker,
+      }).catch((error: unknown) => {
+        if (error instanceof SolverRecoveryFailure) error.supplyForecast = supplyForecast;
+        throw error;
       });
+      const solvedForecast = recovered.result.stats?.supplyForecast ?? supplyForecast;
       const solved = rememberCache(
         solveCacheRef.current,
-        key,
+        makeSolveCacheKey(backend, input, solvedForecast),
         withWorkerTimingStats(recovered.result, recovered.timing),
         SOLVE_CACHE_LIMIT,
       );
@@ -155,6 +167,7 @@ export function useSolverWorker(
         recoveryTrace: recovered.trace,
         requestedBackend: backend,
         result: solved,
+        supplyForecast: solvedForecast,
       } satisfies SolveOutcome;
     },
     [
@@ -175,7 +188,7 @@ export function useSolverWorker(
     ) => {
       const seed = Math.max(0, Math.floor(Number(options.seed) || 20260505));
       const backend = options.backend ?? solverBackendFromRuntime();
-      const key = `${activeForecastCachePrefix()}|${backend}|${inputKey(input)}|mc:${runs}|seed:${seed}`;
+      const key = `${forecastCachePrefix(captureSupplyForecastContext())}|${backend}|${inputKey(input)}|mc:${runs}|seed:${seed}`;
       const cached = readCache(validationCacheRef.current, key);
       if (!options.force && cached) return cached;
       const requestTask = parallelValidation ? requestValidationTask : requestSharedTask;

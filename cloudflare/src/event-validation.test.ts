@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID,
+  ACTIVE_SUPPLY_FORECAST_ID,
+} from "../../shared/generated/supplyForecast";
+import {
   LEGACY_RECOVERY_SOLVER_VERSIONS,
   SOLVER_RECOVERY_SOLVER_VERSIONS,
 } from "../../shared/solverRecoveryContract";
@@ -7,6 +11,7 @@ import { validatePayload } from "./event-validation";
 import { HttpError } from "./http-error";
 import { EventSubmissionSchema } from "./schemas";
 import {
+  FORECAST_COMPATIBILITY_CASES,
   runtimeInvariantEvent,
   solverDiagnosticEvent,
   solverRecoveryEvent,
@@ -212,6 +217,21 @@ describe("validatePayload", () => {
 });
 
 describe("supply forecast identity validation", () => {
+  it.each(FORECAST_COMPATIBILITY_CASES)(
+    "accepts registered $name identities for diagnostics and recovery without rewriting them",
+    (identity) => {
+      for (const event of [
+        solverDiagnosticEvent(`diagnostic-compat-${identity.name}`, identity),
+        solverRecoveryEvent(`recovery-compat-${identity.name}`, identity),
+      ]) {
+        expect(validateTestPayload(event).event).toMatchObject({
+          forecastId: identity.forecastId,
+          forecastProfileId: identity.forecastProfileId,
+        });
+      }
+    },
+  );
+
   it("requires a registered supply forecast for current diagnostics", () => {
     const missing = solverDiagnosticEvent("solver-forecast-missing01");
     Reflect.deleteProperty(missing.event, "forecastId");
@@ -247,8 +267,8 @@ describe("supply forecast identity validation", () => {
   it("validates recovery forecast identities without breaking legacy clients", () => {
     const current = solverRecoveryEvent("recovery-forecast-current01");
     expect(validateTestPayload(current).event).toMatchObject({
-      forecastId: "supply-2026-08-21-v1",
-      forecastProfileId: "supply-2026-08-21-v1@fixed",
+      forecastId: ACTIVE_SUPPLY_FORECAST_ID,
+      forecastProfileId: ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID,
     });
 
     const legacy = solverRecoveryEvent("recovery-forecast-legacy001");

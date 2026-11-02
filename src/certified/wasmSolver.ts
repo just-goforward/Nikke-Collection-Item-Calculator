@@ -1,13 +1,24 @@
 import { fromWire, type Q, q, sub, toWire } from "../../shared/certifiedRational";
 import { isCertifiedEventClaimable } from "../../shared/certifiedSupply";
+import { certifiedVersionPolicy } from "../../shared/certifiedVersionPolicy";
 import { minimumWaitBase } from "../certifiedRuntime/minimumWait";
-import { CertifiedLimit, WorkBudget } from "./budget";
+import { CertifiedLimit, evidenceBudgetView, reserveTargetPayload, WorkBudget } from "./budget";
+import { bindCompletedEvidence, completedEvidenceRequested } from "./completedEvidence";
 import { waitingBase } from "./events";
 import { encode } from "./game";
 import { createOutput, updateDiagnostics } from "./output";
 import type { CertifiedInput, CertifiedOptions, CertifiedOutput } from "./types";
 import { validate } from "./validation";
+import { selectTarget, targetConfig } from "./target";
 import { WasmKernel } from "./wasmBackend";
+import { validateStableRiskPolicy } from "../certifiedRecommendation/stablePolicy";
+
+function isMinimumWaitEnabled(input: CertifiedInput): boolean {
+  return (
+    input.computeMinimumWait !== false &&
+    certifiedVersionPolicy(input.snapshot?.version).minimumWait
+  );
+}
 
 function claimRequired(
   output: CertifiedOutput,
@@ -39,12 +50,18 @@ function failedRequest(
   if (error instanceof CertifiedLimit) reason = error.reason;
   else if (error instanceof Error) reason = error.message;
   output.refusal = { reason, phase };
+  delete output.completedEvidence;
+  delete output.riskSummaries;
+  if (output.target)
+    output.target = { ...output.target, status: output.claimNotice ? "claim_required" : "unresolved",
+      reason, minimumDays: null, value: null, probabilities: [],
+      earliestNotRuledOutDay: null, attainedByDay: null, completedThroughDay: null };
   if (phase !== "waiting" && minimumEnabled)
     output.minimumWait = minimumWaitBase(output.current, "unknown", reason);
   output.status = output.current ? "partial" : "refused";
   output.waiting = {
     ...waitingBase("unresolved", reason),
-    bestDayRange: output.current ? [0, 56] : null,
+    bestDayRange: output.current ? [0, 14] : null,
   };
   applyTrapWaitingBounds(output, kernel, phase);
 }
@@ -56,7 +73,7 @@ function applyTrapWaitingBounds(
 ): void {
   if (!["waiting", "minimum_wait"].includes(phase) || !kernel?.hasFailed || !output.current) return;
   // A trap loses all unpublished Rust progress. Only D0 is established;
-  // nonnegative inventory coupling still gives this conservative H56 bound.
+  // nonnegative inventory coupling still gives this conservative H14 bound.
   const lower = output.current.value.successP;
   output.waiting.evaluatedDays = [0];
   output.waiting.successProbabilityInterval = { lower, upper: toWire(q(1)) };
@@ -68,7 +85,7 @@ function applyTrapWaitingBounds(
 }
 
 /** Host owns validation, trust and calendar normalization. Pricing, physical
- * laws, current policy and H56 certificates are computed entirely in Rust. */
+ * laws, current policy and H14 certificates are computed entirely in Rust. */
 export function solveCertifiedWasm(
   module: WebAssembly.Module,
   input: CertifiedInput,
@@ -79,8 +96,8 @@ export function solveCertifiedWasm(
   let kernel: WasmKernel | null = null;
   let phase: NonNullable<CertifiedOutput["refusal"]>["phase"] = "input";
   const output = createOutput(input);
-  const minimumEnabled =
-    input.computeMinimumWait !== false && input.snapshot?.version === "certified-daily-v2";
+  const needsEvidence = completedEvidenceRequested(input);
+  const minimumEnabled = isMinimumWaitEnabled(input);
   output.minimumWait = minimumWaitBase(
     null,
     minimumEnabled ? "unknown" : "not_requested",
@@ -101,9 +118,23 @@ export function solveCertifiedWasm(
   };
   try {
     budget = new WorkBudget(options, started);
+    if (needsEvidence) {
+      const view = evidenceBudgetView(budget);
+      if (input.target !== undefined) options.onTargetBudget?.(view);
+      options.onEvidenceBudget?.(view);
+    }
     budget.check();
     const priors = validate(input, budget.check);
-    budget.reserve(JSON.stringify(input).length * 2);
+    const target = targetConfig(input);
+    if (target) output.target = target;
+    const inputBytes = JSON.stringify(input).length * 2;
+    if (needsEvidence) reserveTargetPayload(budget, inputBytes);
+    else budget.reserve(inputBytes);
+    if (input.stableRecommendation !== undefined) {
+      budget.check();
+      validateStableRiskPolicy(input.stableRecommendation);
+      budget.check();
+    }
     kernel = new WasmKernel(module, budget);
     phase = "pricing";
     const sid = encode(input.grade, input.level, input.exp);
@@ -119,7 +150,7 @@ export function solveCertifiedWasm(
       minimumEnabled ? "minimum_wait_in_progress" : null,
     );
     output.status = "partial";
-    output.waiting = { ...waitingBase("unresolved", "waiting_in_progress"), bestDayRange: [0, 56] };
+    output.waiting = { ...waitingBase("unresolved", "waiting_in_progress"), bestDayRange: [0, 14] };
     diagnostics();
     options.onCurrent?.(structuredClone(output));
     const mustClaim = claimRequired(output, input, minimumEnabled);
@@ -129,7 +160,7 @@ export function solveCertifiedWasm(
       output.current = selected.current;
       output.minimumWait = selected.minimumWait;
       diagnostics();
-      // Publish the bound label/tie choice before H56 can exhaust the remaining
+      // Publish the bound label/tie choice before H14 can exhaust the remaining
       // shared request budget. A later interruption retains this certificate.
       options.onCurrent?.(structuredClone(output));
     }
@@ -138,6 +169,11 @@ export function solveCertifiedWasm(
       output.waiting = waitingBase("claim_required", "current_claimable_unreceived");
     } else if (input.computeWaiting === false) output.waiting = waitingBase("not_requested", null);
     else output.waiting = kernel.waiting(sid, input);
+    if (output.target)
+      output.target = selectTarget(output.target, output.current.value, kernel.completedDates, mustClaim, budget.check, bytes => reserveTargetPayload(budget!, bytes));
+    bindCompletedEvidence(output, input, kernel.completedDates, budget);
+    if (input.riskSummary === true && !mustClaim && kernel.riskSummaries !== undefined)
+      output.riskSummaries = kernel.riskSummaries;
     if (input.snapshot.sourceStatus !== "healthy")
       output.waiting.evidence = [
         ...output.waiting.evidence,
@@ -150,6 +186,17 @@ export function solveCertifiedWasm(
     failedRequest(output, error, phase, minimumEnabled, kernel);
   }
   diagnostics();
-  kernel?.dispose();
+  try {
+    kernel?.dispose(needsEvidence);
+  } catch (error) {
+    if (!needsEvidence) throw error;
+    // A rejected reserve remains charged. Refreshing live Rust bytes during
+    // cleanup can therefore reject again; never replace the primary refusal
+    // or discard already published Current with that secondary exception.
+    const primary = output.refusal;
+    failedRequest(output, primary ? new CertifiedLimit(primary.reason) : error,
+      primary?.phase ?? phase, minimumEnabled, kernel);
+    diagnostics();
+  }
   return output;
 }

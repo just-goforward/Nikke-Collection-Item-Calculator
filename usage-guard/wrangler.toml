@@ -1,3 +1,4 @@
+# Generated from scripts/production-operating-catalog.mjs; do not edit.
 name = "collection-kit-usage-guard"
 main = "src/worker.ts"
 compatibility_date = "2026-09-02"
@@ -28,9 +29,4 @@ CLOUDFLARE_ACCOUNT_ID = "15be33fd20ea78eb3d60b719be831148"
 DISCORD_ALERT_CHANNEL_ID = "1544139171667513354"
 
 [secrets]
-required = [
-  "CLOUDFLARE_D1_ANALYTICS_TOKEN",
-  "CLOUDFLARE_BILLING_READ_TOKEN",
-  "DISCORD_BOT_TOKEN",
-  "ADMIN_TOKEN"
-]
+required = ["CLOUDFLARE_D1_ANALYTICS_TOKEN","CLOUDFLARE_BILLING_READ_TOKEN","DISCORD_BOT_TOKEN","ADMIN_TOKEN"]
