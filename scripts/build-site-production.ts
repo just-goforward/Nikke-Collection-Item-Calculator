@@ -27,12 +27,16 @@ async function filesIn(directory: string, prefix = ""): Promise<string[]> {
   return paths.flat().sort();
 }
 
-function statsScript(html: string): string {
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].filter((match) =>
+function statsScriptMatch(html: string): RegExpMatchArray {
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)].filter((match) =>
     match[1]?.includes("window.COLLECTION_STATS_CONFIG"),
   );
   if (scripts.length !== 1) throw new Error("Expected exactly one stats configuration script");
-  return (scripts[0]?.[1] ?? "").replace(/\r\n?/g, "\n").trim();
+  return scripts[0]!;
+}
+
+function statsScript(html: string): string {
+  return (statsScriptMatch(html)[1] ?? "").replace(/\r\n?/g, "\n").trim();
 }
 
 function siteApplicationLocale(path: string) {
@@ -203,7 +207,12 @@ export async function buildSiteProduction(
 export function siteTargetHtml(html: string, target: string, path?: string): string {
   if (target !== "production" && target !== "staging") throw new Error("Invalid site target");
   if (path !== undefined && !siteApplicationLocale(path)) return html;
-  const config = statsScript(html);
+  const script = statsScriptMatch(html);
+  const config = script[1] ?? "";
+  const replaceConfig = (replacement: string) => {
+    const start = script.index! + script[0].indexOf(">") + 1;
+    return html.slice(0, start) + replacement + html.slice(start + config.length);
+  };
   const gatewayConfig = config.replace(
     /(staging:\s*\{[\s\S]*?endpoint:\s*)"[^"]+"/,
     '$1"https://staging.nikkecollection.com"',
@@ -212,7 +221,7 @@ export function siteTargetHtml(html: string, target: string, path?: string): str
     const productionConfig = config.replace(/[ \t]*\bstaging:\s*\{[^{}]*\},?[ \t]*\r?\n?/g, "");
     if (/\bstaging\s*:/.test(productionConfig))
       throw new Error("Unsupported nested staging statistics configuration");
-    return html.replace(config, productionConfig);
+    return replaceConfig(productionConfig);
   }
   // Both selectors stay on staging; an ordinary staging page must never submit to production.
   const key = config.match(/staging:\s*\{[\s\S]*?turnstileSiteKey:\s*"([^"]+)"/)?.[1];
@@ -220,7 +229,7 @@ export function siteTargetHtml(html: string, target: string, path?: string): str
   const staged = gatewayConfig
     .replace(/endpoint:\s*"[^"]+"/g, 'endpoint: "https://staging.nikkecollection.com"')
     .replace(/turnstileSiteKey:\s*"[^"]+"/, `turnstileSiteKey: "${key}"`);
-  return html.replace(config, staged);
+  return replaceConfig(staged);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

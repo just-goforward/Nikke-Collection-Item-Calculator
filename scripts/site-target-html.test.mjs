@@ -12,7 +12,7 @@ window.COLLECTION_STATS_CONFIG = {
 </script>`;
   const configuration = (value) => {
     const context = { window: {} };
-    runInNewContext(value.match(/<script>([\s\S]*?)<\/script>/)[1], context);
+    runInNewContext(value.match(/<script>([\s\S]*?)<\/script\s*>/i)[1], context);
     return JSON.parse(JSON.stringify(context.window.COLLECTION_STATS_CONFIG));
   };
   const production = siteTargetHtml(html, "production");
@@ -43,4 +43,16 @@ test("legal HTML stays unchanged while declared application pages require statis
       );
     }
   }
+});
+
+test("script case and closing whitespace preserve config isolation and exact-one semantics", () => {
+  const config = '\r\nwindow.COLLECTION_STATS_CONFIG = {\r\n  production: { endpoint: "https://nikkecollection.com" },\r\n  staging: { endpoint: "https://old.invalid", turnstileSiteKey: "key" }\r\n};\r\n';
+  const script = `<SCRIPT>${config}</ScRiPt \t>`;
+  const prefix = `<pre>${config.trim()}</pre><script>window.unrelated = true;</script >`;
+  const output = siteTargetHtml(prefix + script, "production");
+  assert.ok(output.startsWith(prefix));
+  assert.ok(output.endsWith("</ScRiPt \t>"));
+  assert.ok(!output.slice(prefix.length).includes("staging:"));
+  assert.ok(output.slice(prefix.length).includes('\r\n  production:'));
+  assert.throws(() => siteTargetHtml(script + script, "production"), /exactly one/);
 });

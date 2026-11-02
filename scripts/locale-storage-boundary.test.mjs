@@ -4,8 +4,14 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-const source = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
-assert.ok(source, "Locale initializer must exist");
+const sources = [
+  html,
+  html.replace(/<script>/gi, "<SCRIPT>").replace(/<\/script>/gi, "</ScRiPt \t>"),
+].map((value) => {
+  const source = value.match(/<script>([\s\S]*?)<\/script\s*>/i)?.[1];
+  assert.ok(source, "Locale initializer must exist");
+  return source;
+});
 
 for (const [path, locale] of [
   ["/?keep=1#anchor", "ko"],
@@ -47,7 +53,9 @@ for (const [path, locale] of [
         createElement: () => ({ dataset: {}, addEventListener() {} }),
         head: { append() {} },
       };
-      runInNewContext(source, { window, document }, { timeout: 1000 });
+      for (const source of sources) {
+        runInNewContext(source, { window, document }, { timeout: 1000 });
+      }
       assert.equal(root.lang, locale);
       assert.equal(root.dataset.locale, locale);
       assert.equal(window.location.href, url.href);

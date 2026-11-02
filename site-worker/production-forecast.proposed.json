@@ -1,7 +1,7 @@
 {
   "version": 1,
   "environment": "production",
-  "approvalRef": "user-approved-production-public-trust-a220b77",
+  "approvalRef": "user-approved-private-log-rebuild-b0a4497",
   "keyId": "production-v1",
   "publicKeyBase64": "BJAu/55jE5vGF7axWWKIp3RbjZyjm1QPY4IuqSzMf9Y=",
   "engineProfile": {
@@ -13,8 +13,8 @@
     "solverVersion": "certified-exact-rust-wasm-v1",
     "lawVersion": "documented-physical-supply-v2",
     "wasmHash": "88553a72d8503d2c7c78366e3d85bbee0cd9dfd738ac94d588fb09bd9d5942ae",
-    "codeHash": "fbfc6f273e84d0ac0f3ebd95435d6946c04e2e557e82ce19d1cc2afa37fea586",
-    "cacheNamespace": "certified-staging-v4:fbfc6f273e84d0ac0f3ebd95435d6946c04e2e557e82ce19d1cc2afa37fea586",
+    "codeHash": "425a987dfcd2a8cd7ac1c7cd4e4a4ecd99ce66323a3370fd78419da5e2f97ba3",
+    "cacheNamespace": "certified-staging-v4:425a987dfcd2a8cd7ac1c7cd4e4a4ecd99ce66323a3370fd78419da5e2f97ba3",
     "sessionNamespace": "collection-certified-staging-v4",
     "diagnosticsEnvironment": "staging",
     "recoveryEnvironment": "staging"

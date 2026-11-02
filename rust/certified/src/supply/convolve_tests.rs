@@ -81,16 +81,19 @@ fn differential(a: &[Outcome], b: &[Outcome], caps: Pieces, limit: usize) -> Run
     let mut supply = fresh();
     let got = run(&mut supply, a, b, caps, limit);
     let (want, ticks) = oracle(a, b, caps, limit);
-    assert_eq!(got.result, want, "result differs from the rational oracle");
-    assert_eq!(
-        got.ticks, ticks,
-        "tick count differs from the rational oracle"
-    );
+    assert_differential_results(&got, &want, ticks);
     got
+}
+fn assert_differential_results(got: &Run, want: &Result<Rows>, ticks: usize) {
+    assert!(&got.result == want, "convolution_result_mismatch");
+    assert!(got.ticks == ticks, "convolution_tick_count_mismatch");
 }
 fn fast(a: &[Outcome], b: &[Outcome], caps: Pieces, limit: usize) -> Result<Rows> {
     let got = differential(a, b, caps, limit);
-    assert_eq!(got.path, Some(ConvolvePath::Fast), "fast path not taken");
+    assert!(
+        got.path == Some(ConvolvePath::Fast),
+        "convolution_fast_path_not_taken"
+    );
     got.result
 }
 
@@ -863,18 +866,17 @@ impl Measurement {
         let peak = allocation::certified_heap_peak();
         assert!(
             !allocation::certified_allocation_denied(),
-            "{label}: the accounted allocator denied an allocation under 160 MiB"
+            "memory_allocation_denied"
         );
-        assert_eq!(
-            supply.convolve_last_path,
-            Some(ConvolvePath::Fast),
-            "{label}"
+        assert!(
+            supply.convolve_last_path == Some(ConvolvePath::Fast),
+            "memory_path_mismatch"
         );
-        assert_eq!(out.len(), rows, "{label}");
-        assert_eq!(supply.ticks, 25_000, "{label}");
+        assert!(out.len() == rows, "memory_row_count_mismatch");
+        assert!(supply.ticks == 25_000, "memory_tick_count_mismatch");
         // Hand values: (1/2)(2/3) and (1/2)(5/7), fully reduced.
-        assert_eq!(out[0].mass, q(1, 3), "{label}");
-        assert_eq!(out[1].mass, q(5, 14), "{label}");
+        assert!(out[0].mass == q(1, 3), "memory_first_mass_mismatch");
+        assert!(out[1].mass == q(5, 14), "memory_second_mass_mismatch");
         drop(out);
         let measurement = Self {
             label,
@@ -887,20 +889,14 @@ impl Measurement {
     }
     fn assert_bounds(&self) {
         let Self {
-            label,
             baseline,
             peak,
             projection,
+            ..
         } = self;
-        assert!(
-            peak <= &(160 * MIB),
-            "{label}: absolute peak {peak} bytes exceeds 160 MiB (baseline {baseline})"
-        );
+        assert!(peak <= &(160 * MIB), "memory_ceiling_exceeded");
         let increase = peak.saturating_sub(*baseline);
-        assert!(
-            &increase <= projection,
-            "{label}: admission projection {projection} bytes is below the measured increase {increase} bytes (baseline {baseline}, peak {peak})"
-        );
+        assert!(&increase <= projection, "memory_projection_exceeded");
     }
     fn report(&self) -> String {
         format!(
@@ -935,11 +931,30 @@ impl Measurement {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn assert_memory_child_output(output: &std::process::Output) {
+    assert!(output.status.success(), "memory_child_failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let measurements: Vec<_> = stdout.lines().filter_map(Measurement::parse).collect();
+    assert!(
+        measurements.iter().map(|m| m.label).collect::<Vec<_>>() == ["unbounded", "capped"],
+        "memory_child_report_invalid"
+    );
+    for measurement in &measurements {
+        measurement.assert_bounds();
+        assert!(
+            measurement.peak > measurement.baseline,
+            "memory_peak_not_increased"
+        );
+    }
+}
+
 /// Peak memory is measured in an isolated child process so no other test
 /// thread shares the process-global allocator accounting. The parent re-invokes
 /// this test binary for exactly this test with one thread and an env flag; the
 /// child measures, asserts, and prints one report line per shape, which the
-/// parent parses and asserts again. No minimum-of-N: one measurement per shape.
+/// parent privately captures, parses and asserts again without forwarding either
+/// stream. No minimum-of-N: one measurement per shape.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn peak_memory_for_unreduced_numerators_at_the_25000_row_boundary_stays_within_160_mib() {
@@ -956,7 +971,9 @@ fn peak_memory_for_unreduced_numerators_at_the_25000_row_boundary_stays_within_1
         println!("{}", capped.report());
         return;
     }
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
+    let output = std::process::Command::new(
+        std::env::current_exe().unwrap_or_else(|_| panic!("memory_child_executable_unavailable")),
+    )
         .args([
             "--exact",
             MEMORY_TEST_NAME,
@@ -965,37 +982,19 @@ fn peak_memory_for_unreduced_numerators_at_the_25000_row_boundary_stays_within_1
         ])
         .env(MEMORY_CHILD_ENV, "1")
         .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "isolated memory child failed ({}):\n{stdout}\n{stderr}",
-        output.status
-    );
-    let measurements: Vec<_> = stdout.lines().filter_map(Measurement::parse).collect();
-    assert_eq!(
-        measurements.iter().map(|m| m.label).collect::<Vec<_>>(),
-        ["unbounded", "capped"],
-        "child report lines missing:\n{stdout}"
-    );
-    for measurement in &measurements {
-        println!("isolated child: {}", measurement.report());
-        measurement.assert_bounds();
-        assert!(
-            measurement.peak > measurement.baseline,
-            "{}",
-            measurement.label
-        );
-    }
+        .unwrap_or_else(|_| panic!("memory_child_launch_failed"));
+    assert_memory_child_output(&output);
     // The boundary itself: 25,000 rows pass, 24,999 fail on the final pair with
     // the oracle's identity and position, and the full result equals the oracle.
     let got = differential(&a, &b, ANY, 24_999);
-    assert_eq!(
-        (got.result, got.ticks),
-        (Err("exact_support_limit"), 25_000)
+    assert!(
+        (got.result, got.ticks) == (Err("exact_support_limit"), 25_000),
+        "convolution_boundary_failure_mismatch"
     );
-    assert_eq!(fast(&a, &b, ANY, 25_000).map(|r| r.len()), Ok(25_000));
+    assert!(
+        fast(&a, &b, ANY, 25_000).map(|r| r.len()) == Ok(25_000),
+        "convolution_boundary_success_mismatch"
+    );
 }
 
 fn waiting_engine() -> crate::Engine {
@@ -1039,6 +1038,16 @@ fn waiting_supply(force_rational: bool) -> Supply {
     supply
 }
 
+fn assert_waiting_result(result: &Json) {
+    assert!(result["status"] == json!("certified"), "waiting_status_mismatch");
+    // waiting.rs: WAITING_HORIZON = 14 (private to that module).
+    assert!(result["horizonDays"] == json!(14), "waiting_horizon_mismatch");
+}
+
+fn assert_waiting_twins(results: &[(Json, usize, usize, usize)]) {
+    assert!(results[0] == results[1], "waiting_result_mismatch");
+}
+
 /// Waiting family (plan §2 item 3): `Engine::waiting` drives
 /// `Supply::convolve` for every cohort and event (waiting.rs, the only caller
 /// that passes finite caps and `max_support`). A fast-path supply and a
@@ -1058,26 +1067,214 @@ fn waiting_caller_matches_the_forced_rational_twin() {
         // selected the intended path.
         assert!(
             engine.support_peak > 1,
-            "support peak {}",
-            engine.support_peak
+            "waiting_support_not_expanded"
         );
-        assert!(supply.ticks > before);
-        assert_eq!(
-            supply.convolve_last_path,
-            Some(if force_rational {
+        assert!(supply.ticks > before, "waiting_ticks_not_increased");
+        assert!(
+            supply.convolve_last_path == Some(if force_rational {
                 ConvolvePath::Rational
             } else {
                 ConvolvePath::Fast
-            })
+            }),
+            "waiting_path_mismatch"
         );
-        assert_eq!(result["status"], json!("certified"), "{result}");
-        // waiting.rs: WAITING_HORIZON = 14 (private to that module).
-        assert_eq!(result["horizonDays"], json!(14));
+        assert_waiting_result(&result);
         results.push((result, supply.ticks, engine.ticks, engine.support_peak));
     }
-    assert_eq!(results[0], results[1]);
+    assert_waiting_twins(&results);
     // Hand check on the first waiting date: day 1 convolves the singleton
     // [0,0,0] with `mixed` under caps 20, so the physical support reaches the
     // three `mixed` rows; later dates only grow it.
-    assert!(results[0].3 >= 3, "support peak {}", results[0].3);
+    assert!(results[0].3 >= 3, "waiting_support_below_hand_bound");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const PRIVATE_DIAGNOSTICS_ENV: &str = "CERTIFIED_CONVOLVE_PRIVATE_DIAGNOSTICS_CASE";
+#[cfg(not(target_arch = "wasm32"))]
+const PRIVATE_DIAGNOSTICS_TEST_NAME: &str =
+    "supply::convolve_tests::private_convolution_diagnostics_do_not_echo_captured_data";
+#[cfg(not(target_arch = "wasm32"))]
+const PRIVATE_STDOUT_CANARY: &str = "PRIVATE_CONVOLVE_STDOUT_6b40c85f";
+#[cfg(not(target_arch = "wasm32"))]
+const PRIVATE_STDERR_CANARY: &str = "PRIVATE_CONVOLVE_STDERR_a9240e17";
+
+#[cfg(not(target_arch = "wasm32"))]
+fn private_diagnostic_output(case: &str) -> std::process::Output {
+    std::process::Command::new(
+        std::env::current_exe().unwrap_or_else(|_| panic!("privacy_executable_unavailable")),
+    )
+    .args([
+        "--exact",
+        PRIVATE_DIAGNOSTICS_TEST_NAME,
+        "--test-threads=1",
+        "--nocapture",
+    ])
+    .env(PRIVATE_DIAGNOSTICS_ENV, case)
+    .output()
+    .unwrap_or_else(|_| panic!("privacy_child_launch_failed"))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn private_convolution_diagnostics_do_not_echo_captured_data() {
+    if let Some(case) = std::env::var_os(PRIVATE_DIAGNOSTICS_ENV) {
+        let case = case
+            .into_string()
+            .unwrap_or_else(|_| panic!("privacy_fixture_case_invalid"));
+        if let Some(payload_case) = case.strip_prefix("memory-payload:") {
+            // Synthetic transport fixtures, never substitutes for allocator measurements.
+            let unbounded = Measurement {
+                label: "unbounded",
+                baseline: 7_340_032,
+                peak: 7_340_145,
+                projection: 113,
+            };
+            let capped = Measurement {
+                label: "capped",
+                ..unbounded
+            };
+            let mut first = unbounded;
+            match payload_case {
+                "memory-ceiling" => {
+                    first.peak = 160 * MIB + 1;
+                    first.projection = first.peak;
+                }
+                "memory-projection" => first.projection = 112,
+                "memory-no-increase" => first.peak = first.baseline,
+                _ => {}
+            }
+            match payload_case {
+                "memory-missing" => println!("{}", first.report()),
+                "memory-malformed" => println!(
+                    "{MEMORY_REPORT_PREFIX}unbounded baseline={PRIVATE_STDOUT_CANARY}"
+                ),
+                "memory-duplicate" => {
+                    println!("{}", first.report());
+                    println!("{}", first.report());
+                    println!("{}", capped.report());
+                }
+                "memory-order" => {
+                    println!("{}", capped.report());
+                    println!("{}", first.report());
+                }
+                _ => {
+                    println!("{}", first.report());
+                    println!("{}", capped.report());
+                }
+            }
+            println!("{PRIVATE_STDOUT_CANARY}");
+            eprintln!("{PRIVATE_STDERR_CANARY}");
+            if payload_case == "memory-child-exit" {
+                std::process::exit(1);
+            }
+            return;
+        }
+        if case.starts_with("memory-") {
+            let output = private_diagnostic_output(&format!("memory-payload:{case}"));
+            assert_memory_child_output(&output);
+            return;
+        }
+        let result = json!({
+            "status": "certified",
+            "horizonDays": 14,
+            "private": PRIVATE_STDOUT_CANARY
+        });
+        let first = (result.clone(), 7_340_032, 7_340_032, 7_340_032);
+        let mut second = first.clone();
+        match case.as_str() {
+            "waiting-status" => {
+                let mut bad = result;
+                bad["status"] = json!({"private": PRIVATE_STDERR_CANARY});
+                assert_waiting_result(&bad);
+            }
+            "waiting-horizon" => {
+                let mut bad = result;
+                bad["horizonDays"] = json!({"private": PRIVATE_STDERR_CANARY});
+                assert_waiting_result(&bad);
+            }
+            "waiting-result" => {
+                second.0["private"] = json!(PRIVATE_STDERR_CANARY);
+                assert_waiting_twins(&[first, second]);
+            }
+            "waiting-supply-ticks" => {
+                second.1 += 1;
+                assert_waiting_twins(&[first, second]);
+            }
+            "waiting-engine-ticks" => {
+                second.2 += 1;
+                assert_waiting_twins(&[first, second]);
+            }
+            "waiting-support-peak" => {
+                second.3 += 1;
+                assert_waiting_twins(&[first, second]);
+            }
+            "waiting-valid" => {
+                assert_waiting_result(&result);
+                assert_waiting_twins(&[first, second]);
+            }
+            "differential-result" | "differential-ticks" => {
+                let got = Run {
+                    result: Ok(vec![([0; 3], PRIVATE_STDOUT_CANARY.to_owned())]),
+                    ticks: 7_340_032,
+                    path: None,
+                };
+                let want = if case == "differential-result" {
+                    Ok(Vec::new())
+                } else {
+                    got.result.clone()
+                };
+                assert_differential_results(&got, &want, 7_340_145);
+            }
+            _ => panic!("privacy_fixture_case_invalid"),
+        }
+        return;
+    }
+
+    for (case, category) in [
+        ("memory-valid", None),
+        ("memory-child-exit", Some("memory_child_failed")),
+        ("memory-missing", Some("memory_child_report_invalid")),
+        ("memory-malformed", Some("memory_child_report_invalid")),
+        ("memory-duplicate", Some("memory_child_report_invalid")),
+        ("memory-order", Some("memory_child_report_invalid")),
+        ("memory-ceiling", Some("memory_ceiling_exceeded")),
+        ("memory-projection", Some("memory_projection_exceeded")),
+        ("memory-no-increase", Some("memory_peak_not_increased")),
+        ("waiting-valid", None),
+        ("waiting-status", Some("waiting_status_mismatch")),
+        ("waiting-horizon", Some("waiting_horizon_mismatch")),
+        ("waiting-result", Some("waiting_result_mismatch")),
+        ("waiting-supply-ticks", Some("waiting_result_mismatch")),
+        ("waiting-engine-ticks", Some("waiting_result_mismatch")),
+        ("waiting-support-peak", Some("waiting_result_mismatch")),
+        ("differential-result", Some("convolution_result_mismatch")),
+        ("differential-ticks", Some("convolution_tick_count_mismatch")),
+    ] {
+        let output = private_diagnostic_output(case);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success() == category.is_none(),
+            "privacy_fixture_status_mismatch"
+        );
+        if let Some(category) = category {
+            assert!(
+                stdout.contains(category) || stderr.contains(category),
+                "privacy_failure_category_missing"
+            );
+        }
+        for private in [
+            MEMORY_REPORT_PREFIX,
+            PRIVATE_STDOUT_CANARY,
+            PRIVATE_STDERR_CANARY,
+            "7340032",
+            "7340145",
+            "167772161",
+        ] {
+            assert!(
+                !stdout.contains(private) && !stderr.contains(private),
+                "private_diagnostics_leaked"
+            );
+        }
+    }
 }
