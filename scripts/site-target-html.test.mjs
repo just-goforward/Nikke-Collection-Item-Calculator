@@ -47,12 +47,16 @@ test("legal HTML stays unchanged while declared application pages require statis
 
 test("script case and closing whitespace preserve config isolation and exact-one semantics", () => {
   const config = '\r\nwindow.COLLECTION_STATS_CONFIG = {\r\n  production: { endpoint: "https://nikkecollection.com" },\r\n  staging: { endpoint: "https://old.invalid", turnstileSiteKey: "key" }\r\n};\r\n';
-  const script = `<SCRIPT>${config}</ScRiPt \t>`;
-  const prefix = `<pre>${config.trim()}</pre><script>window.unrelated = true;</script >`;
-  const output = siteTargetHtml(prefix + script, "production");
-  assert.ok(output.startsWith(prefix));
-  assert.ok(output.endsWith("</ScRiPt \t>"));
-  assert.ok(!output.slice(prefix.length).includes("staging:"));
-  assert.ok(output.slice(prefix.length).includes('\r\n  production:'));
-  assert.throws(() => siteTargetHtml(script + script, "production"), /exactly one/);
+  const production = '\r\nwindow.COLLECTION_STATS_CONFIG = {\r\n  production: { endpoint: "https://nikkecollection.com" },\r\n};\r\n';
+  const prefix = `<pre>${config.trim()}</pre><!-- <script>${config}</script> --><script>window.unrelated = true;</script >`;
+  const opening = `<SCRIPT data-note='quoted > " boundary'>`;
+  const suffix = '<p data-note="unchanged">After script</p>';
+  for (const closing of ["</ScRiPt \t>", "</script\t\n bar>", '</script foo="bar">']) {
+    const script = opening + config + closing;
+    const output = siteTargetHtml(prefix + script + suffix, "production");
+    assert.equal(output, prefix + opening + production + closing + suffix);
+    assert.equal(siteTargetHtml(output, "production"), output);
+    assert.throws(() => siteTargetHtml(script + script, "production"), /exactly one/);
+  }
+  assert.throws(() => siteTargetHtml(opening + config, "production"), /Unclosed stats configuration script/);
 });

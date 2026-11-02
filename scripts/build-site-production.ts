@@ -3,6 +3,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Manifest } from "vite";
+import { parse, type DefaultTreeAdapterMap } from "parse5";
 import { SITE_LOCALE_ORDER, SITE_LOCALES, siteLocaleUrl } from "../shared/siteLocales.ts";
 import type { CertifiedBundleBoundary } from "./certified-bundle-boundary.ts";
 import { localizedSeoBlock, renderSitemap } from "./localized-pages.ts";
@@ -27,16 +28,33 @@ async function filesIn(directory: string, prefix = ""): Promise<string[]> {
   return paths.flat().sort();
 }
 
-function statsScriptMatch(html: string): RegExpMatchArray {
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)].filter((match) =>
-    match[1]?.includes("window.COLLECTION_STATS_CONFIG"),
-  );
+type ScriptBodyLocation = { start: number; end: number };
+
+function statsScriptLocation(html: string): ScriptBodyLocation {
+  const scripts: ScriptBodyLocation[] = [];
+  const nodes: DefaultTreeAdapterMap["node"][] = [parse(html, { sourceCodeLocationInfo: true })];
+  for (const node of nodes) {
+    if ("tagName" in node && node.tagName === "script") {
+      const location = node.sourceCodeLocation;
+      if (location?.startTag) {
+        const start = location.startTag.endOffset;
+        const end = location.endTag?.startOffset ?? html.length;
+        if (html.slice(start, end).includes("window.COLLECTION_STATS_CONFIG")) {
+          if (!location.endTag) throw new Error("Unclosed stats configuration script");
+          scripts.push({ start, end });
+        }
+      }
+    }
+    if ("childNodes" in node) nodes.push(...node.childNodes);
+    if ("content" in node) nodes.push(node.content);
+  }
   if (scripts.length !== 1) throw new Error("Expected exactly one stats configuration script");
   return scripts[0]!;
 }
 
 function statsScript(html: string): string {
-  return (statsScriptMatch(html)[1] ?? "").replace(/\r\n?/g, "\n").trim();
+  const { start, end } = statsScriptLocation(html);
+  return html.slice(start, end).replace(/\r\n?/g, "\n").trim();
 }
 
 function siteApplicationLocale(path: string) {
@@ -207,11 +225,10 @@ export async function buildSiteProduction(
 export function siteTargetHtml(html: string, target: string, path?: string): string {
   if (target !== "production" && target !== "staging") throw new Error("Invalid site target");
   if (path !== undefined && !siteApplicationLocale(path)) return html;
-  const script = statsScriptMatch(html);
-  const config = script[1] ?? "";
+  const script = statsScriptLocation(html);
+  const config = html.slice(script.start, script.end);
   const replaceConfig = (replacement: string) => {
-    const start = script.index! + script[0].indexOf(">") + 1;
-    return html.slice(0, start) + replacement + html.slice(start + config.length);
+    return html.slice(0, script.start) + replacement + html.slice(script.end);
   };
   const gatewayConfig = config.replace(
     /(staging:\s*\{[\s\S]*?endpoint:\s*)"[^"]+"/,
