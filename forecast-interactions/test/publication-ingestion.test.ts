@@ -75,7 +75,7 @@ async function clickReview(
     context,
   );
   await waitOnExecutionContext(context);
-  expect(await response.json()).toEqual({ type: 5, data: { flags: 0 } });
+  expect(await response.json()).toEqual({ type: 6 });
 }
 
 function hex(buffer: ArrayBuffer) {

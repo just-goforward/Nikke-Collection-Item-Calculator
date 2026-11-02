@@ -70,7 +70,7 @@ export function workerProvenance(root, directory, recorded) {
     return result && result !== ".." && !result.startsWith("../") && !paths.isAbsolute(result)
       ? safe(result) : null;
   }
-  // Wrangler 4.151.3 resolveEntryWithMain sets projectRoot to the user
+  // Wrangler 4.156.1 resolveEntryWithMain sets projectRoot to the user
   // config directory; bundleWorker uses it as esbuild absWorkingDir.
   function canonical(raw) {
     const file = paths.resolve(checkout, "site-worker", raw);
@@ -123,7 +123,7 @@ export function verifyRelease(root, directory, sha, digest, run, attempt, restor
   if (!/^[a-f0-9]{40}$/.test(sha ?? "") || !/^[0-9]+$/.test(run ?? "") ||
       !/^[0-9]+$/.test(attempt ?? "") || manifest.version !== 1 ||
       manifest.sha !== sha || manifest.run !== run || manifest.attempt !== attempt ||
-      manifest.wrangler !== "4.151.3")
+      manifest.wrangler !== "4.156.1")
     throw new Error("Release identity mismatch");
   const files = inventory(directory);
   delete files["manifest.json"];
@@ -186,7 +186,7 @@ export function seal(root, directory, sha, env, execute = execFileSync) {
   cpSync(join(root, "dist"), join(directory, "dist"), { recursive: true, dereference: false });
   const files = inventory(directory);
   const bytes = JSON.stringify({ version: 1, sha, run: env.GITHUB_RUN_ID,
-    attempt: env.GITHUB_RUN_ATTEMPT, wrangler: "4.151.3", files, provenance });
+    attempt: env.GITHUB_RUN_ATTEMPT, wrangler: "4.156.1", files, provenance });
   writeFileSync(join(directory, "manifest.json"), bytes, { flag: "wx" });
   const digest = hash(bytes);
   verifyRelease(root, directory, sha, digest, env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT);

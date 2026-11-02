@@ -43,7 +43,7 @@ function fixture(t) {
   for (const [path, bytes] of Object.entries(source)) {
     put(root, path, bytes); add(`source/${path}`, bytes);
   }
-  put(root, "node_modules/wrangler/package.json", '{"version":"4.151.3"}');
+  put(root, "node_modules/wrangler/package.json", '{"version":"4.156.1"}');
   for (const path of ["manifest.json", "site-production.json", "local-operational-profile.json", "forecast-runtime.json"])
     add(`dist/.vite/${path}`, "{}");
   add("dist/.assetsignore", "/.vite/\n");
@@ -56,7 +56,7 @@ function fixture(t) {
   cpSync(join(artifact, "dist"), join(root, "dist"), { recursive: true });
   function manifest(changes = {}) {
     const bytes = JSON.stringify({ version: 1, sha, run: "123", attempt: "1",
-      wrangler: "4.151.3", files, provenance, ...changes });
+      wrangler: "4.156.1", files, provenance, ...changes });
     put(artifact, "manifest.json", bytes);
     return createHash("sha256").update(bytes).digest("hex");
   }
