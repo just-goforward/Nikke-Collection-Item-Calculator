@@ -97,13 +97,13 @@ if (kind === "site") execute(process.execPath,
 snapshot();
 let sealedEntry: string | undefined;
 if (sealed) {
-  const directory = parent.SITE_RELEASE_DIR;
-  if (!directory || !parent.SITE_RELEASE_MANIFEST_SHA256 ||
-      !/^[0-9]+$/.test(parent.GITHUB_RUN_ID ?? "") || !/^[0-9]+$/.test(parent.GITHUB_RUN_ATTEMPT ?? ""))
+  const directory = parent["SITE_RELEASE_DIR"];
+  if (!directory || !parent["SITE_RELEASE_MANIFEST_SHA256"] ||
+      !/^[0-9]+$/.test(parent["GITHUB_RUN_ID"] ?? "") || !/^[0-9]+$/.test(parent["GITHUB_RUN_ATTEMPT"] ?? ""))
     throw new Error("Sealed Site release identity required");
   execute(process.execPath, [
     resolve(root, "scripts/site-release.mjs"), "verify", directory, sha!,
-    parent.SITE_RELEASE_MANIFEST_SHA256, parent.GITHUB_RUN_ID!, parent.GITHUB_RUN_ATTEMPT!,
+    parent["SITE_RELEASE_MANIFEST_SHA256"], parent["GITHUB_RUN_ID"]!, parent["GITHUB_RUN_ATTEMPT"]!,
   ], { cwd: root, env, stdio: "inherit" });
   sealedEntry = resolve(directory, "worker/worker.js");
   snapshot();

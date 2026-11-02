@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cpSync, ftruncateSync, closeSync, openSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, ftruncateSync, closeSync, openSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { assertContext, seal, verifyRelease, workerProvenance } from "./site-release.mjs";
@@ -86,7 +86,7 @@ test("actual config-relative metadata and linked packages retain portable, bound
   f.put(f.root, "package-lock.json", lock); f.add("source/package-lock.json", lock);
   const raw = {
     inputs: { "src/worker.ts": {}, "../shared/contract.ts": {},
-      [join(installed, "example/index.js").replaceAll("\\", "/")]: {} },
+      [realpathSync(join(installed, "example/index.js")).replaceAll("\\", "/")]: {} },
     outputs: { "worker.js": { imports: [], entryPoint: "src/worker.ts" } },
   };
   f.add("worker/meta.json", JSON.stringify(raw));
