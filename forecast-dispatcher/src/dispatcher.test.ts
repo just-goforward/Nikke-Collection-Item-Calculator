@@ -156,7 +156,7 @@ describe("D1 publication Discord dispatcher", () => {
     const messages = outbound.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
     const review = messages.find((message) => message.content.includes(candidate.candidateId));
     expect(review.content).toContain(hash.slice(0, 12));
-    expect(review.content).toContain("**Forecast 예보 반영 승인 요청** · 환경: staging");
+    expect(review.content).toContain("## Forecast 예보 반영 승인 요청\n**환경: staging · ⏳ 승인 대기**");
     expect(review.content).toContain("지금은 예보가 끄기 상태입니다.");
     expect(review.content).toContain("📊 지금 반영된 것: 없음(끄기 상태)");
     expect(review.content).not.toContain("솔로 레이드 일정은 지금과 같습니다");
