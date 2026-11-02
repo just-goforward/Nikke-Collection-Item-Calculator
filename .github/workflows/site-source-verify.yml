@@ -78,7 +78,7 @@ jobs:
 
       - name: Run online build, artifact and publication guard tests
         timeout-minutes: 10
-        run: node --test scripts/build-production-service.test.mjs scripts/site-deployment-artifact.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs
+        run: node --test scripts/build-certified-wasm.test.mjs scripts/build-production-service.test.mjs scripts/site-deployment-artifact.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs
 
       - name: Build production-online with pinned WASM and engine freshness guards
         timeout-minutes: 45
