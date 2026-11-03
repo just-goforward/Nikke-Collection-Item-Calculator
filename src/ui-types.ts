@@ -100,7 +100,7 @@ export type ValidationStageReachView = {
 };
 
 export type DetailView =
-  | { type: "empty"; message: LocalizedMessage }
+  | { type: "empty"; message: LocalizedMessage; waitingLabel?: LocalizedMessage }
   | { type: "loading" }
   | {
       type: "metrics";
@@ -108,6 +108,7 @@ export type DetailView =
       greatSuccessProbability: string | null;
       /** Final validated stable WAIT only; never populated by a Current checkpoint. */
       recommendedWaitDays?: number;
+      waitingLabel?: LocalizedMessage;
       candidates: CandidateView[];
       monteCarloRuns: number;
       solverLabel: string;

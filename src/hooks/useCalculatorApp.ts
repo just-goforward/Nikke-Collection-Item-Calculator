@@ -41,6 +41,10 @@ import { withoutRecommendedWait } from "./serviceCertifiedPresentation";
 // A build-time constant selects one hook for this App's entire lifetime, never two engines.
 const useCalculatorSolver = SERVICE_CERTIFIED_SOLVER ? useServiceCertifiedSolver : useSolverWorker;
 
+export function invalidatedDetailView(view: DetailView): DetailView {
+  return view.type === "loading" ? EMPTY_DETAIL : withoutRecommendedWait(view);
+}
+
 type ConfiguredOutcomeFlowOptions = Omit<
   Parameters<typeof useOutcomeFlow>[0],
   | "currentStockSnapshot"
@@ -151,7 +155,7 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
     // render. Retained Current metrics still need a stale marker if B arrives.
     if (detailView.type === "metrics") markResultStale();
     latestResultRef.current = null;
-    setDetailView(withoutRecommendedWait);
+    setDetailView(invalidatedDetailView);
     setResultView((current) => current.type === "loading" ? EMPTY_RESULT : current);
     resetOutcomeRef.current?.();
   }, [detailView.type, markInputChanged, markResultStale, lifecycle, observerOwner]);
@@ -182,7 +186,7 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
       if (retireService) {
         retireService();
         latestResultRef.current = null;
-        setDetailView(withoutRecommendedWait);
+        setDetailView(invalidatedDetailView);
         setResultView((current) => current.type === "loading" ? EMPTY_RESULT : current);
       }
     },
@@ -191,7 +195,7 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
   const invalidateSolveInput = useCallback(() => {
     inputRevisionRef.current += 1;
     retireService?.();
-    setDetailView(withoutRecommendedWait);
+    setDetailView(invalidatedDetailView);
   }, [retireService]);
 
   const onInputRestored = useCallback(() => {

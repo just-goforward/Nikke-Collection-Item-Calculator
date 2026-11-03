@@ -63,7 +63,10 @@ export function useCalculatorResultRendering({
           reason: "final_target",
           message: message("result.finalTarget"),
         });
-        setDetailView({ type: "empty", message: message("detail.finalTarget") });
+        setDetailView({
+          type: "empty", message: message("detail.finalTarget"),
+          waitingLabel: message("detail.wait.complete"),
+        });
       }
     },
     [latestResultRef, setDetailView, setResultView, setValidationView],
@@ -90,7 +93,10 @@ export function useCalculatorResultRendering({
           reason: "final_target",
           message: message("result.complete"),
         });
-        setDetailView({ type: "empty", message: message("result.complete") });
+        setDetailView({
+          type: "empty", message: message("result.complete"),
+          waitingLabel: message("detail.wait.complete"),
+        });
         return;
       }
       if (result.convertOnly) {

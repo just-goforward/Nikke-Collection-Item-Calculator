@@ -9,8 +9,12 @@ import { buildRecommendedRunForKit } from "../wasm/rustProductView";
 import type { ServiceCertifiedResult, ServiceCertifiedSolveOutcome } from "./serviceCertifiedTypes";
 
 export function withoutRecommendedWait(view: DetailView): DetailView {
-  if (view.type !== "metrics" || view.recommendedWaitDays === undefined) return view;
-  const { recommendedWaitDays: _removed, ...rest } = view;
+  if (view.type === "loading") return view;
+  if (view.type === "empty") {
+    const { waitingLabel: _label, ...rest } = view;
+    return rest;
+  }
+  const { recommendedWaitDays: _removed, waitingLabel: _label, ...rest } = view;
   return rest;
 }
 
@@ -69,6 +73,31 @@ export function serviceCertifiedWaitDays(value: ServiceCertifiedResult): number 
 }
 
 export function serviceCertifiedViews(
+  input: SolverInput,
+  value: ServiceCertifiedResult,
+): { result: ResultView; detail: DetailView } {
+  const views = serviceCertifiedBaseViews(input, value);
+  const { output, final } = value;
+  const status = output.claimNotice || output.waiting.status === "claim_required"
+    ? "claim"
+    : output.status === "refused" || output.refusal || !output.current ? "error"
+    : output.current?.status === "complete" ? "complete"
+    : !final ? "incomplete"
+    : serviceCertifiedWaitDays(value) !== undefined ? "date"
+    : output.stableRecommendation?.guidance.status === "NOW" &&
+      output.stableRecommendation.selection.status === "NOW" ? "now"
+    : output.stableRecommendation?.guidance.status === "WITHHELD" ? "withheld"
+    : output.stableRecommendation?.guidance.status === "PRESERVE" ? "preserve"
+    : output.stableRecommendation?.guidance.status === "UNAVAILABLE" ? "unavailable"
+    : output.stableRecommendation?.guidance.status === "ERROR" ? "error"
+    : output.stableRecommendation?.selection.status === "STABLE_WAIT_UNCONFIRMED" ? "unresolved"
+    : "incomplete";
+  if (views.detail.type !== "loading" && status !== "date")
+    views.detail = { ...views.detail, waitingLabel: message(`detail.wait.${status}`) };
+  return views;
+}
+
+function serviceCertifiedBaseViews(
   input: SolverInput,
   value: ServiceCertifiedResult,
 ): { result: ResultView; detail: DetailView } {

@@ -175,7 +175,7 @@ export function solveFailurePresentation(
     : { reason: "solver_failure" as const, message: message("result.solverError") };
 }
 
-function handleSolveFailure({
+export function handleSolveFailure({
   error,
   failureContext,
   input,
@@ -224,7 +224,11 @@ function handleSolveFailure({
         reason: presentation.reason,
         message: presentation.message,
       },
-      detail: { type: "empty" as const, message: presentation.message },
+      detail: {
+        type: "empty" as const,
+        message: presentation.message,
+        waitingLabel: message("detail.wait.error"),
+      },
     },
   };
 }
@@ -251,7 +255,7 @@ type ExecuteSolveOptions = Pick<
   calculationLocale: ReturnType<typeof useI18n>["locale"];
 };
 
-async function executeSolveAndRender(
+export async function executeSolveAndRender(
   context: ExecuteSolveOptions,
   input: SolverInput,
   options: SolveAndRenderOptions,

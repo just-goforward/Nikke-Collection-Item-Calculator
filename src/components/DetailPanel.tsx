@@ -9,7 +9,6 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { useDecisionReceipt } from "../analytics/DecisionPresentation";
 import { useDismissableLayer } from "../hooks/useDismissableLayer";
 import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
@@ -17,6 +16,7 @@ import type { Kit } from "../types";
 import type { DetailView, ValidationView } from "../ui-types";
 import { KIT_LABEL_KEYS, KIT_PANEL_LABEL_KEYS, kitDotClass } from "./kitPresentation";
 import { ValidationSuccessChart } from "./ValidationSuccessChart";
+import WaitingMetric from "./WaitingMetric";
 
 const KIT_SHORT_LABEL_KEYS: Record<Kit, MessageKey> = {
   blue: "kit.blueShort",
@@ -405,12 +405,8 @@ function CandidateReason({
 function DetailMetricGrid({ view, loading }: { view: MetricsDetailView; loading: boolean }) {
   const { t } = useI18n();
   const probabilityLabel = t("detail.sr15Probability");
-  const waitDays = view.recommendedWaitDays;
-  const showWait = !loading && typeof waitDays === "number" &&
-    Number.isInteger(waitDays) && waitDays > 0 && waitDays <= 14;
-  const waitReceiptRef = useDecisionReceipt("wait", showWait);
   return (
-    <div className={showWait ? classes.metricGrid.replace("grid-cols-2", "grid-cols-3") : classes.metricGrid}>
+    <div className={classes.metricGrid.replace("grid-cols-2", "grid-cols-3")}>
       <div className={`${classes.metric} ${classes.metricHighlight}`}>
         <span
           className={`${classes.metricLabel} ${classes.metricLabelHighlight}`}
@@ -432,12 +428,7 @@ function DetailMetricGrid({ view, loading }: { view: MetricsDetailView; loading:
           {view.greatSuccessProbability ?? t("detail.notApplicable")}
         </strong>
       </div>
-      {showWait && <div ref={waitReceiptRef} className={classes.metric}>
-        <span className={classes.metricText}>{t("detail.recommendedWaitDays")}</span>
-        <strong className={classes.metricValue}>
-          {t("detail.waitAfterDays", { days: waitDays })}
-        </strong>
-      </div>}
+      <WaitingMetric view={view} loading={loading} />
     </div>
   );
 }
@@ -730,7 +721,7 @@ export default function DetailPanel({
   showSolverBackend,
 }: DetailPanelProps) {
   const { t } = useI18n();
-  if (view.type !== "metrics") return null;
+  if (view.type !== "metrics") return <WaitingMetric view={view} loading={loading} />;
 
   return (
     <section className={classes.panel} aria-busy={loading || undefined}>
@@ -742,6 +733,7 @@ export default function DetailPanel({
           </span>
         ) : null}
       </div>
+      {loading && <WaitingMetric view={view} loading />}
       <div id="detailBox" className={classes.detailBody}>
         {loading ? (
           <div className={classes.loadingOverlay} role="status" aria-live="polite">

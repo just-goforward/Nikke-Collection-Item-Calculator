@@ -24,6 +24,7 @@ import StatePanel from "./components/StatePanel";
 import StatsPanel from "./components/StatsPanel";
 import StockPanel from "./components/StockPanel";
 import TopBar, { type TopViewTab } from "./components/TopBar";
+import WaitingMetric from "./components/WaitingMetric";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
 import { useMobileLayout } from "./hooks/useMobileLayout";
 import { useI18n } from "./i18n/locale";
@@ -334,7 +335,7 @@ function useRetryableDetailPanel() {
   return { component, retry };
 }
 
-function DetailPanelRegion({
+export function DetailPanelRegion({
   calculator,
   showSolverBackend,
 }: {
@@ -343,16 +344,19 @@ function DetailPanelRegion({
 }) {
   const { actions, detailView } = calculator;
   const { component: DetailPanelComponent, retry: retryDetailPanel } = useRetryableDetailPanel();
-  if (detailView.type === "empty") return null;
-  if (detailView.type === "loading") return <DetailPanelFallback />;
+  const loading = calculator.resultView.type === "loading" || detailView.type === "loading";
+  const waiting = <WaitingMetric view={detailView} loading={loading} />;
+  if (detailView.type === "empty") return waiting;
+  const fallback = <>{waiting}<DetailPanelFallback /></>;
+  if (detailView.type === "loading") return fallback;
 
   return (
     <LazySectionErrorBoundary
       name="DetailPanel"
       onRetry={retryDetailPanel}
-      fallback={(retry) => <DetailPanelFailure onRetry={retry} />}
+      fallback={(retry) => <>{waiting}<DetailPanelFailure onRetry={retry} /></>}
     >
-      <Suspense fallback={<DetailPanelFallback />}>
+      <Suspense fallback={fallback}>
         <DetailPanelComponent
           loading={calculator.resultView.type === "loading"}
           view={detailView}
