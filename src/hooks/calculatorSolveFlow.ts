@@ -352,16 +352,16 @@ export async function executeSolveAndRender(
         inputRevision,
       });
       failureViews = failure.views ?? null;
-      if (rootCandidate && failureViews?.result.type === "error" && (options.userCalculate || options.failureContext)) {
+      const replacement = options.failureContext || (options.userCalculate &&
+        (previous.result.type === "error" || (prior?.input && inputKey(prior.input) === inputKey(input))));
+      if (rootCandidate && replacement && failureViews?.result.type === "error") {
         const reason = error instanceof PreviewSourceError || (error instanceof Error && error.message === "forecast_unavailable")
           ? "source" : error instanceof PreviewCalculationError ? error.kind :
           error instanceof PreviewSolverResourceError || (error instanceof Error && error.message === "certified_total_deadline")
             ? "capacity" : "other";
         void import("../incidentTransport").then(({reportRecalculationFailure}) =>
           reportRecalculationFailure(reason, options.failureContext ?? "manual")).catch(() => {});
-        const replacement = !!options.failureContext || previous.result.type === "error" ||
-          (prior?.input && inputKey(prior.input) === inputKey(input));
-        if (replacement) failureViews = {
+        failureViews = {
           result: {...failureViews.result, recalculationFailure: true}, detail: EMPTY_DETAIL,
         };
       }
