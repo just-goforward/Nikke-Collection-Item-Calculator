@@ -6,9 +6,11 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {Miniflare} from 'miniflare';
+import {oldEvidence,seedSeal} from './canary-fixture.mjs';
+import {successorBuild} from './sealed-successor.ts';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
-const build='a'.repeat(64), admin='1'.repeat(18), channel='2'.repeat(18);
+const admin='1'.repeat(18), channel='2'.repeat(18);
 const schema=readFileSync(new URL('schema.sql',import.meta.url),'utf8').replaceAll('\n',' ');
 
 test('generated one-shot canary uses local workerd fetch and local D1 only',async t=>{
@@ -47,7 +49,7 @@ test('generated one-shot canary uses local workerd fetch and local D1 only',asyn
       if(url.origin==='https://discord.com' && url.pathname===post && message)return message(req);
       return new Response(null,{status:418});
     };
-    const vars={PUBLIC_INGRESS:'0',INCIDENT_BUILD:build,ADMIN_ID:admin,BOT_TOKEN:'fixture'};
+    const vars={PUBLIC_INGRESS:'0',INCIDENT_BUILD:successorBuild,ADMIN_ID:admin,BOT_TOKEN:'fixture'};
     const mf=new Miniflare({
       host:'127.0.0.1',port:0,cf:false,telemetry:{enabled:false},unsafeRuntimeEnv:{},resourceTmpPath:dir,
       workers:[{
@@ -61,13 +63,14 @@ test('generated one-shot canary uses local workerd fetch and local D1 only',asyn
     });
     try {
       const db=await mf.getD1Database('INCIDENT_DB');await db.exec(schema);
+      await db.exec(seedSeal);const before=(await db.prepare(oldEvidence).all()).results;
       const worker=await mf.getWorker();
       for(let i=0;i<2;i++)await worker.scheduled({cron:'*/5 * * * *',scheduledTime:Date.now()});
-      const {results}=await db.prepare(`SELECT n.build,n.reason,n.stage,state,attempts,
-        CASE WHEN next=0 THEN 0 WHEN next-i.seen>=3600 THEN 1 END AS sealed
-        FROM notifications n JOIN incidents i ON n.build=i.build AND n.day=i.seen/86400
-        AND n.reason=i.reason AND n.stage=i.stage WHERE i.fingerprint='operator-private-canary'`).all();
-      assert.deepEqual(results,[{build,reason:'canary',stage:'private',state,attempts:1,sealed:Number(sealedRetry)}]);
+      const {results}=await db.prepare('SELECT build,reason,stage,state,attempts,next FROM notifications WHERE build=?').bind(successorBuild).all();
+      assert.equal(results.length,1);const {next,...row}=results[0];
+      assert.deepEqual(row,{build:successorBuild,reason:'canary',stage:'private',state,attempts:1});
+      assert.equal(sealedRetry?next>=Math.floor(Date.now()/1000)+3590:next===0,true);
+      assert.deepEqual((await db.prepare(oldEvidence).all()).results,before);
       assert.deepEqual(calls,(message?[open,post]:[open]).map(path=>['https://discord.com',path,'POST']));
     } finally {await mf.dispose();}
   });

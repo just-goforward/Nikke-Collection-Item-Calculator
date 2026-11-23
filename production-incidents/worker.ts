@@ -2,6 +2,7 @@ import { readBoundedJson } from '../shared/boundedHttp.ts';
 import { incidentOrigin, incidentPath, reasons, stages } from '../shared/recalculationIncident.ts';
 
 declare const INCIDENT_OUTBOUND_REDIRECT: 'manual'|'error'; // fixed by the reviewed phase, not a binding
+declare const INCIDENT_ATTEMPT_LIMIT: number;
 type Env = { INCIDENT_DB: D1Database; INGRESS: RateLimit; INCIDENT_BUILD: string; PUBLIC_INGRESS: string; ADMIN_ID: string; BOT_TOKEN: string };
 type Row = { day:number; build:string; reason:string; stage:string; attempts:number };
 const epoch = () => Math.floor(Date.now()/1000);
@@ -25,10 +26,10 @@ async function ingest(req:Request,e:Env) {
   if(!result.meta.changes && !(await e.INCIDENT_DB.prepare('SELECT 1 FROM incidents WHERE fingerprint=?').bind(fingerprint).first())) return reply(429);
   return reply(202);
 }
-async function notify(e:Env,row:Row) {
+export async function notify(e:Env,row:Row) {
   const identity=[row.day,row.build,row.reason,row.stage];
   const set=async(state:string,next=0)=>{await e.INCIDENT_DB.prepare(`UPDATE notifications SET state=?,next=? WHERE ${key} AND state='claimed'`).bind(state,next,...identity).run();};
-  const retry=()=>set(row.attempts>=4?'blocked':'pending',epoch()+3600);
+  const retry=()=>set(row.attempts>=INCIDENT_ATTEMPT_LIMIT?'blocked':'pending',epoch()+3600);
   // Only definite pre-send failures or explicit rate rejection may be retried. A lost
   // acknowledgement or isolate crash after claim never results in another automatic POST.
   let posted=false;

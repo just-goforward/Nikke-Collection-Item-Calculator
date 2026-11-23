@@ -75,9 +75,11 @@ node scripts/ci/incident-owner.mjs preflight-recovery \
 
 부분 등록 시 inert 상태를 유지하고 secret 목록에서 **이름·Secret 형식만** 확인한다. 빠진 이름만 등록하고 기존 값을 표시·교체하지 않는다. 값의 정확성은 목록만으로 확인할 수 없다. 두 이름이 모두 있으면 기존 경로·cron 비활성 상태를 다시 확인한 후 보호된 canary 단계로 전환한다. `operator-private-canary` 키는 보존 기간 내 동일하여 INSERT를 반복해도 새 알림은 생기지 않는다. 이 canary는 1회만 시행하고 장기 보존 만료 후 재삽입하지 않는다. 수락 여부가 불명확하면 관리자 inbox로 확인하고 재전송하지 않는다.
 
-#### 보호된 1회 canary (공개 전환 아님)
+#### `45184118767` 다음의 단 한 번의 비공개 canary (새 승인 필요)
 
-이 절차는 설치 run `45171435589`의 **그 UUID·배포·비활성 donor**에만 해당한다. 전용 D1 `9a516350-d7d8-4a77-9cce-45d669fd3502`의 물리 카탈로그가 검토한 `schema.sql`(SHA-256 `b7caa79093856b09aaaa7440153c8049211a4731026e9b1dfd1743524693d6fa`)과 같고 두 업무 테이블이 비어야 한다. 이미 적용한 스키마를 다시 실행하지 않는다. **수동 INSERT, 테스트 URL, secret 재등록, 설치 workflow 재사용 금지.**
+원 run의 `sealed_retry / blocked / attempts=1`과 소유자의 DM 미수신이 확인되었다. 원 run·행·journal은 종료된 증거다. **이 PR 검토·병합은 새 실행, DM, 자격 발급, 공개 전환 승인이 아니다. 지금 할 일은 소스와 필수 CI를 독립 검토하는 것뿐이다.** 다음 절차는 소유자가 나중에 새 시험 메시지 한 건 및 해당 비공개 변경 창을 명시적으로 승인하기로 선택한 경우에만 사용한다. 수신 여부가 바뀌거나 모호하면 중단한다.
+
+전용 D1의 기존 스키마 SHA-256 `b7caa79093856b09aaaa7440153c8049211a4731026e9b1dfd1743524693d6fa`는 바뀌지 않는다. 허용하는 최초 상태는 원 journal 시간창의 고정 fingerprint·서비스 빌드·`canary/private` incident 한 건, 같은 UTC day·빌드·reason·stage의 `blocked/1`, `next−seen≥3600` 통지 한 건뿐이다. 빈 DB도 거절한다. 새 통지는 **공개 빌드가 아닌** `sealed-successor.ts`의 고정 시험용 build 키를 사용하므로 같은 날에도 PK와 Discord nonce가 다르다. 이 키는 run 인수가 아니며 매번 만들지 않는다. 새 incident/trigger 대신 새 통지를 단일 SQL로 `claimed/1` 삽입하며, 성공한 isolate만 그 행을 발송한다. 이후에는 날짜·창·permit을 바꿔도 두 번째 삽입이 불가능하다. 전체 큐 drain, 보존 기한 대기, 기존 행 편집·삭제·재큐, 수동 INSERT, 설치 workflow 재사용은 금지한다.
 
 1. 독립 검토와 병합 후 새 보호 main의 source 검증이 성공해야 한다. 소유자는 전체 작업 동안 다른 제어면·DB 변경을 금지한다. 여러 API에 걸친 검사는 원자적 CAS가 아니다. `.nvmrc`·고정 pnpm·frozen `--ignore-scripts`로 준비한 깨끗한 checkout에서, 자격 없이 아래처럼 **만료가 컴파일된** 모듈을 먼저 만들고 해시를 독립 확인한다. 같은 고정 UTC 만료로 재현할 수 있어야 한다. `end`는 현재부터 최대 1시간 후, 실행 시점에는 최소 10분이 남아 있어야 한다.
 
@@ -91,7 +93,7 @@ node scripts/ci/incident-owner.mjs preflight-recovery \
      -f source_sha="$(git rev-parse HEAD)" -f module_sha256="$hash" -f end_epoch="$INCIDENT_CANARY_END"
    ```
 
-2. `incident-private-install`에서 소유자가 **해당 canary run / attempt 1 / SHA / 입력 해시·만료**를 확인하고 승인한다. Actions에는 Cloudflare 자격이 전혀 전달되지 않는다. GitHub 호스팅 빌드는 같은 바이트를 검증하고 permit을 서명한다. 실제 실행은 소유자 장치에서만 한다. 새로 발급한 단기 계정 소유 `Individual Workers Editor`(오직 `bd4b7c3527c14626935139b0924e1249`), 기존 정책 읽기와 기존 등록된 그래프 읽기 자격이 필요하다. 폐기한 설치 Editor·계정 전체 쓰기·사이트 OAuth/발행기·D1 쓰기 토큰은 사용하지 않는다. 이 절차가 토큰을 발급하거나 GitHub secret을 수정하지 않는다.
+2. **새 run / attempt 1**에만 `incident-private-install` 승인 화면에서 대상 SHA·모듈 해시·만료를 대조한다. 원 DM 미수신을 확인했고 새 DM 딱 한 건을 승인할 때만 다음 승인 코멘트를 정확히 쓴다: `nonreceipt:45184118767; authorize-one-new-dm:<새 run ID>:<새 보호 main 전체 SHA>`. 꺾쇠 부분은 실제 값으로 바꾼다. 단순 승인 버튼이나 옛 코멘트로는 실행할 수 없다. Actions는 Cloudflare 자격 없이 새 run·attempt·선행 run·고정 새 슬롯·SHA·바이트 해시·만료에 묶인 permit만 서명한다. 실제 실행은 소유자 장치에서만 한다. 단기 계정 소유 `Individual Workers Editor`(오직 `bd4b7c3527c14626935139b0924e1249`), 기존 정책 읽기와 등록된 그래프 읽기 자격이 필요하다. 폐기한 설치 Editor·계정 전체 쓰기·사이트 OAuth/발행기·D1 쓰기 토큰은 사용하지 않는다. 이 절차가 토큰을 발급하거나 GitHub secret을 수정하지 않는다.
    Editor의 발급→만료는 24시간 이내, 만료는 canary 창 종료보다 최소 10분 뒤여야 한다.
 
    ```sh
@@ -99,7 +101,7 @@ node scripts/ci/incident-owner.mjs preflight-recovery \
      < "$fresh_editor_file" 3< "$policy_reader_file" 4< "$registered_graph_reader_file"
    ```
 
-   변수에는 0600 파일 **경로만** 넣는다. helper는 실행·소유자 승인·서명·만료·실제 Editor 정책을 확인한다. `deploy=false`로 고정 donor `4b57a6dd-edf4-4465-9220-1da8a5aa9bcf`의 **두 이름만** `inherit.version_id`로 상속한다. [Workers 버전 API](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/subresources/versions/methods/create/)에서 실제 새 버전의 모듈 바이트·메인·설정·전체 binding을 읽어 확인한 뒤에만 비공개 배포한다. 그래프·배포·전용 DB를 다시 확인하고 마지막에만 `*/5 * * * *`를 건다. Worker에는 HTTP 진입점이 없다. 한 시간 창 안의 최초 원자적 고정 INSERT가 성공한 isolate만 기존 DM 발송기를 호출한다. 이후 cron은 재발송하지 않는다.
+   변수에는 0600 파일 **경로만** 넣는다. helper는 기존 네 버전과 `원 inert → 실패 canary → 복구된 inert`의 최신 배포 이력, 비공개 상태, 물리 카탈로그 및 primary의 봉인된 두 행을 검증한다. 한 항목이라도 다르면 중단한다. `deploy=false`로 고정 donor `4b57a6dd-edf4-4465-9220-1da8a5aa9bcf`의 두 이름만 상속한다. [Workers 버전 API](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/subresources/versions/methods/create/)로 새 모듈·설정·바인딩을 확인한다. 비공개 배포 및 cron 직전에도 gate·봉인·창·대상을 재확인한다. HTTP 진입점은 없다. 경로는 새 통지 하나만 처리하고 이전 통지는 갱신하지 않는다. 이 절차가 중단되면 제3의 슬롯이 없으며 자동 재발송도 없다.
 
 3. 영수증은 UTC·모듈 해시·상태·시도 횟수만 공유한다. terminal 또는 제한시간에 도달하면 자기 배포 ID와 cron이 맞을 때만 cron을 비우고 원래 비밀 없는 inert 버전을 복구한다. donor 버전/secret/기록을 삭제하지 않는다. `sent`도 실제 수신은 아니므로 관리자가 DM함을 별도로 확인한다. `pending`·`claimed`·`uncertain`·`blocked` 또는 응답 유실 때에는 다시 실행·INSERT·재큐하지 않는다. 수신/비수신 여부만 공유하고 ID·본문·토큰을 제출하지 않는다. `pending`/`claimed`가 남았다면 공개 발송기로 넘기지 않는다.
 
