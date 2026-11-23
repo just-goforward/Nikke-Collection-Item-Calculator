@@ -93,7 +93,7 @@ export function verifyPackages(env, g, restore) {
   }
   const role = operations[g.operation], release = join(p.base,role), manifest = h.directions[role].manifestSha256;
   if (restore) assert(!existsSync(join(root,'dist')));
-  node('scripts/site-release.mjs',restore?'restore':'verify',release,g.source,manifest,h.run,h.attempt);
+  node('scripts/site-release.mjs',restore?'restore-root':'verify-root',release,g.source,manifest,h.run,h.attempt);
   return { h,pair,enrolled:JSON.parse(enrolled),role,release,manifest,expiresAt:Math.min(g.expiresAt,review.expiresAt) };
 }
 async function receiptArtifacts(env,g) {

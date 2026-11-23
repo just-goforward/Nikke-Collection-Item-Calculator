@@ -18,14 +18,32 @@ async function get(url,limit,token) {
 async function cf(path,token){assert(token);const {bytes}=await get(api+path,8*1024*1024,token);const v=JSON.parse(bytes);assert.equal(v.success,true);return v.result;}
 async function active(script,token){const {deployments}=await cf(`${worker}/scripts/${script}/deployments?per_page=1`,token);assert.equal(deployments.length,1);const [d]=deployments;
   assert.match(d.id,uuid);assert.equal(d.versions.length,1,'split deployment not supported');assert.equal(d.versions[0].percentage,100);assert.match(d.versions[0].version_id,uuid);return {deployment:d.id,version:d.versions[0].version_id};}
+export function assertExactRoutes(routes, enrolled) {
+  const expected=[
+    ['/preview/*','collection-kit-site-preview-k1r2','863270c636c945b8b788c329c9762f50'],
+    ['/api/calendar',enrolled.publisherWorker,'483199a1890b4fb696b38d53b6d63e3c'],
+    ['/api/joint-supply/v2',enrolled.publisherWorker,'85e95eb76fd94eeba4531b7b26caa11c'],
+    ['/api/recalculation-incident','collection-kit-production-incidents',null],
+  ];
+  assert.equal(enrolled.read,'/api/joint-supply/v2');
+  assert.equal(routes.length,expected.length,'exact reviewed zone routes required');
+  assert.equal(new Set(routes.map(r=>r.id)).size,expected.length);
+  for(const [path,script,priorId] of expected){
+    const r=routes.find(r=>r.pattern===hostname+path);
+    assert(r && r.script===script && r.request_limit_fail_open===false,'route target or fail policy drift');
+    assert.match(r.id,/^[a-f0-9]{32}$/); if(priorId)assert.equal(r.id,priorId,'existing route was replaced');
+  }
+}
 export async function observeSite(enrolled,token){
   const [live,producer,domains,routes,subdomain,schedules,settings]=await Promise.all([active(site,token),active(enrolled.publisherWorker,token),cf(`${worker}/domains?zone_id=${zone}&hostname=${hostname}`,token),cf(`/zones/${zone}/workers/routes`,token),cf(`${worker}/scripts/${site}/subdomain`,token),cf(`${worker}/scripts/${site}/schedules`,token),cf(`${worker}/scripts/${site}/settings`,token)]);
   assert.equal(producer.version,enrolled.publisherVersion);assert.equal(domains.length,1);const [domain]=domains;
   assert.equal(domain.service,site);assert.equal(domain.environment,'production');assert.equal(domain.hostname,hostname);assert.equal(domain.zone_id,zone);assert.equal(domain.enabled,true);
-  for(const p of ['/api/calendar',enrolled.read])assert(routes.some(r=>r.pattern===hostname+p&&r.script===enrolled.publisherWorker&&r.request_limit_fail_open===false));
+  assertExactRoutes(routes,enrolled);
   assert.equal(subdomain.enabled,false);assert.equal(subdomain.previews_enabled,false);
   const v=await cf(`${worker}/workers/${site}/versions/${live.version}?include=modules`,token);assert.equal(v.id,live.version);assert.equal(v.main_module,'worker.js');
-  assert(Array.isArray(v.modules)&&v.modules.every(m=>m.name==='worker.js'||m.name==='_headers'));const js=v.modules.filter(m=>m.name==='worker.js');assert.equal(js.length,1);
+  assert.deepEqual(v.modules.map(m=>m.name).sort(),['_headers','worker.js']);
+  const js=v.modules.filter(m=>m.name==='worker.js');assert.equal(js[0].content_type,'application/javascript+module');
+  const headers=v.modules.find(m=>m.name==='_headers');assert.equal(headers.content_type,'text/plain');
   assert.equal(sha256(Buffer.from(js[0].content_base64,'base64')),moduleHash,'active immutable Site module drift');
   const cfg=v.assets?.config;assert.equal(cfg?.base_path,'/');assert.equal(cfg.not_found_handling,'404-page');assert.deepEqual([...cfg.run_worker_first].sort(),['/api','/api/*','/auth','/auth/*','/v1','/v1/*','/account','/account/*','/admin','/admin/*','/robots.txt'].sort());
   const bindings=by(settings.bindings,'name');assert.deepEqual(bindings.map(b=>b.name),['ASSETS','FORECAST_DB','FORECAST_RATE_LIMITER','FORECAST_RUNTIME_MODE','SITE_ENV','STATS','STATS_HEALTH_PROBE_TOKEN','STATS_HEALTH_RATE_LIMITER','USAGE_GUARD_DB']);
@@ -38,7 +56,8 @@ export async function observeSite(enrolled,token){
   const {annotations:_annotations,...stable}=settings;
   const control={account,zone,site,domain,routes:by(routes,'id'),subdomain,schedules,assetConfig:cfg,
     activeBindings:by(v.bindings??[],'name'),activeEnv:v.env??{},settings:{...stable,bindings}};
-  return {...live,controlSha256:sha256(JSON.stringify(sortKeys(control))),producerVersion:producer.version,moduleSha256:moduleHash,annotations:v.annotations??{}};
+  return {...live,controlSha256:sha256(JSON.stringify(sortKeys(control))),producerVersion:producer.version,moduleSha256:moduleHash,
+    headersSha256:sha256(Buffer.from(headers.content_base64,'base64')),annotations:v.annotations??{}};
 }
 const verifyDoc=(signed,key)=>{assert.equal(typeof signed.statement,'string');assert(verify(null,Buffer.from(signed.statement),key,Buffer.from(signed.signature,'base64')),'bad producer signature');return JSON.parse(signed.statement);};
 export function checkFresh(enrolled, wires, sent, now){

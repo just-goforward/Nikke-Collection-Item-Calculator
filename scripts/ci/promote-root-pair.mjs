@@ -11,18 +11,21 @@ import { account, assertStartingState, freshProducer, hostname, observeSite, ser
 export async function transition(g, c, io) {
   assert.equal(c.role,operations[g.operation]);assert.equal(c.manifest,c.h.directions[c.role].manifestSha256);
   if(g.operation!=='root-install-bridge')assert(g.bridge,'verified BRIDGE_READY required');
-  assertStartingState(g,await io.observe(),c.h);
+  const startHeaders=g.operation==='root-install-bridge'?'0c713a5d956b36052396b0bdf21034caa04ad14bf11fce83a5240f032b208407':c.pair.files.headersSha256;
+  const start=await io.observe();assertStartingState(g,start,c.h);assert.equal(start.headersSha256,startHeaders,'prior active headers changed');
   if (g.operation==='root-install-bridge') await io.served('rollback',true);
   if (g.operation==='root-activate-forward') await io.served('rollback',false);
   // A broken forward UI must not be a prerequisite to restoring its verified bridge.
   const [before,head]=await Promise.all([io.observe(),io.head(),io.main()]);
   assertStartingState(g,before,c.h); io.checkRestored();
+  assert.equal(before.headersSha256,startHeaders,'prior active headers changed');
   assert(head.sequence>=g.minimumProducerSequence,'producer below independently approved floor');
   assert(Date.now()<Math.min(c.expiresAt,head.expiresAt),'approval or signed producer lease expired before write');
   const message=versionMessage(c.role,c.manifest); io.publish(message);
   // No automatic write retry, fall-forward, rollback, or READY receipt on a partial failure.
   const post=await io.observe();assert.notEqual(post.version,before.version);assert.notEqual(post.deployment,before.deployment);
   assert.equal(post.annotations['workers/tag'],g.source);assert.equal(post.annotations['workers/message'],message);assert.equal(post.controlSha256,g.controlSha256);
+  assert.equal(post.headersSha256,c.pair.files.headersSha256,'deployed asset headers differ from seal');
   await io.served(c.role,false);
   await io.browser(c.role);
   const [end,fresh]=await Promise.all([io.observe(),io.head()]);assert.deepEqual(end,post);assert(fresh.sequence>=head.sequence);
@@ -45,7 +48,7 @@ export async function promoteRoot(args, env) {
     served:(role,documentsOnly)=>served(c.pair.files[role],documentsOnly,documentsOnly?new Set():headers),
     browser:role=>execFileSync(process.execPath,['scripts/ci/root-promotion-browser.mjs',join(paths(env).receipt,'private-root-pair.json'),role],{cwd:root,env:cleanEnv,stdio:'inherit',timeout:180000}),
     checkRestored(){
-      execFileSync(process.execPath,['scripts/site-release.mjs','verify',c.release,g.source,c.manifest,c.h.run,c.h.attempt],{cwd:root,env:cleanEnv,stdio:'inherit'});
+      execFileSync(process.execPath,['scripts/site-release.mjs','verify-root',c.release,g.source,c.manifest,c.h.run,c.h.attempt],{cwd:root,env:cleanEnv,stdio:'inherit'});
       snapshot();assertSiteUploadApproved(dist);
     },
     publish(message){execFileSync(process.execPath,[join(root,'node_modules/wrangler/bin/wrangler.js'),'deploy','--config','site-worker/production.wrangler.toml','--env','',

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { hash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -46,7 +46,7 @@ test('exact-main source status and source-only isolated profile are separate che
   const source = workflow('site-source-verify').jobs, prod = workflow('site-worker-promote').jobs['prepare-root-pair'];
   const step = prod.steps.find(s => s.run?.includes('gh api'));
   assert.match(step.run, /\.head_sha == \$sha/); assert.match(step.run, /\.event == "push"/); assert.match(step.run, /\.run_attempt\|tostring/);
-  for (const name of ['site-source-verify', 'root-source-verify']) assert(step.run.includes(`index("${source[name].name}") != null`));
+  for (const name of ['site-source-verify', 'root-source-verify', 'required-source']) assert(step.run.includes(`index("${source[name].name}") != null`));
   const job = JSON.stringify(source['root-source-verify']); assert.match(job, /loadApproval/); assert.match(job, /ISOLATED_LOCAL_ROOT_CANDIDATE/);
   assert.doesNotMatch(job, /secrets\.|upload-artifact|private-production-v1/);
   assert.equal(source['root-source-verify'].needs, 'site-source-verify');
@@ -58,6 +58,19 @@ test('exact-main source status and source-only isolated profile are separate che
   }
   for (const match of ['pnpm run build:site-production', 'assertProductionSiteCandidateProfile']) {
     assert.equal(steps.find(s => s.run?.includes(match)).if, "steps.profile.outputs.profile == 'legacy'");
+  }
+});
+
+test('required Site status cannot pass with a failed, skipped, or cancelled applicable lane',()=>{
+  const jobs=workflow('site-source-verify').jobs, g=jobs['required-source'];
+  assert.equal(g.name,'Site source verification');assert.equal(Object.values(jobs).filter(j=>j.name===g.name).length,1);
+  assert.equal(g.if,'always()');assert.deepEqual(g.needs,['site-source-verify','root-source-verify']);
+  const [step]=g.steps;assert.deepEqual(step.env,{PREREQUISITES:'${{ needs.site-source-verify.result }}',PROFILE:'${{ needs.site-source-verify.outputs.profile }}',ROOT:'${{ needs.root-source-verify.result }}'});
+  const statuses=['success','failure','skipped','cancelled'];
+  for(const prerequisites of statuses) for(const profile of ['legacy','root','root-review-only','unknown','']) for(const root of statuses){
+    const expected=prerequisites==='success' && (profile==='legacy' && root==='skipped' || ['root','root-review-only'].includes(profile) && root==='success');
+    const result=spawnSync('bash',['-c',step.run],{env:{PREREQUISITES:prerequisites,PROFILE:profile,ROOT:root}});
+    assert.ifError(result.error);assert.equal(result.status,expected?0:1,`${prerequisites}:${profile}:${root}`);
   }
 });
 

@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadApproval, validateObserved } from '../../e2e/operational-report.mjs';
 import { assertSiteUploadApproved } from '../deploy-site.ts';
-import { assertContext, seal } from '../site-release.mjs';
+import { assertContext, sealRootRelease } from '../site-release.mjs';
 import { requireReviewedBytes } from './root-source-profile.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -109,16 +109,14 @@ async function prepare() {
   node('scripts/build-root-candidate.mjs', '--private-production-v1', out, contract, sha, wire, join(input, 'enrollment'), join(input, 'archive'));
   const packet = join(out, 'private-root-pair.json'), canary = join(out, 'private-canary.json'), pair = read(packet);
   checkPair(review, pair); node('scripts/root-release-canary.mjs', packet, canary);
-  const dist = join(root, 'dist'), bundle = join(out, 'bundle'); assert(!existsSync(dist), 'fresh runner required');
+  const dist = join(root, 'dist'), carrier = join(input, 'v14-worker'); assert(!existsSync(dist), 'fresh runner required');
   const digests = {};
   for (const role of roles) {
     const src = role === 'forward' ? pair.output : pair.rollback, release = join(out, role);
     cpSync(src, dist, { recursive: true, force: false, errorOnExist: true });
     try {
-      publicMetadata(role, input, dist, pair, review); mkdirSync(join(release, 'worker'), { recursive: true });
-      if (role === 'rollback') node('node_modules/wrangler/bin/wrangler.js', 'deploy', '--config', 'site-worker/production.wrangler.toml', '--env', '', '--dry-run', '--outdir', bundle, '--metafile', join(out, 'meta.json'));
-      copyFileSync(join(bundle, 'worker.js'), join(release, 'worker/worker.js')); copyFileSync(join(out, 'meta.json'), join(release, 'worker/meta.json'));
-      digests[role] = seal(root, release, sha, env);
+      publicMetadata(role, input, dist, pair, review); mkdirSync(release);
+      digests[role] = sealRootRelease(root, release, sha, env, carrier);
       node('scripts/root-release-sealed-check.mjs', role, packet, canary, release, sha, digests[role], env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT);
     } finally { rmSync(dist, { recursive: true }); } // Only our newly created CI staging tree.
   }

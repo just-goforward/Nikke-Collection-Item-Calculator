@@ -28,7 +28,7 @@ env:
 # CodeQL remains GitHub-managed default setup; this job cannot replace its checks.
 jobs:
   site-source-verify:
-    name: Site source verification
+    name: Site source prerequisites
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     outputs:
@@ -167,3 +167,22 @@ jobs:
           node scripts/build-root-candidate.mjs "$RUNNER_TEMP/root-source"
           node --input-type=module -e 'import assert from "node:assert/strict";import fs from "node:fs";const p=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/root-source/root-assets.json"));assert.equal(p.status,"ISOLATED_LOCAL_ROOT_CANDIDATE");assert.equal(p.productionDeployable,false);assert.equal(p.conditionalJoint.enrolled,false)'
           test -z "$(git status --porcelain --untracked-files=all)"
+
+  required-source:
+    name: Site source verification
+    if: always()
+    needs: [site-source-verify, root-source-verify]
+    permissions: {}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require the complete applicable source lane
+        env:
+          PREREQUISITES: ${{ needs.site-source-verify.result }}
+          PROFILE: ${{ needs.site-source-verify.outputs.profile }}
+          ROOT: ${{ needs.root-source-verify.result }}
+        run: |
+          case "$PREREQUISITES:$PROFILE:$ROOT" in
+            success:legacy:skipped|success:root:success|success:root-review-only:success) exit 0 ;;
+            *) echo 'Applicable Site source verification did not complete.' >&2; exit 1 ;;
+          esac

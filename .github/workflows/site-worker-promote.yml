@@ -172,10 +172,13 @@ jobs:
             .head_sha == $sha and .head_repository.full_name == $repo and (.run_attempt|tostring) == $attempt and .conclusion == "success"'
           gh api "$api/attempts/$attempt/jobs?per_page=100" | jq -e '
             [.jobs[] | select(.conclusion == "success") | .name] |
-            index("Site source verification") != null and index("Production root source (no publication)") != null'
+            index("Site source prerequisites") != null and index("Production root source (no publication)") != null and index("Site source verification") != null'
       - run: bash scripts/ci/setup-pnpm.sh
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: node --test scripts/ci/prepare-root-pair.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs
+      - name: Exercise both archived-module seals with the immutable historical carrier
+        env:
+          ROOT_V14_CARRIER: ${{ runner.temp }}/root-input/v14-worker
+        run: node --test scripts/ci/v14-worker.test.mjs scripts/ci/prepare-root-pair.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs
       - name: Provision locked build inputs before the offline native build
         run: |
           rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
