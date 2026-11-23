@@ -1,4 +1,4 @@
-name: Authorize exactly one private incident canary
+name: Authorize one successor to sealed private incident canary 45184118767
 on:
   workflow_dispatch:
     inputs:
@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   permit:
-    name: Approve private incident canary permit (no Cloudflare writes)
+    name: Approve one new private DM after confirmed nonreceipt (permit only)
     if: github.repository_id == '1229775730' && github.actor_id == '281915448' && github.run_attempt == 1 && github.ref_protected && github.ref == 'refs/heads/main' && github.sha == inputs.source_sha
     environment: incident-private-install
     runs-on: ubuntu-24.04
@@ -42,9 +42,10 @@ jobs:
           (( INCIDENT_CANARY_END > now+600 && INCIDENT_CANARY_END <= now+3600 ))
           mkdir "$RUNNER_TEMP/private-canary"
           bash scripts/ci/bundle-private-canary.sh "$RUNNER_TEMP/private-canary"
+          slot=$(node --input-type=module -e 'import {successorBuild} from "./production-incidents/sealed-successor.ts";console.log(successorBuild)')
           cd "$RUNNER_TEMP/private-canary"
           printf '%s  private-canary.js\n' "$EXPECTED_SHA256" | sha256sum --check --status
-          jq -n --arg sha "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" --arg module "$EXPECTED_SHA256" --argjson end "$INCIDENT_CANARY_END" '{phase:"private-one-dm",sha:$sha,run:$run,attempt:1,module:$module,end:$end}' > permit.json
+          jq -n --arg sha "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" --arg module "$EXPECTED_SHA256" --arg slot "$slot" --argjson end "$INCIDENT_CANARY_END" '{phase:"sealed-successor-one-dm",predecessor:"45184118767",slot:$slot,sha:$sha,run:$run,attempt:1,module:$module,end:$end}' > permit.json
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: ${{ runner.temp }}/private-canary/permit.json
