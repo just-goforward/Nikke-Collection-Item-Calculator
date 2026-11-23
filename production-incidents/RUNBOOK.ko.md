@@ -26,6 +26,29 @@
 
 409·403·timeout·응답 유실·부분 성공·만료·승인 불일치는 다른 자격으로 재시도하거나 PUT/삭제하지 않는다. 원래 run과 로컬 시도 표시를 보존하고 소유자가 읽기만으로 대조한다. 성공/중단 후 사용한 단기 자격을 회수하고 전용 환경 secret을 정리한다(공용 secret은 건드리지 않는다). 이 절차는 D1 쓰기·키 등록·Discord canary·공개 전환을 승인하지 않는다. `schema.sql`은 별도 승인으로 빈 전용 D1에만 적용한다.
 
+### 예외: run `45149576123`가 남긴 빈 예약 한 건
+
+**이 문서나 소스 병합은 실행 동의가 아니다.** 기본 `reservation=allocate`는 이름이 이미 있으면 계속 중단한다. 복구 대상은 `bd4b7c3527c14626935139b0924e1249` 하나다. 교체된 같은 이름, 다른 UUID, 다른 태그·생성 시각은 허용하지 않는다. 원 실행의 `attempt`는 보존하고 `created`를 만들지 않는다. 원 실행의 재시도·승인, `reserve`, bootstrap 토큰 재발급은 금지한다.
+
+|확인 단계|무엇을 증명하는가|
+|---|---|
+|보존한 `absent-45149576123-1.json`|`gh attestation verify`로 원 workflow·SHA·run·attempt 1·GitHub 호스팅 서명을 확인한다. 바이트 해시가 원 예약 태그의 해시다. 이것은 당시 **생성 전 부재**의 출처이지 현재 권한이나 생성 후 상태의 서명이 아니다.|
+|현재 provider 조회|승인된 reader ID, 계정 전체 Worker·최신 배포에 걸린 버전과 namespace, D1·Pages·zone·route·domain을 검증한다. 대상 이름과 ID 양쪽에서 정확한 태그, 생성/최종 수정 시각 `2026-11-23T10:01:30.589292Z`, 미배포, 두 비공개 플래그, logpush·observability·tail·incoming reference를 대조한다. 별도 subdomain·cron·Preview·**전체** 버전과 배포 목록을 확인한다.|
+|새 서명과 소유자 승인|새 `main`의 attempt 1·모듈·원 증명·그래프 지문·시각을 묶은 `exact-private-empty`만 유효하다(60분 미만). owner가 이 증명의 해시와 정확한 대상·Editor ID를 승인해야 한다. 설치 직전에 현재 main·run·승인·시한·Editor 상태를 다시 검사한다. 여러 API의 원자적 snapshot은 아니다. 보호된 변경 창은 검증 종료까지 유지한다.|
+
+**Secret 증거의 범위:** [Worker secret은 바인딩](https://developers.cloudflare.com/workers/configuration/secrets/)이고 [바인딩은 버전에 속한다](https://developers.cloudflare.com/changelog/post/2025-09-03-new-workers-api/). [Version URL alias도 버전을 업로드할 때 생성한다](https://developers.cloudflare.com/workers/configuration/previews/). 이 예약의 인증된 UUID 목록에 실제로 버전이 **0개**이고 preview·배포도 0개이므로, 이 Worker에 연결된 버전 secret·alias가 없음을 알 수 있다. 계정의 Secrets Store가 비었다는 뜻이 아니다. 이것과 독립적으로 classic `/secrets`의 양성 목록은 거부한다. 이 정확한 미배포 예약에만 관찰된 `404/10007`의 정확한 오류 형태를 허용한다. 404 자체나 GET audit의 200만으로 빈 상태를 증명하지 않는다. 다른 API/ID/오류/배포 후에는 적용하지 않는다.
+
+**소유자의 순서와 결정점:**
+
+1. 소스 PR을 독립 검토한다. 운영 승인 전에, 검토한 checkout 루트에서 기존에 등록한 graph reader만 사용하여 `set +x` 상태로 `INCIDENT_GRAPH_TOKEN_ID="$reader_id" node scripts/ci/incident-graph-preflight.mjs reconcile-45149576123 < "$reader_file"`을 실행한다. `$reader_id`는 비밀이 아닌 ID이고, helper는 보호 환경 변수와 대조한다. `gh`에는 서명과 변수의 읽기 권한만 필요하다. 성공하면 지문과 GET 횟수만 출력한다. 로컬 토큰을 가져오거나 읽어 주도록 타인에게 요청하지 않는다. 이 검사로 승인·증명서·마커·배포가 생기지 않는다.
+2. **읽기 전용 대조를 별도로 선택한 경우에만:** 검토본을 병합하고 새 보호 main의 source 검증과 독립 재생성한 inert 모듈 핀을 확인한다. 원 실행은 승인하지 말고 종료될 때까지 기다린다. 공용 concurrency 그룹을 점유한다면 취소 여부도 소유자가 별도로 정한다. 기존 reader를 재등록하지 않는다. 보호 변수 `INCIDENT_REVIEWED_MAIN`은 새 전체 SHA, `INCIDENT_MODULE_SHA256`은 원래와 동일한 검토 번들 해시여야 한다. 기본 브랜치의 새 dispatch: `gh workflow run incident-inert-install.yml --ref main -f source_sha="$(git rev-parse HEAD)" -f reservation=reconcile-45149576123`. **새 ID / attempt 1 / 새 SHA / 복구 모드**를 확인하고 `cloudflare-site-production`의 그래프 읽기만 승인한다. 서명된 `preflight.json`이 없거나 검사가 어긋나면 여기서 중단한다. 이 단계에는 Editor나 생성 권한이 없다.
+3. **해당 inert 모듈 설치까지 별도로 동의했을 때만:** `incident-private-install` owner gate에서 웹 버튼을 누르지 않는다. 이 UUID 한 개에만 `Individual Workers Editor`를 준비한다. 새 깨끗한 main checkout에서 `node scripts/ci/incident-owner.mjs authorize-recovery "$NEW_RUN_ID" < "$editor_file" 3< "$policy_reader_file" 4< "$reader_file"`을 한 번 사용한다. FD 3은 기존 정책 reader, FD 4는 기존 graph reader다. 원 `attempt`와 원 서명, 새 서명, 살아 있는 전체 그래프 지문, Editor 정책·대상·빈 상태를 대조한다. 이 명령은 **새** run에 1회 승인 시도를 기록하고 Editor를 전용 GitHub 환경에 등록한 뒤 그 실행의 gate를 승인한다. 단순 조회가 아니다. 별도 새 승인 없이는 실행하지 않는다.
+4. 이후 새 run의 환경 승인이 표시될 때마다 같은 SHA·run·단계인지 확인한다. `reserved`가 전체 그래프를 재대조하고 서명한 뒤에만 `install`이 UUID에 inert 버전 하나를 배포한다. `verify`에서 실제 모듈, 바인딩, 100% 단일 배포, 비공개 상태와 전체 그래프를 다시 확인한다. 성공 전후 모두 Discord 키 등록·DM·cron·route·Site 공개 전환은 이 절차 밖이다.
+
+**중단 또는 대안:** 출처·privacy·secret·페이지 완전성·서명·권한 중 하나라도 독립 확인할 수 없거나, 만료·부분 성공·응답 유실이면 그대로 보존한다. 마커 편집·범위 확대·재시도·자동 삭제는 하지 않는다. 소유자는 (a) 빈 상태 유지 또는 (b) 먼저 읽기로 정확한 대상과 삭제 영향을 확인한 뒤 **별도 명시 동의**로 그 빈 ID만 삭제하고, 부재를 새로 증명해 기본 신규 생성 절차를 검토할 수 있다. 삭제와 재생성은 이번 복구가 아니며 새 UUID에서 classic secret 목록이 여전히 404라면 기본 경로 역시 중단한다.
+
+### 별도 canary 및 공개 단계
+
 관리자가 기존 승인 계정의 Discord snowflake를 `ADMIN_ID`, 소유한 봇 토큰을 `BOT_TOKEN`으로 **새 Worker에만** 비공개 등록한다(Cloudflare Worker Settings → Variables and Secrets → Secret). 기존 secret 추출·회전 금지. 메시지 수락을 위해 이 계정에서 봇 DM을 허용한다. 값·스크린샷·Discord 응답을 증적에 담지 않는다.
 
 부분 등록 시 inert 상태를 유지하고 secret 목록에서 **이름·Secret 형식만** 확인한다. 빠진 이름만 등록하고 기존 값을 표시·교체하지 않는다. 값의 정확성은 목록만으로 확인할 수 없다. 두 이름이 모두 있으면 기존 경로·cron 비활성 상태를 다시 확인한 후 보호된 canary 단계로 전환한다. `operator-private-canary` 키는 보존 기간 내 동일하여 INSERT를 반복해도 새 알림은 생기지 않는다. 이 canary는 1회만 시행하고 장기 보존 만료 후 재삽입하지 않는다. 수락 여부가 불명확하면 관리자 inbox로 확인하고 재전송하지 않는다.

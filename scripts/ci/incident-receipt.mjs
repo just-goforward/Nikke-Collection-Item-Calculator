@@ -2,6 +2,7 @@ import {execFileSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {isDeepStrictEqual} from 'node:util';
 import {account, name, db, namespace, zone, immutable, requireThat, digest} from './incident-provider.mjs';
+import {original, recoveryMode} from './incident-recovery-id.mjs';
 
 export const repo = 'just-goforward/Nikke-Collection-Item-Calculator', owner = 281915448;
 export const workflow = '.github/workflows/incident-inert-install.yml', ref = 'refs/heads/main';
@@ -53,12 +54,37 @@ export function claim(p, intentTag, workerId, editorId, notBefore) {
   requireThat(Number.isSafeInteger(notBefore),'invalid intent timestamp');
   return {...p,phase:'private-reserved',tag:intentTag,workerId,editorId,notBefore};
 }
-export function approved(p, tag, reviews, envId, notBefore) {
+// The original GitHub signature establishes provenance, not fresh authority. Do not
+// use current-tip or freshness checks on that historical run; both apply to the new one.
+export function verifyHistorical(p) {
+  const v = verify(`production-incidents/absent-${original.run}-1.json`,original);
+  requireThat(`incident-first-${digest(JSON.stringify(v))}` === original.tag && v.created === original.notBefore,'wrong historical receipt');
+  if (p) requireThat(isDeepStrictEqual(v,intent({...p,run:original.run,main:original.main},original.notBefore)), 'recovery scope or module differs from original');
+}
+export function recoveryIntent(p, graphDigest, created=Date.now()) {
+  requireThat(p.attempt === 1 && p.run !== original.run && p.main !== original.main,'fresh recovery run and source required');
+  requireThat(typeof graphDigest === 'string' && hex64.test(graphDigest),'unbound recovery graph');
+  return {...p,phase:'exact-private-empty',original,graphDigest,created};
+}
+export function checkedProof(p,mode,v,now=Date.now()) {
+  if (mode === 'allocate') return {tag:checkIntent(p,v,now),notBefore:v.created};
+  requireThat(mode === recoveryMode && Number.isSafeInteger(v.created) && v.created <= now && now-v.created < 3600000 &&
+    isDeepStrictEqual(v,recoveryIntent(p,v.graphDigest,v.created)), 'wrong or expired reconciliation proof');
+  return {tag:original.tag,notBefore:original.notBefore,workerId:original.workerId,proofDigest:digest(JSON.stringify(v))};
+}
+export function ownerClaim(p,mode,v,workerId,editorId,now) {
+  const proof = checkedProof(p,mode,v,now);
+  const r = claim(p,proof.tag,workerId,editorId,proof.notBefore);
+  if (mode === 'allocate') return r;
+  requireThat(workerId === original.workerId,'wrong recovery Worker');
+  return {...r,phase:'private-reconciled',graphDigest:v.graphDigest,proofDigest:proof.proofDigest};
+}
+export function approved(p, mode, v, reviews, envId, now) {
   const prefix = 'incident-private-v1:';
   const rows = reviews.filter(r=>r.comment?.startsWith(prefix));
   requireThat(rows.length === 1 && rows[0].state === 'approved' && rows[0].user.id === owner && rows[0].environments.length === 1 && rows[0].environments[0].id === envId && rows[0].environments[0].name === gate, 'missing or ambiguous owner reservation approval');
   const r = JSON.parse(rows[0].comment.slice(prefix.length));
-  requireThat(isDeepStrictEqual(r,claim(p,tag,r.workerId,r.editorId,notBefore)), 'approval differs from reviewed intent');
+  requireThat(isDeepStrictEqual(r,ownerClaim(p,mode,v,r.workerId,r.editorId,now)), 'approval differs from reviewed intent');
   return r;
 }
 export const approvalComment = r=>`incident-private-v1:${JSON.stringify(r)}`;

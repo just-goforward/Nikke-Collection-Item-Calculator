@@ -1,4 +1,6 @@
 import {hash} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
+import {original} from './incident-recovery-id.mjs';
 
 export const account = '15be33fd20ea78eb3d60b719be831148';
 export const zone = '2ed78e90cd4834066e079282aea4acb2';
@@ -7,6 +9,7 @@ export const db = '9a516350-d7d8-4a77-9cce-45d669fd3502';
 export const namespace = '419204';
 export const root = `/accounts/${account}`, workers = `${root}/workers`, registry = `${workers}/workers`;
 const script = `${workers}/scripts/${name}`;
+class MissingClassicScript extends Error {}
 export const immutable = /^[a-f0-9]{32}$/, versionId = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 export const digest = bytes => hash('sha256', bytes);
 export function requireThat(ok, message) { if (!ok) throw Error(message); }
@@ -32,6 +35,9 @@ function readContract(path) {
   if (path === `${root}/pages/projects?per_page=1`) return 1;
   if (path === `/zones?account.id=${account}&per_page=50`) return 50;
   if (path === `${workers}/domains?service=${name}`) return 'filtered';
+  if (path === `${script}/deployments?per_page=100`) return 'target-deployments';
+  if (path === `${script}/secrets`) return 'secret-names';
+  if (path === `${script}/subdomain` || path === `${script}/schedules`) return 'classic-detail';
   if (latest.test(path)) return 'latest';
   if (path === `/zones/${zone}/workers/routes`) return 'routes';
   if (path === `${root}/d1/database/${db}`) return 0;
@@ -39,12 +45,16 @@ function readContract(path) {
 }
 function decodeRead(value, contract) {
   const r = value?.result, i = value?.result_info;
-  requireThat(value?.success === true && r != null && ((value.errors === null && value.messages === null) ||
+  const classic = contract === 'classic-detail' || contract === 'secret-names' || contract === 'target-deployments';
+  requireThat(value?.success === true && r != null && ((!classic && value.errors === null && value.messages === null) ||
     (Array.isArray(value.errors) && !value.errors.length && Array.isArray(value.messages))), 'provider result not unambiguously successful');
   if (typeof contract === 'number' && contract > 0) page(i,r,contract);
   else if (contract === 'filtered') {
     requireThat(Number.isSafeInteger(i?.per_page) && i.per_page >= 0, 'invalid filtered domain page');
     page(i,r,i.per_page);
+  } else if (contract === 'target-deployments') page(i,r.deployments,100);
+  else if (contract === 'secret-names') {
+    requireThat(Array.isArray(r) && !Object.hasOwn(value,'result_info'), 'invalid secret list');
   } else if (contract === 'latest') page(i,r.deployments,1,true);
   else if (contract === 'routes') {
     requireThat(Array.isArray(r) && !Object.hasOwn(value,'result_info') && r.every(route =>
@@ -64,6 +74,11 @@ export function client(token, send = fetch, postPath = null) {
     let response;
     try { response = await send(`https://api.cloudflare.com/client/v4${path}`, {method, redirect:'error', signal:AbortSignal.timeout(15000), headers:{authorization:`Bearer ${token}`, ...(data && {'content-type':'application/json'})}, body:data && JSON.stringify(data)}); }
     catch { throw Error(`provider ${method} transport failure; no retry`); }
+    if (method === 'GET' && path === `${script}/secrets` && response.status === 404) {
+      const error = await response.json().catch(()=>null);
+      if (isDeepStrictEqual(error,{result:null,success:false,errors:[{code:10007,message:'This Worker does not exist on your account.'}],messages:[]}))
+        throw new MissingClassicScript('classic script secret inventory unavailable');
+    }
     requireThat(response.ok, `provider ${method} HTTP ${response.status}; no retry`);
     let value; try { value = await response.json(); } catch { throw Error('ambiguous provider response; no retry'); }
     const contract = method === 'GET' ? readContract(path) : undefined;
@@ -96,6 +111,7 @@ export async function ingress(cf) {
   const routes = list(await cf(`/zones/${zone}/workers/routes`));
   requireThat(!routes.some(r => r.script === name), 'Worker route exists');
   requireThat(!list(await cf(`${workers}/domains?service=${name}`)).length, 'Worker domain exists');
+  return routes;
 }
 export async function graph(cf, reservedId) {
   const database = await cf(`${root}/d1/database/${db}`);
@@ -103,11 +119,17 @@ export async function graph(cf, reservedId) {
   requireThat(!list(await cf(`${root}/pages/projects?per_page=1`)).length, 'Pages inventory changed');
   const all = await inventory(cf), target = all.find(w=>w.name === name);
   requireThat(reservedId ? target?.id === reservedId : !target, 'account inventory conflicts with phase');
-  await ingress(cf);
+  const routes = await ingress(cf);
+  const snapshot = reservedId === original.workerId ? [] : null;
   for (const w of all) {
     if (w === target) continue;
     const {deployments} = await cf(`${workers}/scripts/${w.name}/deployments?per_page=1`);
     requireThat(list(deployments).length === 1 && list(deployments[0].versions).length > 0, 'active deployment missing');
+    if (snapshot) {
+      const d = deployments[0];
+      requireThat(versionId.test(d.id) && d.versions.every(v=>Number.isFinite(v.percentage) && v.percentage > 0 && v.percentage <= 100),'unbound deployment identity or traffic');
+      snapshot.push(JSON.stringify([w.id,w.name,d.id,d.versions.map(v=>JSON.stringify([v.version_id,v.percentage])).sort()]));
+    }
     for (const {version_id} of deployments[0].versions) {
       requireThat(versionId.test(version_id), 'invalid active version ID');
       const v = await cf(`${registry}/${w.id}/versions/${version_id}`);
@@ -115,22 +137,42 @@ export async function graph(cf, reservedId) {
         (b.type !== 'ratelimit' || (typeof b.namespace_id === 'string' && /^(0|[1-9][0-9]*)$/.test(b.namespace_id) && b.namespace_id !== namespace))), 'namespace collision or unknown version');
     }
   }
+  // The other graph dimensions are fixed by the predicates above. Bind the
+  // variable edges (including immutable versions, hence their bindings) across gates.
+  if (snapshot) return digest(JSON.stringify([target.id,target.name,snapshot.sort(),routes.map(r=>JSON.stringify([r.id,r.pattern,r.script])).sort()]));
 }
 export async function state(cf, id, tag, empty, notBefore) {
   requireThat(immutable.test(id), 'invalid immutable ID');
-  for (const key of [id, name]) privateWorker(await cf(`${registry}/${key}`), id, tag, empty, notBefore);
+  const historical = id === original.workerId && tag === original.tag && notBefore === original.notBefore;
+  for (const key of [id,name]) {
+    const w = await cf(`${registry}/${key}`);
+    privateWorker(w,id,tag,empty,notBefore);
+    if (historical) {
+      requireThat(w.created_on === original.createdOn && (!empty || w.updated_on === original.createdOn),'historical creation or unchanged reservation mismatch');
+      requireThat(list(w.tail_consumers).length === 0,'historical tail consumers not proven empty');
+    }
+  }
   const sub = await cf(`${script}/subdomain`);
   requireThat(sub.enabled === false && sub.previews_enabled === false, 'HTTP ingress not disabled');
   const schedules = await cf(`${script}/schedules`);
   requireThat(!list(schedules.schedules ?? schedules).length, 'schedule exists');
-  requireThat(!list(await cf(`${script}/secrets`)).length, 'secret bindings exist');
   const versions = list(await cf(`${registry}/${id}/versions?per_page=100`));
   const {deployments} = await cf(`${script}/deployments?per_page=100`);
   requireThat(versions.length === (empty ? 0 : 1) && list(deployments).length === versions.length, 'unexpected version or deployment');
+  // A zero-length, complete UUID version inventory proves absence of version bindings
+  // (including secrets and aliases); a classic 404 alone proves nothing.
+  if (historical && empty) await noPreviews(cf,id);
+  try { requireThat(!list(await cf(`${script}/secrets`)).length,'secret bindings exist'); }
+  catch (e) { if (!(historical && empty && e instanceof MissingClassicScript)) throw e; }
   return {versions, deployments};
 }
 export async function noPreviews(cf, id) {
   requireThat(immutable.test(id) && !list(await cf(`${registry}/${id}/previews?per_page=1`)).length, 'Worker preview exists');
+}
+export async function recoveryGraph(cf) {
+  const graphDigest = await graph(cf,original.workerId);
+  await state(cf,original.workerId,original.tag,true,original.notBefore);
+  return graphDigest;
 }
 // Only the owner CLI calls this capability. It cannot upload code or repair privacy after creation.
 export async function reserve(cf, tag, notBefore, spend) {
@@ -150,11 +192,12 @@ export async function editor(cf, id, tokenId) {
 export function bindings(build) {
   return [{type:'d1',name:'INCIDENT_DB',id:db},{type:'ratelimit',name:'INGRESS',namespace_id:namespace,simple:{limit:60,period:60}},{type:'plain_text',name:'INCIDENT_BUILD',text:build},{type:'plain_text',name:'PUBLIC_INGRESS',text:'0'}];
 }
-export async function install(cf, receipt, module) {
+export async function install(cf, receipt, module, checkAuthority) {
   const {workerId:id, editorId, tag, build, moduleHash} = receipt;
   requireThat(digest(module) === moduleHash && module.length > 0 && module.length < 512*1024, 'module differs from reviewed bytes');
   await editor(cf, id, editorId);
   await state(cf, id, tag, true, receipt.notBefore);
+  checkAuthority();
   const v = await cf(`${registry}/${id}/versions?deploy=true`, {compatibility_date:'2026-08-14',main_module:'worker.js',bindings:bindings(build),modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:module.toString('base64')}]});
   requireThat(versionId.test(v.id), 'ambiguous version response; do not retry');
   await installed(cf, receipt, v.id);
