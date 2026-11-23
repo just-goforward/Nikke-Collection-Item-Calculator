@@ -51,6 +51,12 @@ export function childEnvironment(parent, commit) {
     WRANGLER_SEND_METRICS: "false",
     WRANGLER_SEND_ERROR_REPORTS: "false",
     CLOUDFLARE_CF_FETCH_ENABLED: "false",
+    PNPM_CONFIG_OFFLINE: "true",
+    PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "error",
+    PNPM_CONFIG_PM_ON_FAIL: "error",
+    PNPM_CONFIG_IGNORE_SCRIPTS: "true",
+    PNPM_CONFIG_IGNORE_PNPMFILE: "true",
+    PNPM_CONFIG_UPDATE_NOTIFIER: "false",
     npm_config_audit: "false",
     npm_config_fund: "false",
     npm_config_update_notifier: "false",
@@ -64,10 +70,10 @@ export function validateCheckout(expected, actual, eventName, eventSha) {
     throw new Error("Dispatched workflow ref does not match the candidate commit");
 }
 
-export function commandFor(kind, args, { node, npmCli, root, platform }) {
-  if (kind === "npm") {
-    if (!npmCli || !path.isAbsolute(npmCli)) throw new Error("Missing pinned R65_NPM_CLI");
-    return [node, [npmCli, ...args]];
+export function commandFor(kind, args, { node, pnpmBinary, root, platform }) {
+  if (kind === "pnpm") {
+    if (!pnpmBinary || !path.isAbsolute(pnpmBinary)) throw new Error("Missing pinned R65_PNPM_BINARY");
+    return [pnpmBinary, args];
   }
   if (kind === "node") return [node, args];
   const playwright = path.join(root, "node_modules/playwright/cli.js");
@@ -95,11 +101,11 @@ async function runChecked(stage, kind, args) {
   mkdirSync(output, { recursive: true });
   const command = commandFor(kind, args, {
     node: process.execPath,
-    npmCli: process.env.R65_NPM_CLI,
+    pnpmBinary: process.env.R65_PNPM_BINARY,
     root,
     platform: process.platform,
   });
-  if (kind === "npm" && !existsSync(command[1][0])) throw new Error("Pinned npm CLI missing");
+  if (kind === "pnpm" && !existsSync(command[0])) throw new Error("Pinned pnpm binary missing");
   const identity = {
     schemaVersion: 1,
     stage,
@@ -115,7 +121,7 @@ async function runChecked(stage, kind, args) {
     node: process.version,
     nodeSha256: createHash("sha256").update(readFileSync(process.execPath)).digest("hex"),
     lockSha256: createHash("sha256")
-      .update(readFileSync(path.join(root, "package-lock.json")))
+      .update(readFileSync(path.join(root, "pnpm-lock.yaml")))
       .digest("hex"),
     childEnvironmentKeys: Object.keys(env).sort(),
     startedAt: new Date().toISOString(),

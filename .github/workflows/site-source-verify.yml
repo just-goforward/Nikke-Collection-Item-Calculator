@@ -23,17 +23,16 @@ env:
   WRANGLER_SEND_METRICS: "false"
   WRANGLER_SEND_ERROR_REPORTS: "false"
   CLOUDFLARE_CF_FETCH_ENABLED: "false"
-  npm_config_audit: "false"
-  npm_config_fund: "false"
-  npm_config_update_notifier: "false"
 
 # Separate approved Site CI boundary, not isolated operational admission.
 # CodeQL remains GitHub-managed default setup; this job cannot replace its checks.
 jobs:
   site-source-verify:
-    name: Site source verification
+    name: Site source prerequisites
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    outputs:
+      profile: ${{ steps.profile.outputs.profile }}
     defaults:
       run:
         shell: bash
@@ -58,33 +57,131 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           node --input-type=module -e 'import {readFileSync} from "node:fs"; import assert from "node:assert/strict"; assert.equal(process.versions.node,readFileSync(".nvmrc","utf8").trim());'
 
-      - name: Pin npm without lifecycle scripts
+      - name: Pin pnpm without lifecycle scripts
         timeout-minutes: 5
-        run: |
-          npm install --global npm@12.2.1 --ignore-scripts --no-audit --no-fund
-          test "$(npm --version)" = "12.2.1"
+        run: bash scripts/ci/setup-pnpm.sh
+
+      - name: Cache the pinned pnpm store
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        timeout-minutes: 5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install the committed lock without lifecycle scripts
         timeout-minutes: 10
-        run: npm ci --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Check operational source types
         timeout-minutes: 10
-        run: npm run typecheck:operations
+        run: pnpm run typecheck:operations
 
       - name: Run the existing Site operations lane
         timeout-minutes: 10
-        run: npm run test:operations
+        run: pnpm run test:operations
 
       - name: Run online build, artifact and publication guard tests
         timeout-minutes: 10
-        run: node --test scripts/build-certified-wasm.test.mjs scripts/build-production-service.test.mjs scripts/site-deployment-artifact.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs
+        run: node --test scripts/build-certified-wasm.test.mjs scripts/build-production-service.test.mjs scripts/site-deployment-artifact.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs scripts/pnpm-lock.test.mjs scripts/ci/operational-pnpm.test.mjs
+
+      - name: Select the source profile from exact bytes, never a dispatch flag
+        id: profile
+        env:
+          ROOT_PAIR_SOURCE_APPROVAL_SHA256: ${{ vars.ROOT_PAIR_SOURCE_APPROVAL_SHA256 }}
+        run: |
+          set -euo pipefail
+          profile=$(node scripts/ci/root-source-profile.mjs)
+          printf 'profile=%s\n' "$profile" >> "$GITHUB_OUTPUT"
 
       - name: Build production-online with pinned WASM and engine freshness guards
+        if: steps.profile.outputs.profile == 'legacy'
         timeout-minutes: 45
-        run: npm run build:site-production
+        run: pnpm run build:site-production
 
       - name: Verify the event revision, approved online profile and packaged content
+        if: steps.profile.outputs.profile == 'legacy'
         timeout-minutes: 5
         run: |
           node --input-type=module -e 'const {assertProductionSiteCandidateProfile}=await import("./scripts/site-deployment-artifact.mjs"); const {buildSiteProduction}=await import("./scripts/build-site-production.ts"); const contract=await assertProductionSiteCandidateProfile("dist",process.env.GITHUB_SHA); await buildSiteProduction("dist",true,contract);'
+
+      # PR evidence identifies GitHub's tested merge SHA, not a protected-main build.
+      # This inventory is not a publication seal and has no publish consumer.
+      - name: Package verification-only candidate and hash its bytes
+        id: candidate
+        if: steps.profile.outputs.profile == 'legacy' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.ref_protected))
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$(mktemp -d "$RUNNER_TEMP/site-candidate.XXXXXXXX")"
+          mkdir "$root/worker"
+          node node_modules/wrangler/bin/wrangler.js deploy \
+            --config site-worker/production.wrangler.toml --env "" --dry-run \
+            --outdir "$RUNNER_TEMP/site-candidate-bundle"
+          test -s "$RUNNER_TEMP/site-candidate-bundle/worker.js"
+          cp "$RUNNER_TEMP/site-candidate-bundle/worker.js" "$root/worker/"
+          cp -R dist "$root/dist"
+          cd "$root"
+          test -z "$(find dist worker ! -type f ! -type d -print -quit)"
+          node --input-type=module -e 'const e=process.env; console.log(JSON.stringify({profile:"production-k1r2-verification-only",publicationApproved:false,event:e.GITHUB_EVENT_NAME,ref:e.GITHUB_REF,sha:e.GITHUB_SHA,runId:e.GITHUB_RUN_ID,runAttempt:e.GITHUB_RUN_ATTEMPT}))' > candidate.json
+          find dist worker candidate.json -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum -- > SHA256SUMS
+          printf 'directory=%s\n' "$root" >> "$GITHUB_OUTPUT"
+
+      - name: Retain build-only evidence
+        if: steps.candidate.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: verification-only-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.candidate.outputs.directory }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  root-source-verify:
+    name: Production root source (no publication)
+    needs: site-source-verify
+    if: needs.site-source-verify.outputs.profile == 'root' || needs.site-source-verify.outputs.profile == 'root-review-only'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - run: bash scripts/ci/setup-pnpm.sh
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify formal source bindings and the two-direction preparation contract
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node --input-type=module -e 'import {loadApproval} from "./e2e/operational-report.mjs"; for (const s of ["numerical-boundary","production-policy","analytics-policy"]) loadApproval(s);'
+          node --test scripts/ci/prepare-root-pair.test.mjs scripts/root-release-custody.test.mjs
+      - name: Build source-only root with the isolated pin, never the enrolled key
+        run: |
+          bash scripts/ci/setup-root-rust.sh
+          mkdir -p .artifacts
+          node scripts/build-root-candidate.mjs "$RUNNER_TEMP/root-source"
+          node --input-type=module -e 'import assert from "node:assert/strict";import fs from "node:fs";const p=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/root-source/root-assets.json"));assert.equal(p.status,"ISOLATED_LOCAL_ROOT_CANDIDATE");assert.equal(p.productionDeployable,false);assert.equal(p.conditionalJoint.enrolled,false)'
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+  required-source:
+    name: Site source verification
+    if: always()
+    needs: [site-source-verify, root-source-verify]
+    permissions: {}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require the complete applicable source lane
+        env:
+          PREREQUISITES: ${{ needs.site-source-verify.result }}
+          PROFILE: ${{ needs.site-source-verify.outputs.profile }}
+          ROOT: ${{ needs.root-source-verify.result }}
+        run: |
+          case "$PREREQUISITES:$PROFILE:$ROOT" in
+            success:legacy:skipped|success:root:success|success:root-review-only:success) exit 0 ;;
+            *) echo 'Applicable Site source verification did not complete.' >&2; exit 1 ;;
+          esac

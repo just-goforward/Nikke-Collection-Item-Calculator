@@ -1,3 +1,4 @@
+import { adaptiveShell } from "../lib/rootCandidate";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useRef } from "react";
 
@@ -285,10 +286,16 @@ function MobileOutcomeActionBar({
   };
   const successButton = successOutcomeChoice(choiceArgs);
   const failButton = failOutcomeChoice(choiceArgs);
+  const preview = adaptiveShell;
 
   return (
     <MobileToolbar mode={`mode-outcome ${pendingOutcome ? "is-holding-ring" : ""}`}>
-      <p className={classes.actionChangeNote}>{t("result.outcomePrompt")}</p>
+      {!preview && view.stockOnlyAction && <p className={classes.actionChangeNote}>{t("result.stockOnlyAction")}</p>}
+      <p className={classes.actionChangeNote}>{preview
+        ? t("result.conditionalOutcomePrompt")
+        : view.batchAction
+          ? t("result.batchOutcomePrompt", { count: view.count })
+          : t(view.conditionalAction ? "result.conditionalOutcomePrompt" : "result.outcomePrompt")}</p>
       {successButton}
       {failButton}
     </MobileToolbar>
@@ -400,7 +407,7 @@ export function MobileActionBar({
     );
   }
 
-  if (view.type === "convertRecommendation" || (view.type === "outcome" && view.canConvert)) {
+  if ((!isStale || !adaptiveShell) && (view.type === "convertRecommendation" || (view.type === "outcome" && view.canConvert))) {
     return <MobileConvertActionBar loading={loading} onConvert={onConvert} />;
   }
 

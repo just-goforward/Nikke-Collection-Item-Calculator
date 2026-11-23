@@ -98,7 +98,7 @@ export async function assertCertifiedEngineBuild(root = projectRoot): Promise<En
   const result = await deriveCertifiedEngineBuild(root);
   if (readFileSync(result.output, "utf8") !== generatedContents(result))
     throw new Error(
-      "certified_engine_build_hash_stale: run npm run generate:certified-engine-build",
+      "certified_engine_build_hash_stale: run pnpm run generate:certified-engine-build",
     );
   return result;
 }

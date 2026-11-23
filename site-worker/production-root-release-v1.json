@@ -1,0 +1,16 @@
+{
+  "profile": "private-production-root-v1",
+  "siteWorker": "collection-kit-site-production",
+  "origin": "https://nikkecollection.com",
+  "publisherWorker": "collection-kit-conditional-production",
+  "publisherVersion": "03400487-cdcb-4ca6-a8b3-2199e2e7bb74",
+  "priorSiteVersion": "741e68d9-cd5c-400a-83ce-21757315bcc8",
+  "read": "/api/joint-supply/v2",
+  "keyId": "production-conditional-v1",
+  "domain": "nikke.production.conditional-joint-supply.v2",
+  "publicKeyBase64": "A9ajW+J5oXMagY26aC1DdYfslX2pYY3xn6F516yFXqc=",
+  "enrollmentEvidenceSha256": "75b1d8ddd3dad6e9f3157cb0104789c9b1fb9eaea6bd96f6e0cbdf31a6c1f515",
+  "nativeWasmSha256": "7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5",
+  "nativeSourceHash": "d53899b40ec00ca49ac9eec0af46c149c0f0380eaabbea3e08c7ce20c18064b0",
+  "serviceCodeHash": "d3fab41a90525df0c22b0a38541423d9bb23b8f33f7b47738811cea74bd3b701"
+}

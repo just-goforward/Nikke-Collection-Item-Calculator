@@ -1,3 +1,4 @@
+import { physicalParentHash } from "./serviceCertifiedTypes";
 import { convertState, transition } from "../solver/domain";
 import type { CollectionState, SolverInput, Stock } from "../types";
 import type { RecommendationAction } from "../ui-types";
@@ -20,6 +21,7 @@ export type PreparedOutcome = {
   run: RecommendedRun;
   startSnapshot: CollectionState;
   stockBeforeSnapshot: Stock;
+  adaptiveBatch?: boolean;
 };
 
 type CalculationPlan = {
@@ -51,6 +53,7 @@ export function prepareRecommendedOutcome(
     currentStock,
     input: latest.input,
     run,
+    ...(physicalParentHash(latest.certified) ? {adaptiveBatch:true} : {}),
     startSnapshot: { ...latest.input.start },
     stockBeforeSnapshot: { ...latest.input.stock },
   };
@@ -88,7 +91,7 @@ export function planSuccessfulOutcome(prepared: PreparedOutcome): SuccessfulOutc
   if (prepared.run.count === 1) return { kind: OUTCOME_PLAN_KNOWN, context };
 
   const nextState = prepared.run.success;
-  if (terminalSuccessKind(nextState)) return { kind: OUTCOME_PLAN_ATTEMPT, context };
+  if (prepared.adaptiveBatch || terminalSuccessKind(nextState)) return { kind: OUTCOME_PLAN_ATTEMPT, context };
 
   return {
     kind: OUTCOME_PLAN_STOCK,

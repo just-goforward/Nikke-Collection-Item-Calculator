@@ -6,6 +6,22 @@ import { runtimeForecastEnvironment } from "../shared/runtimeForecastMode.ts";
 import staging from "../site-worker/forecast-runtime.json" with { type: "json" };
 import productionProposal from "../site-worker/production-forecast.proposed.json" with { type: "json" };
 
+import timedProposal from "../site-worker/production-forecast-timed-v1.proposed.json" with { type: "json" };
+
+type TimedTrust = { keyId: string; publicKeyBase64: string };
+/** Operator-provisioned raw Ed25519 public bytes only. Never substitute a fixture,
+ * ambient VITE_* value, or the signed legacy channel's verification key. */
+export function productionTimedTrust(legacy: ProductionForecastContract): TimedTrust {
+  const { keyId, publicKeyBase64 } = timedProposal as {keyId: string; publicKeyBase64: unknown};
+  if (Object.keys(timedProposal).sort().join(",") !== "keyId,publicKeyBase64" ||
+      keyId !== "production-timed-v1" || keyId === legacy.keyId || typeof publicKeyBase64 !== "string" ||
+      !/^[A-Za-z0-9+/]{43}=$/.test(publicKeyBase64) ||
+      Buffer.from(publicKeyBase64, "base64").toString("base64") !== publicKeyBase64 ||
+      publicKeyBase64 === legacy.publicKeyBase64 || publicKeyBase64 === productionProposal.publicKeyBase64)
+    throw new Error("production_timed_v1_public_trust_missing_or_invalid");
+  return { keyId, publicKeyBase64 };
+}
+
 export type ProductionForecastContract = {
   version: 1;
   environment: "production";
@@ -48,11 +64,14 @@ export function productionForecastBuildEnv(
   base: NodeJS.ProcessEnv, contract: unknown = productionProposal,
 ): NodeJS.ProcessEnv {
   const approved = assertProductionForecastContract(contract);
+  const timed = productionTimedTrust(approved);
   return {
     ...base,
     VITE_FORECAST_RUNTIME: approved.environment,
     VITE_FORECAST_PUBLIC_KEY_ID: approved.keyId,
     VITE_FORECAST_PUBLIC_KEY_BASE64: approved.publicKeyBase64,
+    VITE_FORECAST_TIMED_V1_PUBLIC_KEY_ID: timed.keyId,
+    VITE_FORECAST_TIMED_V1_PUBLIC_KEY_BASE64: timed.publicKeyBase64,
   };
 }
 
@@ -70,6 +89,7 @@ type ForecastBuild = {
   mode: "bundled" | "staging" | "production";
   keyId: string;
   publicKeyBase64: string;
+  timedV1?: TimedTrust;
   engineProfile?: CertifiedEngineProfile;
   approvalRef?: string;
 };
@@ -82,18 +102,25 @@ export function forecastRuntimeBuildPlugin(productionContract: unknown = product
   let metadata: ForecastBuild;
   return {
     name: "forecast-runtime-build-identity",
-    apply: "build",
+    // Validate production trust for dev servers as well as emitted builds.
     configResolved(config) {
       const environment = runtimeForecastEnvironment(config.env["VITE_FORECAST_RUNTIME"]);
       const enabled = environment !== null;
       const approved = environment === "production"
         ? assertProductionForecastContract(productionContract) : null;
+      const timed = enabled ? {
+        keyId: String(config.env["VITE_FORECAST_TIMED_V1_PUBLIC_KEY_ID"] ?? ""),
+        publicKeyBase64: String(config.env["VITE_FORECAST_TIMED_V1_PUBLIC_KEY_BASE64"] ?? ""),
+      } : undefined;
+      const expected = approved && productionTimedTrust(approved);
+      if (expected && (expected.keyId !== timed?.keyId || expected.publicKeyBase64 !== timed.publicKeyBase64))
+        throw new Error("production_timed_v1_build_trust_mismatch");
       if (approved && (
         config.env["VITE_FORECAST_PUBLIC_KEY_ID"] !== approved.keyId ||
         config.env["VITE_FORECAST_PUBLIC_KEY_BASE64"] !== approved.publicKeyBase64
       )) throw new Error("production_forecast_build_trust_mismatch");
       metadata = {
-        version: 1,
+        version: 1, ...(timed ? { timedV1: timed } : {}),
         mode: environment ?? "bundled",
         keyId: enabled ? String(config.env["VITE_FORECAST_PUBLIC_KEY_ID"] ?? "") : "",
         publicKeyBase64: enabled ? String(config.env["VITE_FORECAST_PUBLIC_KEY_BASE64"] ?? "") : "",
@@ -126,6 +153,9 @@ export async function assertForecastBuild(
       `Invalid ${mode} runtime forecast build; rebuild with the matching site command.`,
     );
   if (approved) {
+    const expected = productionTimedTrust(approved);
+    if (metadata.timedV1?.keyId !== expected.keyId || metadata.timedV1.publicKeyBase64 !== expected.publicKeyBase64)
+      throw new Error("production_timed_v1_build_trust_mismatch");
     assertCertifiedEngineProfile(metadata.engineProfile);
     if (metadata.approvalRef !== approved.approvalRef)
       throw new Error("production_forecast_build_approval_mismatch");

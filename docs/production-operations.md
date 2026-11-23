@@ -228,6 +228,8 @@ donor 근거(수정하지 않음): D:/vibe coding/Nikke-Collection-Item-Calculat
 | VITE_FORECAST_RUNTIME | 공개 빌드 환경 | 검증된 Site 빌드 | production (별도 승인 필요) | 공개값만; 실제 신뢰 승인 별도 | scripts/forecast-runtime-build.ts | productionServiceEnvironment/productionForecastBuildEnv/forecastRuntimeBuildPlugin |
 | VITE_FORECAST_PUBLIC_KEY_ID | 공개 빌드 환경 | 검증된 Site 빌드 | 미해결 | 공개값만; 실제 신뢰 승인 별도 | site-worker/production-forecast.proposed.json | productionServiceEnvironment/productionForecastBuildEnv/forecastRuntimeBuildPlugin |
 | VITE_FORECAST_PUBLIC_KEY_BASE64 | 공개 빌드 환경 | 검증된 Site 빌드 | 미해결 | 공개값만; 실제 신뢰 승인 별도 | site-worker/production-forecast.proposed.json | productionServiceEnvironment/productionForecastBuildEnv/forecastRuntimeBuildPlugin |
+| VITE_FORECAST_TIMED_V1_PUBLIC_KEY_ID | 공개 빌드 환경 | 검증된 Site 빌드 | production-timed-v1 | 공개값만; 실제 신뢰 승인 별도 | site-worker/production-forecast-timed-v1.proposed.json | productionServiceEnvironment/productionForecastBuildEnv/forecastRuntimeBuildPlugin |
+| VITE_FORECAST_TIMED_V1_PUBLIC_KEY_BASE64 | 공개 빌드 환경 | 검증된 Site 빌드 | 미해결 | 공개값만; 실제 신뢰 승인 별도 | site-worker/production-forecast-timed-v1.proposed.json | productionServiceEnvironment/productionForecastBuildEnv/forecastRuntimeBuildPlugin |
 | SITE_DEPLOY_WORKER | 배포 확인 변수 | 수동 배포 환경 | 정확한 승인 대상과 일치 필요 | 일치하지 않으면 배포 전 차단 | scripts/deploy-site.ts | deploy |
 | SITE_DEPLOY_HOSTNAME | 배포 확인 변수 | 수동 배포 환경 | 정확한 승인 대상과 일치 필요 | 일치하지 않으면 배포 전 차단 | scripts/deploy-site.ts | deploy |
 | SITE_DEPLOY_ACCOUNT_ID | 배포 확인 변수 | 수동 배포 환경 | 정확한 승인 대상과 일치 필요 | 일치하지 않으면 배포 전 차단 | scripts/deploy-site.ts | deploy |
@@ -356,7 +358,7 @@ FILE 소스는 `scripts/d1-file-import.mjs`, `scripts/d1-file-import-https.mjs`,
 
 ### OFF 배포 경로와 남은 승인 단위
 
-`npm run build:site-production-off -- <approved-full-SHA>`는 깨끗한 고정 후보에서 신규 solver ON·forecast bundled·online trust 비움을 고정하고 새 `dist/`를 생성한다. 고정 WASM·engine freshness·기존 bundled packaging·보존 자산·disabled catalog·artifact SHA를 검증하며 기존 산출물 덮어쓰기를 거절한다. `npm run check:site-production-off -- <approved-full-SHA>`가 같은 artifact를 확인하고, 별도 승인된 `npm run deploy:site-production-off -- <approved-full-SHA>`는 기존 collection-kit-site-production과 named collection-kit-stats profile을 사용한다. `.vite/local-operational-profile.json`의 `deploymentApproved:false`는 유지하며 artifact 검증을 배포 승인으로 바꾸지 않는다. 기존 online build·deployment gate는 완화하지 않고 제외된 online-builder 변경을 이 후보의 구현으로 간주하지 않는다. `npm run build:operations`의 별도 로컬 `dist-service-bundled/`를 배포 산출물로 자동 승격하지 않는다. Site ASSETS·Stats bindings와 named /api/stats의0002, outcome-summary의0003, 기존 /api/events 의존성은 OFF에서도 유지한다. 실제 DB 적용·인증·복구·시간/요청/비용 예산 및 Backend→Site 순서의 배포 승인은 아직 미완료다.
+`pnpm run build:site-production-off <approved-full-SHA>`는 깨끗한 고정 후보에서 신규 solver ON·forecast bundled·online trust 비움을 고정하고 새 `dist/`를 생성한다. 고정 WASM·engine freshness·기존 bundled packaging·보존 자산·disabled catalog·artifact SHA를 검증하며 기존 산출물 덮어쓰기를 거절한다. `pnpm run check:site-production-off <approved-full-SHA>`가 같은 artifact를 확인하고, 별도 승인된 `pnpm run deploy:site-production-off <approved-full-SHA>`는 기존 collection-kit-site-production과 named collection-kit-stats profile을 사용한다. `.vite/local-operational-profile.json`의 `deploymentApproved:false`는 유지하며 artifact 검증을 배포 승인으로 바꾸지 않는다. 기존 online build·deployment gate는 완화하지 않고 제외된 online-builder 변경을 이 후보의 구현으로 간주하지 않는다. `pnpm run build:operations`의 별도 로컬 `dist-service-bundled/`를 배포 산출물로 자동 승격하지 않는다. Site ASSETS·Stats bindings와 named /api/stats의0002, outcome-summary의0003, 기존 /api/events 의존성은 OFF에서도 유지한다. 실제 DB 적용·인증·복구·시간/요청/비용 예산 및 Backend→Site 순서의 배포 승인은 아직 미완료다.
 
 | 미완료 조건 / 실제 소비 | 필요한 값·근거 | 승인 단위 |
 | --- | --- | --- |
@@ -407,3 +409,5 @@ UNKNOWN 확인 책임자는 **미지정**이며 지정 전 적용할 수 없다.
 | guardConfiguredAccountIdCorrection | 미해결 — 값·승인·원격 검증을 만들어 채우지 않음 |
 | watchdogExpectedAccountId | 미해결 — 값·승인·원격 검증을 만들어 채우지 않음 |
 | watchdogHealthUrl | 미해결 — 값·승인·원격 검증을 만들어 채우지 않음 |
+
+채널 분리(migration 0038, 운영 미적용): 기존 포인터·승인·서명은 복제하지 않는다. 구 채널은 새 후보 승인이 동결되며, 별도 승인된 기존 키로만 끄기·이미 승인된 아티팩트 되돌리기를 처리한다. 새 채널의 리뷰·명령·승인·포인터·단조 순번은 빈 상태에서 시작한다. Dispatcher와 Interactions의 명시적 `FORECAST_PUBLICATION_CHANNEL=timed-v1` 선택 및 기존 환경별 활성화·접근 제어가 필요하다. Router의 새 키 바인딩은 `FORECAST_TIMED_V1_KEY_ID`/`FORECAST_TIMED_V1_SIGNING_KEY`이며 legacy secret으로 대체하지 않는다. 공개키를 설치한 새 reader와 실제 서명 경로 검증이 먼저이며 원격 변경은 별도 승인 대상이다.

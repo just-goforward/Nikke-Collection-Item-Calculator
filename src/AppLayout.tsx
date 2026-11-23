@@ -1,3 +1,4 @@
+import { adaptiveShell, rootCandidate } from "./lib/rootCandidate";
 import {
   type ComponentProps,
   type CSSProperties,
@@ -25,6 +26,9 @@ import StatsPanel from "./components/StatsPanel";
 import StockPanel from "./components/StockPanel";
 import TopBar, { type TopViewTab } from "./components/TopBar";
 import WaitingMetric from "./components/WaitingMetric";
+import { PreviewDetailPanel } from "./components/DetailPanel";
+import PreviewSupply, { PreviewRunEvidence } from "./components/PreviewSupply";
+import CollectedCalendar from "./components/CollectedCalendar";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
 import { useMobileLayout } from "./hooks/useMobileLayout";
 import { useI18n } from "./i18n/locale";
@@ -238,6 +242,11 @@ function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
       </aside>
     );
   }
+  if (!rootCandidate && adaptiveShell) return <><aside className={classes.stagingBanner} data-testid="preview-notice">{({
+    ko: "수집 일정 미리보기 · 공식 공지에서 확인한 일정과 계산 결과를 구분해 표시합니다. 공식 시간대별 수급 예보가 비활성 상태여도 검증된 조건부 모델은 대기를 권할 수 있습니다. 통계는 전송하지 않습니다.",
+    en: "Collected schedule preview · Confirmed schedules and calculator results are shown separately. Even when the official timed forecast is off, a verified conditional model can recommend waiting. No statistics are sent.",
+    ja: "収集日程プレビュー · 公式のお知らせで確認できた日程と計算結果を分けて表示します。公式の時刻別供給予報が無効でも、検証済みの条件付きモデルが待機を勧めることがあります。統計は送信しません。",
+  })[locale]}</aside><CollectedCalendar /></>;
   if (statsMode !== "staging") return null;
 
   return (
@@ -345,7 +354,19 @@ export function DetailPanelRegion({
   const { actions, detailView } = calculator;
   const { component: DetailPanelComponent, retry: retryDetailPanel } = useRetryableDetailPanel();
   const loading = calculator.resultView.type === "loading" || detailView.type === "loading";
-  const waiting = <WaitingMetric view={detailView} loading={loading} />;
+  const preview = adaptiveShell;
+  if (preview) {
+    const retained = calculator.resultView.type === "loading" ? calculator.resultView.previousFinalDetail : undefined;
+    const visible = retained ?? detailView;
+    if (!visible.previewEvidence || (!retained && !calculator.stockPanel.history && (loading || calculator.inputLocked ||
+        calculator.loading.active || calculator.stockPanel.isStale))) return null;
+    return <>
+      <PreviewDetailPanel view={visible} showSolverBackend={showSolverBackend} showWaiting />
+      <PreviewRunEvidence evidence={visible.previewEvidence} />
+      {!rootCandidate && visible.previewTimedSupply !== undefined && <PreviewSupply supply={!rootCandidate && visible.previewTimedSupply} />}
+    </>;
+  }
+  const waiting = <WaitingMetric view={detailView} loading={loading} fallback />;
   if (detailView.type === "empty") return waiting;
   const fallback = <>{waiting}<DetailPanelFallback /></>;
   if (detailView.type === "loading") return fallback;
@@ -359,6 +380,7 @@ export function DetailPanelRegion({
       <Suspense fallback={fallback}>
         <DetailPanelComponent
           loading={calculator.resultView.type === "loading"}
+          showWaiting
           view={detailView}
           validation={calculator.validationView}
           onRunValidation={actions.runMonteCarloValidation}
@@ -591,6 +613,8 @@ export function AppLayout({
   viewTab: TopViewTab;
 }) {
   const { actions } = calculator;
+  const { t, text } = useI18n();
+  const history = calculator.stockPanel.history;
 
   return (
     <AppShell
@@ -647,16 +671,21 @@ export function AppLayout({
       resetToast={resetToast}
       result={
         <>
+          {history?.problem && <div role="status" data-testid="preview-replacement-error" className="rounded-card border border-yellow-kit bg-outcome p-3 text-sm text-outcome-text">
+            {rootCandidate && <strong>{t("result.recalculationError")}</strong>}
+            <div>{text(history.problem)}</div>
+            {rootCandidate && calculator.resultView.type === "recommendation" && <p>{t("result.previousRecommendationAfterFailure")}</p>}
+          </div>}
           <ResultPanel
             feedback={calculator.stateFeedback}
             needsStockEdit={calculator.stockPanel.needsStockEdit}
-            isStale={calculator.stockPanel.isStale}
+            isStale={calculator.stockPanel.isStale && !history}
             staleSource={calculator.stockPanel.staleSource}
             stockEditNotice={calculator.stockPanel.notice}
             state={calculator.statePanel}
             view={calculator.resultView}
             loading={calculator.loading}
-            outcomeDisabled={calculator.loading.active}
+            outcomeDisabled={calculator.loading.active || (!!history && !(rootCandidate && history.problem))}
             pendingOutcome={pendingOutcome}
             onActionTransitionComplete={actions.clearActionTransition}
             onConvert={handlers.onConvert}

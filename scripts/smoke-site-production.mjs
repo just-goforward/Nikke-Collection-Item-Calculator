@@ -282,7 +282,7 @@ export async function smokeSiteProductionAfterDeploy(
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [origin, revision] = process.argv.slice(2);
   if (!origin || !revision) {
-    throw new Error("Usage: npm run smoke:site-production-deployed -- <origin> <candidate-sha>");
+    throw new Error("Usage: pnpm run smoke:site-production-deployed <origin> <candidate-sha>");
   }
   console.log(JSON.stringify(await smokeSiteProductionAfterDeploy(origin, revision)));
 }

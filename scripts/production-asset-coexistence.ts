@@ -8,8 +8,11 @@ import retention from "../rollback/production/retained.json" with { type: "json"
 import type { CertifiedBundleBoundary } from "./certified-bundle-boundary.ts";
 import { assertWasmRuntimeAssets } from "./wasm-runtime-assets.ts";
 
+import { readServiceH14Native } from "./service-h14-native-integrity.ts";
+import { assertServiceH14Build } from "./service-h14-integrity.ts";
 const ROOT = resolve(import.meta.dirname, "..");
 const ALIASES = ["/solver_rs.wasm", "/certified_solver.wasm"] as const;
+const SERVICE_H14_WORKER = "src/serviceH14/browserWorker.ts";
 type Pin = { url: string; sha256: string; bytes: number };
 type Generation = {
   id: string; role: string; artifactId: number; siteVersion: string; archiveSha256: string;
@@ -77,6 +80,36 @@ export async function stageProductionAssetCoexistence(directory: string, check =
     { role: "legacy", canonical: "solver_rs.wasm", asset: LEGACY_WASM_ASSET },
     { role: "certified", canonical: "certified_solver.wasm", asset: CERTIFIED_WASM_ASSET },
   ];
+  // The emitted worker graph, not the optional receipt file, decides whether the
+  // FUSED lane is packaged: a FUSED worker without its verified receipt is rejected.
+  const workers: unknown = (JSON.parse((await regularBytes(join(directory, ".vite/certified-boundary.json")))
+    .toString("utf8")) as Partial<CertifiedBundleBoundary> | null)?.perWorker;
+  if (!Array.isArray(workers)) throw new Error("production_certified_boundary_invalid");
+  const serviceWorker = workers.some((item: { source?: unknown } | null) => item?.source === SERVICE_H14_WORKER);
+  const serviceReceiptBytes = await optionalBytes(join(directory, ".vite/service-h14.json"));
+  if (serviceWorker && !serviceReceiptBytes) throw new Error("service_h14_packaged_receipt_missing");
+  let serviceCandidate: {
+    profileId: string; codeHash: string; asset: { sha256: string; byteLength: number; assetPath: string };
+    publicationApproved: false; analyticsProviderApproved: false;
+  } | null = null;
+  if (serviceReceiptBytes) {
+    const receipt = JSON.parse(serviceReceiptBytes.toString("utf8"));
+    const identity = await assertServiceH14Build(ROOT);
+    const { wasm } = readServiceH14Native(ROOT);
+    if (receipt.status !== "NONDEPLOYABLE_SERVICE_CANDIDATE" ||
+        receipt.publicationApproved !== false || receipt.analyticsProviderApproved !== false ||
+        receipt.identity?.codeHash !== identity.codeHash ||
+        receipt.identity?.exactWasmHash !== identity.exactWasmHash ||
+        JSON.stringify(receipt.asset) !== JSON.stringify(wasm))
+      throw new Error("service_h14_packaged_identity_mismatch");
+    const bytes = await regularBytes(join(directory, wasm.assetPath.slice(1)));
+    if (!matches(bytes, { sha256: wasm.sha256, bytes: wasm.byteLength }))
+      throw new Error("service_h14_packaged_native_mismatch");
+    serviceCandidate = {
+      profileId: identity.profileId, codeHash: identity.codeHash, asset: wasm,
+      publicationApproved: false, analyticsProviderApproved: false,
+    };
+  }
   const writes: { path: string; bytes: Uint8Array }[] = [];
   for (const { asset } of current) {
     const url = "/" + asset.file;
@@ -111,6 +144,7 @@ export async function stageProductionAssetCoexistence(directory: string, check =
   return {
     version: 1 as const,
     publicationApproved: false as const,
+    ...(serviceCandidate ? { serviceCandidate } : {}),
     current: {
       engineProfile: CERTIFIED_STAGING_ENGINE_PROFILE,
       wasm: current.map(({ role, canonical, asset }) => ({
@@ -138,10 +172,20 @@ export async function assertProductionAssetReferences(
   const code = new Map(await Promise.all([...files].map(async (file) =>
     [file, await readFile(join(directory, file), "utf8")] as const)));
   const all = [...code.values()].join("\n");
-  for (const [source, asset] of [
+  const service = boundary.perWorker.find(item => item.source === SERVICE_H14_WORKER);
+  const required: [string, { file: string; sha256: string }][] = [
     ["src/worker.ts", LEGACY_WASM_ASSET],
-    ["src/certifiedRuntime/browserWorker.ts", CERTIFIED_WASM_ASSET],
-  ] as const) {
+  ];
+  if (service) {
+    const { wasm } = readServiceH14Native(ROOT);
+    const copied = await regularBytes(join(directory, wasm.assetPath.slice(1)));
+    if (!matches(copied, { sha256: wasm.sha256, bytes: wasm.byteLength }))
+      throw new Error("service_h14_packaged_native_mismatch");
+    required.push([SERVICE_H14_WORKER, { file: wasm.assetPath.slice(1), sha256: wasm.sha256 }]);
+  }
+  if (!service || boundary.perWorker.some(item => item.source === "src/certifiedRuntime/browserWorker.ts"))
+    required.push(["src/certifiedRuntime/browserWorker.ts", CERTIFIED_WASM_ASSET]);
+  for (const [source, asset] of required) {
     const worker = boundary.perWorker.find((item) => item.source === source);
     if (!worker || !all.includes(asset.file))
       throw new Error(`production_asset_client_reference_missing:${source}`);

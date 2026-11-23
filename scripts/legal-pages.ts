@@ -136,7 +136,7 @@ function generatedSections(page: SiteLegalPage, locale: SiteLocale, inputs: Lega
 }
 
 const THEME_SCRIPT =
-  '(()=>{try{const t=localStorage.getItem("collectionThemeMode");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch{document.documentElement.removeAttribute("data-theme")}})();';
+  '(()=>{try{const t=localStorage.getItem("preview:collectionThemeMode");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch{document.documentElement.removeAttribute("data-theme")}})();';
 
 // Colors mirror the light/dark tokens in src/styles.css; no app bundle is loaded.
 const PAGE_STYLE = `:root{color-scheme:light;--bg:#eef7fb;--surface:#fff;--surface-strong:#f3f8fb;--ink:#172534;--muted:#506475;--strong:#24342e;--line:#d5e6ef;--link:#1d5f8a}
@@ -188,12 +188,11 @@ export function renderLegalPage(page: SiteLegalPage, locale: SiteLocale, inputs:
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(document.description)}" />
-<meta name="robots" content="index,follow" />
+<meta name="robots" content="noindex,nofollow" />
 <link rel="canonical" href="${siteLegalPageUrl(locale, page)}" />
 ${alternates.join("\n")}
 <meta name="color-scheme" content="light dark" />
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
-<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="icon" type="image/png" sizes="32x32" href="/preview/favicon-32.png" />
 <link rel="stylesheet" crossorigin href="${metadata.fontStylesheet}" />
 <script>${THEME_SCRIPT}</script>
 <style>:root{--font:"${metadata.fontFamily}"}
@@ -215,7 +214,7 @@ ${body}
 
 /** Output file for an extensionless route; Workers assets serve `/en/privacy` from `en/privacy.html`. */
 export function legalPageFile(page: SiteLegalPage, locale: SiteLocale) {
-  return `${SITE_LOCALES[locale].path.slice(1)}${page}.html`;
+  return `${locale === "ko" ? "" : `${locale}/`}${page}.html`;
 }
 
 export async function writeLegalBuildPages(distDir: string) {

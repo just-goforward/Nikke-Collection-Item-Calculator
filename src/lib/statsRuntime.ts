@@ -1,5 +1,6 @@
 import type { StatsConfig, StatsEndpointConfig } from "../types";
 import { ignoreExpectedError } from "./errorHandling";
+import { rootCandidate } from "./rootCandidate";
 
 export type StatsRuntimeMode =
   | "production"
@@ -85,6 +86,7 @@ function isLocalHost(hostname?: string): boolean {
 }
 
 export function statsRuntimeMode(): StatsRuntimeMode {
+  if (import.meta.env?.BASE_URL === "/preview/") return "disabled";
   const params = new URLSearchParams(window.location.search);
   if (params.get("demoStats") === "1") return "demo";
   if (params.get("statsEnv") === "disabled") return "disabled";
@@ -107,6 +109,8 @@ export function statsApiBase(): string {
 }
 
 export function statsSubmissionConfig(): StatsSubmissionConfig | null {
+  // This shell accepts only conditional runs. Their settlements cannot use the legacy outbox.
+  if (rootCandidate) return null;
   const mode = statsRuntimeMode();
   if (!usesStatsEndpoint(mode)) return null;
 

@@ -39,7 +39,7 @@ export function requestDecisionAcquisition(input: SolverInput) {
   if (verifiedMapping) requestedMappings.set(input, verifiedMapping);
 }
 
-/** Called only after the existing client has validated the exact request/publication/output. */
+/** Called only after the service client has validated the bound request/publication/output. */
 export function retainVerifiedAcquisition(
   result: SolverResult, snapshot: CertifiedSupplySnapshot, publication: PublicationBytes | undefined, asOf: string,
   originalInput: SolverInput,
@@ -53,7 +53,7 @@ export function retainVerifiedAcquisition(
     if (!publication?.artifact || !result.certified) return;
     const pointer = JSON.parse(publication.pointer.statement);
     const authorization = JSON.parse(publication.artifact.authorization.statement);
-    const identity = result.certified.output.runtimeBinding.forecastIdentity;
+    const identity = result.certified.output.forecastIdentity;
     if (pointer.mode !== "active" || typeof pointer.contentHash !== "string" ||
         !/^[a-f0-9]{64}$/.test(pointer.contentHash) ||
         authorization.contentHash !== pointer.contentHash ||

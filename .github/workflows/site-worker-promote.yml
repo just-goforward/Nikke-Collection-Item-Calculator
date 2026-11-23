@@ -6,6 +6,17 @@ on:
         description: Approved full main SHA matching this workflow revision
         required: true
         type: string
+      operation:
+        description: Preparation never publishes. Existing publication accepts only its own build.
+        required: true
+        type: choice
+        default: prepare-root-pair
+        options:
+          - publish-existing
+          - prepare-root-pair
+          - root-install-bridge
+          - root-activate-forward
+          - root-restore-rollback
 permissions:
   contents: read
 concurrency:
@@ -19,7 +30,7 @@ env:
 # Do not dispatch until protection, authorization and account overage eligibility are resolved.
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' && inputs.deploy_sha == github.sha
+    if: inputs.operation == 'publish-existing' && github.ref == 'refs/heads/main' && inputs.deploy_sha == github.sha
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     outputs:
@@ -35,10 +46,17 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: node scripts/site-release.mjs context unused "$GITHUB_SHA"
-      - run: npm install --global npm@12.2.1 --ignore-scripts --no-audit --no-fund
-      - run: npm ci --ignore-scripts
-      - run: node --test scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs
-      - run: npm run build:site-production
+      - name: Pin pnpm without lifecycle scripts
+        run: bash scripts/ci/setup-pnpm.sh
+      - name: Cache the pinned pnpm store
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: node --test scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs scripts/pnpm-lock.test.mjs scripts/ci/operational-pnpm.test.mjs
+      - run: pnpm run build:site-production
       - name: Check approved online profile without credentials
         run: |
           node --input-type=module -e 'const {assertProductionSiteCandidateProfile}=await import("./scripts/site-deployment-artifact.mjs"); const {buildSiteProduction}=await import("./scripts/build-site-production.ts"); const c=await assertProductionSiteCandidateProfile("dist",process.env.GITHUB_SHA); await buildSiteProduction("dist",true,c);'
@@ -74,8 +92,15 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: node scripts/site-release.mjs context unused "$GITHUB_SHA"
-      - run: npm install --global npm@12.2.1 --ignore-scripts --no-audit --no-fund
-      - run: npm ci --ignore-scripts
+      - name: Pin pnpm without lifecycle scripts
+        run: bash scripts/ci/setup-pnpm.sh
+      - name: Cache the pinned pnpm store
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
@@ -95,3 +120,202 @@ jobs:
           SITE_DEPLOY_WORKER: collection-kit-site-production
           SITE_DEPLOY_HOSTNAME: nikkecollection.com
         run: node scripts/deploy-site.ts production-online-sealed "$GITHUB_SHA"
+  prepare-root-pair:
+    if: inputs.operation == 'prepare-root-pair' && github.ref == 'refs/heads/main' && github.ref_protected && inputs.deploy_sha == github.sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # Use the existing protected environment for the independently provisioned review pin.
+    # No Cloudflare secret, write permission, deploy consumer or dispatch-supplied approval.
+    environment: cloudflare-site-production
+    permissions:
+      actions: read
+      contents: read
+    env:
+      REVIEW_RUN: ${{ vars.ROOT_PAIR_REVIEW_RUN_ID }}
+      REVIEW_ARTIFACT: ${{ vars.ROOT_PAIR_REVIEW_ARTIFACT_ID }}
+      ROOT_PAIR_REVIEW_SHA256: ${{ vars.ROOT_PAIR_REVIEW_SHA256 }}
+      ROOT_PAIR_SOURCE_APPROVAL_SHA256: ${{ vars.ROOT_PAIR_SOURCE_APPROVAL_SHA256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - name: Require independent input and exact protected source
+        run: |
+          set -euo pipefail
+          [[ "$REVIEW_RUN" =~ ^[1-9][0-9]*$ && "$REVIEW_ARTIFACT" =~ ^[1-9][0-9]*$ && "$ROOT_PAIR_REVIEW_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          test "$GITHUB_REF_PROTECTED" = true
+          node scripts/site-release.mjs context unused "$GITHUB_SHA"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ env.REVIEW_RUN }}
+          artifact-ids: ${{ env.REVIEW_ARTIFACT }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/root-input
+      - name: Require successful source verification on this exact main push and attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          review="$RUNNER_TEMP/root-input/public-review.json"
+          printf '%s  %s\n' "$ROOT_PAIR_REVIEW_SHA256" "$review" | sha256sum --check --status
+          run=$(jq -er '.sourceRun | strings | select(test("^[1-9][0-9]*$"))' "$review")
+          attempt=$(jq -er '.sourceAttempt | strings | select(test("^[1-9][0-9]*$"))' "$review")
+          api="repos/$GITHUB_REPOSITORY/actions/runs/$run"
+          gh api "$api" | jq -e --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" --arg attempt "$attempt" '
+            .path == ".github/workflows/site-source-verify.yml" and .event == "push" and .head_branch == "main" and
+            .head_sha == $sha and .head_repository.full_name == $repo and (.run_attempt|tostring) == $attempt and .conclusion == "success"'
+          gh api "$api/attempts/$attempt/jobs?per_page=100" | jq -e '
+            [.jobs[] | select(.conclusion == "success") | .name] |
+            index("Site source prerequisites") != null and index("Production root source (no publication)") != null and index("Site source verification") != null'
+      - run: bash scripts/ci/setup-pnpm.sh
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Exercise both archived-module seals with the immutable historical carrier
+        env:
+          ROOT_V14_CARRIER: ${{ runner.temp }}/root-input/v14-worker
+        run: node --test scripts/ci/v14-worker.test.mjs scripts/ci/prepare-root-pair.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs
+      - name: Provision locked build inputs before the offline native build
+        run: |
+          bash scripts/ci/setup-root-rust.sh
+          node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Build private comparison, run tab canary, build and check BOTH public seals
+        run: node scripts/ci/prepare-root-pair.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: rollback
+        with:
+          name: root-rollback-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/root-pair/rollback
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: forward
+        with:
+          name: root-forward-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/root-pair/forward
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ steps.rollback.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/root-roundtrip/rollback
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ steps.forward.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/root-roundtrip/forward
+      - name: Bind both immutable artifact IDs and archive digests to the checked manifests
+        env:
+          ROLLBACK_ID: ${{ steps.rollback.outputs.artifact-id }}
+          ROLLBACK_DIGEST: ${{ steps.rollback.outputs.artifact-digest }}
+          FORWARD_ID: ${{ steps.forward.outputs.artifact-id }}
+          FORWARD_DIGEST: ${{ steps.forward.outputs.artifact-digest }}
+        run: node scripts/ci/root-pair-handoff.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: root-pair-receipt-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/root-pair/receipt
+          if-no-files-found: error
+          retention-days: 7
+  publish-root-pair:
+    if: contains(fromJSON('["root-install-bridge","root-activate-forward","root-restore-rollback"]'), inputs.operation) && github.ref == 'refs/heads/main' && github.ref_protected && inputs.deploy_sha == github.sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: cloudflare-site-production
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ROOT_OPERATION: ${{ inputs.operation }}
+      ROOT_SITE_TRANSITION: ${{ vars.ROOT_SITE_TRANSITION }}
+      ROOT_PAIR_SOURCE_APPROVAL_SHA256: ${{ vars.ROOT_PAIR_SOURCE_APPROVAL_SHA256 }}
+      ROOT_PAIR_REVIEW_SHA256: ${{ vars.ROOT_PAIR_REVIEW_SHA256 }}
+      REVIEW_RUN: ${{ vars.ROOT_PAIR_REVIEW_RUN_ID }}
+      REVIEW_ARTIFACT: ${{ vars.ROOT_PAIR_REVIEW_ARTIFACT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - run: node scripts/site-release.mjs context unused "$GITHUB_SHA"
+      - run: bash scripts/ci/setup-pnpm.sh
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: node --test scripts/ci/root-promotion.test.mjs
+      - id: grant
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/root-promotion-custody.mjs receipt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.grant.outputs.run }}
+          artifact-ids: ${{ steps.grant.outputs.receipt }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/root-promotion/receipt
+      - if: inputs.operation != 'root-install-bridge'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.grant.outputs.bridge_run }}
+          artifact-ids: ${{ steps.grant.outputs.bridge_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/root-promotion/bridge
+      - id: seals
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/root-promotion-custody.mjs seals
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.grant.outputs.run }}
+          artifact-ids: ${{ steps.seals.outputs.rollback }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/root-promotion/rollback
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.grant.outputs.run }}
+          artifact-ids: ${{ steps.seals.outputs.forward }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/root-promotion/forward
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ env.REVIEW_RUN }}
+          artifact-ids: ${{ env.REVIEW_ARTIFACT }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/root-promotion/review
+      - name: Verify both and restore only this authorized direction without Cloudflare credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/root-promotion-custody.mjs restore
+      - name: Provision pinned Chromium before any write
+        run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Recheck live control, producer and sealed bytes; perform only this transition
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT_CONTROL_READ_TOKEN: ${{ secrets.CLOUDFLARE_ROOT_CONTROL_READ_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_SITE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 15be33fd20ea78eb3d60b719be831148
+          SITE_DEPLOY_ACCOUNT_ID: 15be33fd20ea78eb3d60b719be831148
+          SITE_DEPLOY_WORKER: collection-kit-site-production
+          SITE_DEPLOY_HOSTNAME: nikkecollection.com
+        run: node scripts/deploy-site.ts production-root-sealed "$GITHUB_SHA"
+      - name: Retain verified direction-specific live state (never on failed readback)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: root-state-${{ inputs.operation }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/root-promotion/state.json
+          if-no-files-found: error
+          retention-days: 7

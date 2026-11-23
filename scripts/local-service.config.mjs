@@ -4,6 +4,7 @@ import base from "../vite.config.ts";
 import { operationalProfileReceipt } from "./site-deployment-artifact.mjs";
 import { assertProductionForecastContract } from "./forecast-runtime-build.ts";
 import productionContract from "../site-worker/production-forecast.proposed.json" with { type: "json" };
+import { serviceH14ReceiptPlugin } from "./service-h14-receipt.ts";
 const { requiredEmittedModules: required } = operationalProfileReceipt();
 let root;
 let receipt;
@@ -19,12 +20,12 @@ export default {
       const approved = mode === "production" ? assertProductionForecastContract(productionContract) : null;
       assert.equal(config.env.VITE_FORECAST_PUBLIC_KEY_ID, approved?.keyId ?? "");
       assert.equal(config.env.VITE_FORECAST_PUBLIC_KEY_BASE64, approved?.publicKeyBase64 ?? "");
-      receipt = operationalProfileReceipt(mode, productionContract);
+      receipt = operationalProfileReceipt(mode);
     },
     generateBundle(_options, bundle) {
       const modules = new Set(Object.values(bundle).filter(v => v.type === "chunk").flatMap(v => Object.keys(v.modules)).map(id => relative(root, id).replaceAll("\\", "/")));
       for (const path of required) assert(modules.has(path), `Selected service module absent: ${path}`);
       this.emitFile({ type: "asset", fileName: ".vite/local-operational-profile.json", source: JSON.stringify(receipt) });
     },
-  }],
+  }, serviceH14ReceiptPlugin()],
 };

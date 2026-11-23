@@ -1,15 +1,13 @@
+import RootCandidateApp from "./RootCandidateApp";
+import {rootCandidate,assertRootCandidateOrigin} from "./lib/rootCandidate";
+import {initializeDecisionProduction} from "./analytics/decisionBootstrap";
 import type { ComponentType } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "./App";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { detectInitialLocale, I18nProvider, prepareInitialLocale, translate } from "./i18n/locale";
-import { CERTIFIED_ONLY_BUILD, usesCertifiedEngineFromSearch } from "./lib/engineProfile";
-import { localCertifiedUiEnabled } from "./lib/localCertifiedUi";
-import { SERVICE_CERTIFIED_SOLVER } from "./lib/serviceCertified";
-import { prepareRuntimeSupplyForecast } from "./lib/supplyForecastRuntime";
 import "./styles.css";
-import { initializeDecisionProduction } from "./analytics/decisionBootstrap";
 
 function boot(Calculator: ComponentType) {
   const app = document.getElementById("app");
@@ -44,27 +42,10 @@ function renderBootFailure(error: unknown) {
   app.append(panel);
 }
 
-// Keep the local entry's dynamic import behind Vite's compile-time dev guard.
-if (SERVICE_CERTIFIED_SOLVER) {
-  // Keep the service shell; its adapter owns certified forecast preparation.
-  void initializeDecisionProduction().then(() => boot(App));
-} else if (import.meta.env.DEV && localCertifiedUiEnabled(location.hostname)) {
-  void import("./CurrentUiCertifiedApp")
-    .then((module) => boot(module.default))
-    .catch(renderBootFailure);
-} else if (CERTIFIED_ONLY_BUILD || usesCertifiedEngineFromSearch(location.search)) {
-  void import("./certifiedUi/CertifiedCalculator")
-    .then((module) => boot(module.default))
-    .catch(renderBootFailure);
-} else {
-  const forecastPreparation = prepareRuntimeSupplyForecast();
-  if (forecastPreparation) {
-    void forecastPreparation.then(() => boot(App)).catch(renderBootFailure);
-  } else {
-    try {
-      boot(App);
-    } catch (error) {
-      renderBootFailure(error);
-    }
-  }
-}
+// This isolated entry cannot select another calculator or install a production analytics provider.
+if (rootCandidate) {
+  try {
+    assertRootCandidateOrigin();
+    void initializeDecisionProduction().then(() => boot(RootCandidateApp)).catch(renderBootFailure);
+  } catch (error) { renderBootFailure(error); }
+} else { try { boot(App); } catch (error) { renderBootFailure(error); } }

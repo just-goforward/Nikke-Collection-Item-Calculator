@@ -46,6 +46,7 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
   });
   const terminalSuccessContextRef = useRef<TerminalSuccessContext | null>(null);
   const attemptOwners = useRef(new WeakMap<TerminalSuccessContext, unknown>());
+  const attemptReceipts = useRef(new WeakMap<TerminalSuccessContext, NonNullable<SolverResult["certified"]>>());
   const attemptLifecycles = useRef(new WeakMap<TerminalSuccessContext, DecisionLifecycle>());
   const reportContexts = useRef(new WeakSet<TerminalSuccessContext>());
   const queueStatsEvent = useCallback((event: StatsSubmissionEvent) => {
@@ -85,25 +86,29 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
   });
   const applyOutcome = useCallback((outcome: "success" | "fail") => {
     const owner = options.observerOwner;
+    const receipt = options.latestResultRef.current?.certified;
     const applied = applyInnerOutcome(outcome);
     const context = terminalSuccessContextRef.current;
+    if (applied && context && receipt) attemptReceipts.current.set(context, receipt);
     if (applied && context && owner !== undefined) {
       attemptOwners.current.set(context, owner);
       if (options.lifecycle) attemptLifecycles.current.set(context, options.lifecycle);
       if (isOutcomeReportSettlementActive()) reportContexts.current.add(context);
     }
     return applied;
-  }, [applyInnerOutcome, options.observerOwner, options.lifecycle]);
+  }, [applyInnerOutcome, options.latestResultRef, options.observerOwner, options.lifecycle]);
   const applyConvert = useConvertAction(options);
 
   const submitSuccessAttempt = useCallback(
-    (successAttempt: number | null) => {
+    (successAttempt: number | null, adaptive = false) => {
       const context = terminalSuccessContextRef.current;
       terminalSuccessContextRef.current = null;
       setModal((current) => ({ ...current, open: false }));
       if (!context) return;
+      const receipt = attemptReceipts.current.get(context);
+      if (receipt && receipt !== options.latestResultRef.current?.certified) return;
       let legacySettlement: StatsSubmissionEvent | undefined;
-      const settled = withOutcomeReportSettlement(reportContexts.current.has(context),
+      const settled = adaptive && successAttempt === null ? null : withOutcomeReportSettlement(reportContexts.current.has(context),
         () => applyTerminalSuccessAttempt(context, successAttempt), event => { legacySettlement = event; });
       const owner = attemptOwners.current.get(context);
       const lifecycle = attemptLifecycles.current.get(context);
@@ -117,8 +122,9 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
       setLegacyOutcomeRecovery(
         settled ? { ...settled.nextInput.start, stock: settled.nextInput.stock } : null,
       );
+      return settled;
     },
-    [applyTerminalSuccessAttempt, options.lifecycle, options.observerOwner],
+    [applyTerminalSuccessAttempt, options.latestResultRef, options.lifecycle, options.observerOwner],
   );
 
   const resetOutcomeFlow = useCallback(() => {

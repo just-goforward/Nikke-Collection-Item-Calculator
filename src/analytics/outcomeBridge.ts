@@ -4,6 +4,7 @@ import type { AcceptedOutcomeContext } from "./acceptedOutcome";
 import type { DecisionLifecycle } from "./decisionLifecycle";
 import type { RunProvider } from "./decisionRun";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
+import { serviceCertifiedWaitDays } from "../hooks/serviceCertifiedPresentation";
 
 type Options = {
   captureProducer: () => RunProvider | undefined;
@@ -79,15 +80,13 @@ export function createOutcomeBridge(options: Options) {
       const supplyReference = acquisition && verifiedPublicReference(acquisition);
       if (!certified || !supplyReference || !certified.action || input.start.level >= 15) return;
       const output = certified.output;
-      if (current.provider.producerCodeHash !== output.runtimeBinding.engineProfile.codeHash ||
-          output.refusal || output.claimNotice || output.current?.status === "complete") return;
-      const selection = output.stableRecommendation?.selection;
-      const guidance = output.stableRecommendation?.guidance;
+      if (current.provider.producerCodeHash !== output.profile.codeHash ||
+          (output.status !== "complete" && output.status !== "incomplete") ||
+          output.current?.status !== "use_certified") return;
       current.data = {
         producerVersion: current.provider.producerVersion, producerCodeHash: current.provider.producerCodeHash,
         supplyReference, recommendedCurrent: method(certified.action.kit),
-        waitRecommended: certified.final === true && selection?.status === "WAIT" && guidance?.status === "WAIT" &&
-          selection.day === guidance.day,
+        waitRecommended: serviceCertifiedWaitDays(certified) !== undefined,
       };
     },
     captureOutcomeOwner: () => current?.data ? current : undefined,

@@ -15,6 +15,7 @@ export const scheduledPeriodSchema = z.object({
 export const grantSchema = z.object({
   id: z.string().check(z.regex(/^grant:[a-z0-9-]+:[A-Za-z0-9_-]+:\d{4}-\d{2}-\d{2}:[1-9]\d*$/)),
   grantGameDate: z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/)),
+  scheduledAt: z.optional(offsetTimestampSchema),
   refs: z
     .array(
       z.object({

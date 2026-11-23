@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 1,
+  "profileId": "service-fused-h14-v1",
+  "abi": {
+    "base": 1,
+    "fused": 3,
+    "joint": 2,
+    "currentBatch": 2
+  },
+  "sourceHash": "d53899b40ec00ca49ac9eec0af46c149c0f0380eaabbea3e08c7ce20c18064b0",
+  "sources": [
+    {
+      "path": "package.json",
+      "sha256": "037d1a149feca9e921e4390cb60ed9b81c9a218102e6e5c44f1051e032052d70"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "sha256": "7f64a8950a2c4f0cb8b1ca7b4711227b900d20fbd17acb4899ecaa29ba719100"
+    },
+    {
+      "path": "pnpm-workspace.yaml",
+      "sha256": "e21734e329c7a9e77b2a6342fb8485c3569845515e7d891f23388cc26127d6ad"
+    },
+    {
+      "path": "rust/service-h14/Cargo.lock",
+      "sha256": "951551f0a3b100a52c39fd6a4ff9624c956eeaa01330d9d1b9ae95a7858d60f5"
+    },
+    {
+      "path": "rust/service-h14/Cargo.toml",
+      "sha256": "f8a36c71ee171a799cba8ce044465ad195fac9b9d1310191ca8a4a90d784366f"
+    },
+    {
+      "path": "rust/service-h14/build.rs",
+      "sha256": "9d88e36136acc1cd8012d54a9b7d0ca112a8a727c2c19a4e53c7d1a156ad43b1"
+    },
+    {
+      "path": "rust/service-h14/rust-toolchain.toml",
+      "sha256": "95173fd0391cf563c57c42d33d4b7ccaa67ed4606aa06326d310b6fe3fe789d2"
+    },
+    {
+      "path": "rust/service-h14/src/allocation.rs",
+      "sha256": "205190b0f114651691bd7e7dde0c73ed4fa931e199a7fadebe74da5646392232"
+    },
+    {
+      "path": "rust/service-h14/src/failure_screen.rs",
+      "sha256": "34753201f95d97adf463e42f3d40313e707ec62aed5f7c594e3ad05589a8d015"
+    },
+    {
+      "path": "rust/service-h14/src/fused.rs",
+      "sha256": "eae15311b087f57cc7360d438b09228a8dec253adfeb782011c8f315d2ce2180"
+    },
+    {
+      "path": "rust/service-h14/src/fused/current_batch.rs",
+      "sha256": "c7554093be7d573023dfd1f78b31377b28d11d69f031a22606c49b8fd65547a5"
+    },
+    {
+      "path": "rust/service-h14/src/fused/tests.rs",
+      "sha256": "b1074bb504dc7e1592d3042949980162ce41bd83ceef5b21689979107a1beb27"
+    },
+    {
+      "path": "rust/service-h14/src/guidance.rs",
+      "sha256": "52884658b652ecb6a42fe00438e42bb1067b2847d96303d205ab7e95e9021482"
+    },
+    {
+      "path": "rust/service-h14/src/joint_source.rs",
+      "sha256": "ef683bf53060428167fb687c1aa987d8a8b378d65dc1d663cfe1ec365dab2942"
+    },
+    {
+      "path": "rust/service-h14/src/joint_source_tests.rs",
+      "sha256": "beb108b9e76247bf729a7d8d5f5c9e00f54d5cfe60ff64330f2b8fe20bc5162c"
+    },
+    {
+      "path": "rust/service-h14/src/lib.rs",
+      "sha256": "a52b981656b6b2657acc012fd0b431f8a59c492aab1778c2274e249860ddb6e6"
+    },
+    {
+      "path": "rust/service-h14/src/minimum_wait.rs",
+      "sha256": "f556bbd05784195cf30f7198b68cb43246c31fb1274e0ce8c8dfc52fd1120dcb"
+    },
+    {
+      "path": "rust/service-h14/src/reachability.rs",
+      "sha256": "5fa1d61f1b5712c67f58134dd16f9bf1cb838756bcb6899262a1e6628280615c"
+    },
+    {
+      "path": "rust/service-h14/src/risk_summary.rs",
+      "sha256": "0ab35fd521dde601e6201b438acb834846c776f4f06c845f2e54eca0eba6665f"
+    },
+    {
+      "path": "rust/service-h14/src/spectral.rs",
+      "sha256": "e0340bcfef46b05529200cca331a2f16ebd97f4aad29285bef1307ae046dc1d7"
+    },
+    {
+      "path": "rust/service-h14/src/spectral_roots.rs",
+      "sha256": "172eceb7485b8d3a1ff00b41d2582d4bb7ff8b2bc4bbd73638dcd1ae16bfbf45"
+    },
+    {
+      "path": "rust/service-h14/src/supply.rs",
+      "sha256": "bafe3dedf8db03394d9de1ee29c110e065291edbb8df1ede5733e27aefd0090f"
+    },
+    {
+      "path": "rust/service-h14/src/supply/convolve_grouping.rs",
+      "sha256": "ba3999b0f9013191ce4d66114e4c0f124a1cef368e6b16f60bc46f30eaf1589f"
+    },
+    {
+      "path": "rust/service-h14/src/supply/convolve_grouping_tests.rs",
+      "sha256": "9a3fae36d6392f9fb17c5735df353e5330eb69ed99f430d4a830fb8513abde15"
+    },
+    {
+      "path": "rust/service-h14/src/supply/convolve_tests.rs",
+      "sha256": "c506a4f48b83e7b62aaf9f6c7d605c1051e8c9d3c24a351d1dba6e1423830dde"
+    },
+    {
+      "path": "rust/service-h14/src/supply/rates.rs",
+      "sha256": "29ab5d1d1ecaeed80a1d2af3ed591b7767d5e1f32d39b2800773b8416e207575"
+    },
+    {
+      "path": "rust/service-h14/src/supply/v3_gate.rs",
+      "sha256": "961aa2580c57932e3b80c289eff1c2ca1fdbae559e32e5bac7581d22e06cd403"
+    },
+    {
+      "path": "rust/service-h14/src/supply/v3_gate_tests.rs",
+      "sha256": "af8c772843eca14940f9bd0f3fc54eec30c9bf2c60e94645400eb13acc857b1e"
+    },
+    {
+      "path": "rust/service-h14/src/waiting.rs",
+      "sha256": "6dced8915a2d31426ae8a066c09eeadc28e64e6d6504e3058fdd959502eaa6ad"
+    },
+    {
+      "path": "rust/service-h14/src/waiting_bound_tests.rs",
+      "sha256": "66624fad41e594e74d241326c8a782b4aef007595bd615e1cc47398cc02ea675"
+    },
+    {
+      "path": "rust/service-h14/src/waiting_boundary_continuation_tests.rs",
+      "sha256": "8d2f5284d4126548c2ba9c28642ca1788be19140101c6937da2628be5df05f3f"
+    },
+    {
+      "path": "rust/service-h14/src/waiting_completed_dates_tests.rs",
+      "sha256": "4c359dcc7e278b390c80537d7ce70322e42c0b5fc870b276cf10573e95c3a152"
+    },
+    {
+      "path": "rust/service-h14/src/waiting_current_guidance_tests.rs",
+      "sha256": "fcb3d79948b0f358503b51e4d9605a219804e89a1b316a05dad264cf5c38bea8"
+    },
+    {
+      "path": "rust/service-h14/src/waiting_risk_summary_tests.rs",
+      "sha256": "b09e3760d90356ff085a30c9387ce9411200370afc863a5187a2e82fa7cc9d14"
+    },
+    {
+      "path": "rust/service-h14/src/waiting_tests.rs",
+      "sha256": "4566d3570d19d43189d7610e235fec2d2c202445e3a04b0d1380c74e52ef2a09"
+    },
+    {
+      "path": "scripts/service-h14-native-build.ts",
+      "sha256": "2e0f3abc3868213124898104b1d899db7f7f37f71b5a17f628ea4610d86fe735"
+    },
+    {
+      "path": "scripts/service-h14-native-integrity.ts",
+      "sha256": "84cc52f841b5e644670cb3c8d5a3b28cb7553fdca3af59d8320cd67cdf22b5e3"
+    },
+    {
+      "path": "scripts/service-h14-paths.ts",
+      "sha256": "677714e8f74eb9a5618218cab5e12e2d74318f99d460d20122e14dc8a48ac6cc"
+    },
+    {
+      "path": "src/serviceH14/fusedModule.ts",
+      "sha256": "7416d377f2fb01ed320dd3b80624b65eec8d6ebc73769184434654567f9de8b1"
+    }
+  ],
+  "wasm": {
+    "sha256": "7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5",
+    "byteLength": 1431869,
+    "assetPath": "/wasm/service-fused-h14-7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5.wasm"
+  },
+  "toolchain": {
+    "rust": "1.99.1",
+    "node": "26.13.1",
+    "target": "wasm32-unknown-unknown",
+    "profile": "release",
+    "offline": true,
+    "locked": true
+  }
+}

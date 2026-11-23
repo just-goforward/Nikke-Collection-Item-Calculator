@@ -32,7 +32,7 @@ export function validateFootprint(a) {
   if (s?.backend !== 'named-tmpfs-pair-v1' || s.workspaceBytes !== 2147483648 ||
       s.frameworkBytes !== 67108864 || s.tmpBytes !== 268435456 || s.shmBytes !== 268435456) fail();
   exactKeys(s, ['backend', 'workspaceBytes', 'frameworkBytes', 'tmpBytes', 'shmBytes', 'footprint']);
-  exactKeys(f, ['sourceBytes', 'sourceAllocatedBytes', 'provisionExpandedBytes', 'npmCacheBytes',
+  exactKeys(f, ['sourceBytes', 'sourceAllocatedBytes', 'provisionExpandedBytes', 'pnpmStoreBytes',
     'buildReserveBytes', 'metadataReserveBytes']);
   if (Object.values(f).some(n => !Number.isSafeInteger(n) || n < 0) ||
       f.sourceBytes !== a.source.files.reduce((sum, file) => sum + file.size, 0) ||
@@ -43,10 +43,10 @@ export function validateFootprint(a) {
     if (!Number.isSafeInteger(artifact.unpackedBytes) || artifact.unpackedBytes <= 0 ||
         artifact.unpackedBytes > s.workspaceBytes) fail();
     expanded += artifact.unpackedBytes;
-    if (artifact.kind === 'package') cache += artifact.size;
+    if (['package', 'manager-package', 'pnpm', 'registry-metadata'].includes(artifact.kind)) cache += artifact.unpackedBytes;
   }
-  if (f.provisionExpandedBytes < expanded || f.npmCacheBytes < cache ||
-      f.sourceAllocatedBytes + f.provisionExpandedBytes + f.npmCacheBytes +
+  if (f.provisionExpandedBytes < expanded || f.pnpmStoreBytes < cache ||
+      f.sourceAllocatedBytes + f.provisionExpandedBytes + f.pnpmStoreBytes +
       f.buildReserveBytes + f.metadataReserveBytes > s.workspaceBytes) fail();
   return f;
 }
@@ -160,7 +160,7 @@ export async function allocatedTree(root) {
 }
 export async function verifyWorkspace(a, built = false) {
   const f = validateFootprint(a);
-  if (await allocatedTree('/work/cache') > f.npmCacheBytes ||
+  if (await allocatedTree('/work/store') > f.pnpmStoreBytes ||
       await allocatedTree('/work') > f.sourceAllocatedBytes + f.provisionExpandedBytes +
-      f.npmCacheBytes + f.metadataReserveBytes + (built ? f.buildReserveBytes : 0)) fail('OVERFLOW');
+      f.pnpmStoreBytes + f.metadataReserveBytes + (built ? f.buildReserveBytes : 0)) fail('OVERFLOW');
 }

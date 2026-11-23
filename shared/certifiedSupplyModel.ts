@@ -1,3 +1,4 @@
+import type { ForecastSourceAuthority } from "./forecastEvidenceCoverage";
 import { q, toWire, type WireQ } from "./certifiedRational.ts";
 import type { CertifiedLawRef, CertifiedSupplyLaw, CohortTuple } from "./certifiedSupplyLaws.ts";
 import {
@@ -21,6 +22,7 @@ export type CertifiedSourceStatus = "healthy" | "uncertain";
 export type CertifiedSupplyGrant = {
   id: string;
   grantGameDate: string;
+  scheduledAt?: string;
   refs: readonly CertifiedLawRef[];
   claimUntil?: string;
   claimWindowAssumed: boolean;
@@ -61,6 +63,7 @@ export type CertifiedSupplyEvent = {
   dayNumber?: number;
   segment?: number;
   claimWindowAssumed?: boolean;
+  grantTiming?: "scheduled-v1";
   restatementOf?: readonly string[];
   /** Sourced exclusive claim deadline; null/omitted means the deadline is unknown. */
   expiresAt?: string | null;
@@ -100,6 +103,7 @@ export type CertifiedSupplySnapshot = {
   sourceHash: string;
   asOf: string;
   sourceStatus: CertifiedSourceStatus;
+  sourceAuthority?: ForecastSourceAuthority;
   rules: readonly CertifiedSupplyRule[];
   laws: readonly CertifiedSupplyLaw[];
   events: readonly CertifiedSupplyEvent[];
@@ -139,6 +143,7 @@ export type CertifiedSupplyBuildInput = {
   confirmedRounds?: readonly SoloRaidRound[];
   historyCoverage?: CertifiedHistoryCoverage;
   sourceStatus?: CertifiedSourceStatus;
+  sourceAuthority?: ForecastSourceAuthority;
   delayState?: CertifiedSoloDelayState;
   rules?: readonly CertifiedSupplyRule[];
   laws?: readonly CertifiedSupplyLaw[];

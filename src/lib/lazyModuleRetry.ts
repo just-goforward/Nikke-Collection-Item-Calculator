@@ -1,7 +1,7 @@
+import { legacyRecoveryKey } from "./legacyRecoveryKey";
+import { rootCandidate } from "./rootCandidate";
 type DeferredModule = "SuccessAttemptModal" | "RecommendationContent";
 type RecoveryInput = import("./legacyInputRecovery").LegacyRecoveryInput;
-// Kept local so the eager retry path does not load the lazy recovery parser.
-const RECOVERY_KEY = "nikke:legacy-reload-input:v1";
 let readInput: (() => RecoveryInput | null) | null = null;
 let outcomePending = false;
 
@@ -43,8 +43,8 @@ export function saveLegacyInputRecovery(
               },
             },
     });
-    storage.setItem(RECOVERY_KEY, raw);
-    return storage.getItem(RECOVERY_KEY) === raw;
+    storage.setItem(legacyRecoveryKey, raw);
+    return storage.getItem(legacyRecoveryKey) === raw;
   } catch {
     return false;
   }
@@ -54,7 +54,7 @@ export function setLegacyOutcomeRecovery(input: RecoveryInput | "pending" | null
   outcomePending = input === "pending";
   try {
     if (input) return saveLegacyInputRecovery(input, sessionStorage, currentRecoveryUrl());
-    sessionStorage.removeItem(RECOVERY_KEY);
+    sessionStorage.removeItem(legacyRecoveryKey);
     return true;
   } catch {
     return false;
@@ -91,7 +91,7 @@ export function lazyModuleRetryUrl(
     const url = new URL(error.message.match(/https?:\/\/[^\s"'<>)]*/)?.[0] ?? "");
     if (url.origin !== origin || url.username || url.password || url.hash) return null;
     if (
-      !new RegExp(`^/assets/${name}-[A-Za-z0-9_-]+\\.js$`).test(url.pathname) &&
+      !new RegExp(`^${rootCandidate ? '/' : '/preview/'}assets/${name}-[A-Za-z0-9_-]+\\.js$`).test(url.pathname) &&
       !(import.meta.env.DEV && url.pathname === `/src/components/${name}.tsx`)
     )
       return null;

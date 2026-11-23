@@ -766,6 +766,7 @@ describe("Rust/WASM execution limits", () => {
             certified_abi_version: () => 1,
             certified_reset_heap_peak: () => {},
             certified_heap_peak: () => 0,
+            certified_heap_live: () => 0,
             certified_heap_limit: () => {},
             certified_input: () => 8,
             certified_call: () => {},

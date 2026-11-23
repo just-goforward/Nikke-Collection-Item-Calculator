@@ -4,10 +4,11 @@ import fs, * as fsExports from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve, join } from "node:path";
+import { resolve, join, relative, sep } from "node:path";
 import { buildProductionOffService } from "./build-production-off-service.mjs";
 import { assertProductionOffSiteProfile } from "./site-deployment-artifact.mjs";
-import { assertProductionOffSiteConfiguration, deploy } from "./deploy-site.ts";
+import { assertProductionOffSiteConfiguration, assertSiteUploadApproved, deploy } from "./deploy-site.ts";
+import { SERVICE_H14_EMITTED_MODULES } from "./service-h14-receipt.ts";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const SHA = "a".repeat(40);
@@ -22,10 +23,12 @@ const disabledCatalog = {
 const bundledProfile = {
   version: 1, profile: "local-shared-service-bundled",
   flags: { serviceCertifiedSolver: true, forecastRuntime: "bundled", onlineTrust: false },
-  requiredEmittedModules: [
-    "src/main.tsx", "src/App.tsx", "src/hooks/useCalculatorApp.ts",
-    "src/hooks/useServiceCertifiedSolver.ts",
-  ],
+  requiredEmittedModules: [...SERVICE_H14_EMITTED_MODULES],
+  solverLane: "service-fused-h14-v1",
+  solverPolicy: "horizon_best_earliest",
+  solverNumericalContract: "bounded-error-h14-v1",
+  solverApproval: "NONDEPLOYABLE_SERVICE_CANDIDATE",
+  analyticsProviderApproved: false,
   entryBinding: "src/main.tsx SERVICE_CERTIFIED_SOLVER boots App; useCalculatorApp selects useServiceCertifiedSolver",
   deploymentApproved: false,
 };
@@ -122,10 +125,19 @@ test("OFF profile rejects online trust or approval metadata even with the same e
 
 test("OFF composition retains operational profile and source revision validation", async t => {
   const f = await artifact(t);
-  await f.json(".vite/local-operational-profile.json", {
-    ...bundledProfile, flags: { ...bundledProfile.flags, serviceCertifiedSolver: false },
-  });
-  await assert.rejects(assertProductionOffSiteProfile(f.directory, SHA), /operational profile/);
+  for (const profile of [
+    { ...bundledProfile, flags: { ...bundledProfile.flags, serviceCertifiedSolver: false } },
+    // The pre-FUSED receipt (old lane only) and any forged solver/analytics approval stay rejected.
+    { ...bundledProfile, requiredEmittedModules: [
+      "src/main.tsx", "src/App.tsx", "src/hooks/useCalculatorApp.ts", "src/hooks/useServiceCertifiedSolver.ts",
+    ] },
+    { ...bundledProfile, solverApproval: "APPROVED" },
+    { ...bundledProfile, analyticsProviderApproved: true },
+    { ...bundledProfile, deploymentApproved: true },
+  ]) {
+    await f.json(".vite/local-operational-profile.json", profile);
+    await assert.rejects(assertProductionOffSiteProfile(f.directory, SHA), /operational profile/);
+  }
   await f.json(".vite/local-operational-profile.json", bundledProfile);
   await assert.rejects(assertProductionOffSiteProfile(f.directory, "b".repeat(40)), /approved SHA/);
 });
@@ -191,6 +203,29 @@ function deploymentParent(changes = {}) {
   };
 }
 
+const DIST = resolve(ROOT, "dist");
+// deploy() always validates, authorizes and uploads the checkout's dist; tests
+// redirect only reads below it to a temporary artifact instead of writing dist.
+function distReadsFrom(t, directory) {
+  const original = fs.readFileSync;
+  t.mock.method(fs, "readFileSync", (path, ...rest) => {
+    const absolute = typeof path === "string" ? resolve(path) : "";
+    return original(absolute.startsWith(DIST + sep) ? join(directory, relative(DIST, absolute)) : path, ...rest);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+}
+
+// Wrapper-mechanics fixture only: these tests fake the artifact validator, and the
+// real validator never accepts this profile (it requires deploymentApproved=false).
+function approvedUploadFixture(t) {
+  const directory = fs.mkdtempSync(join(tmpdir(), "site-upload-wrapper-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  fs.mkdirSync(join(directory, ".vite"));
+  fs.writeFileSync(join(directory, ".vite/local-operational-profile.json"), JSON.stringify({ deploymentApproved: true }));
+  distReadsFrom(t, directory);
+}
+
 function fakeDeployment(options = {}) {
   const calls = [];
   let snapshots = 0;
@@ -207,7 +242,7 @@ function fakeDeployment(options = {}) {
     assert.equal(command, process.execPath);
     assert.equal(configuration.env.CLOUDFLARE_API_TOKEN, undefined);
     assert.equal(configuration.env.GITHUB_SHA, SHA);
-    assert.deepEqual(args.slice(-3), [resolve(ROOT, "dist"), "production", SHA]);
+    assert.deepEqual(args.slice(-3), [DIST, "production", SHA]);
     if (options.validationFailure) throw new Error("synthetic OFF artifact rejection");
     return "";
   };
@@ -215,7 +250,8 @@ function fakeDeployment(options = {}) {
 }
 const uploads = f => f.calls.filter(call => call.args.includes("deploy"));
 
-test("OFF promotion validates an existing-worker artifact before the synthetic credentialled upload boundary", () => {
+test("OFF promotion validates an existing-worker artifact before the synthetic credentialled upload boundary", t => {
+  approvedUploadFixture(t);
   const f = fakeDeployment();
   deploy("site", ["production-off", SHA], deploymentParent(), f.execute);
   const upload = uploads(f);
@@ -225,6 +261,8 @@ test("OFF promotion validates an existing-worker artifact before the synthetic c
   assert.equal(args[args.indexOf("--config") + 1], "site-worker/rebuild.production.wrangler.toml");
   assert.equal(args[args.indexOf("--env") + 1], "");
   assert.equal(args[args.indexOf("--tag") + 1], SHA);
+  // The upload names the same artifact the validator and authorization checked.
+  assert.equal(args[args.indexOf("--assets") + 1], DIST);
   assert.equal(upload[0].configuration.env.CLOUDFLARE_ACCOUNT_ID, ACCOUNT);
   assert.equal(upload[0].configuration.env.CLOUDFLARE_API_TOKEN, TOKEN);
   assert.equal(f.calls.filter(call => call.command === "git").length, 4);
@@ -250,7 +288,8 @@ for (const [label, options] of [
   ["source changed after artifact validation", { status: count => count === 2 ? " M src/application.ts" : "" }],
   ["rejected artifact", { validationFailure: true }],
 ]) {
-  test(`OFF promotion rejects ${label} without invoking upload`, () => {
+  test(`OFF promotion rejects ${label} without invoking upload`, t => {
+    approvedUploadFixture(t);
     const f = fakeDeployment(options);
     assert.throws(() => deploy("site", ["production-off", SHA], deploymentParent(), f.execute));
     assert.equal(uploads(f).length, 0);
@@ -261,4 +300,42 @@ test("the Site OFF selector grants no implicit Stats deployment authority", () =
   const f = fakeDeployment();
   assert.throws(() => deploy("stats", ["production-off", SHA], deploymentParent(), f.execute));
   assert.equal(f.calls.length, 0);
+});
+
+test("every Site upload mode rejects the validated NONDEPLOYABLE FUSED artifact before Wrangler receives credentials", async t => {
+  const f = await artifact(t);
+  // As emitted by serviceH14ReceiptPlugin for the bundled FUSED candidate.
+  await f.json(".vite/service-h14.json", {
+    version: 1, status: "NONDEPLOYABLE_SERVICE_CANDIDATE", promotionGate: "NOT_APPROVED",
+    publicationApproved: false, analyticsProviderApproved: false,
+  });
+  // Local packaging stays possible: the real OFF validator accepts this artifact.
+  await assertProductionOffSiteProfile(f.directory, SHA);
+  assert.throws(() => assertSiteUploadApproved(f.directory), { message: "site_upload_nondeployable_artifact" });
+  distReadsFrom(t, f.directory);
+  const production = ["collection-kit-site-production", "nikkecollection.com", "production"];
+  for (const [selection, worker, hostname, target] of [
+    ["production", ...production], ["production-off", ...production], ["production-online", ...production],
+    ["production-online-sealed", ...production], ["rebuild-production", ...production],
+    ["staging", "collection-kit-site-staging", "staging.nikkecollection.com", "staging"],
+    ["rebuild-staging", "collection-kit-site-v2-staging", "staging.nikkecollection.com", "staging"],
+  ]) {
+    const calls = [];
+    const execute = (command, args, options) => {
+      calls.push({ command, args });
+      // Reaching Wrangler would surface the token here instead of the authorization error.
+      assert.equal(options.env.CLOUDFLARE_API_TOKEN, undefined);
+      assert.equal(options.env.CLOUDFLARE_ACCOUNT_ID, undefined);
+      return command === "git" && args[0] === "rev-parse" ? SHA : "";
+    };
+    assert.throws(() => deploy("site", [selection, SHA], deploymentParent({
+      SITE_DEPLOY_WORKER: worker, SITE_DEPLOY_HOSTNAME: hostname,
+      SITE_RELEASE_DIR: f.directory, SITE_RELEASE_MANIFEST_SHA256: "c".repeat(64),
+      GITHUB_RUN_ID: "1", GITHUB_RUN_ATTEMPT: "1",
+    }), execute), { message: "site_upload_nondeployable_artifact" }, selection);
+    assert.equal(calls.some(call => call.args.includes("deploy")), false, selection);
+    // Ordinary artifact validation still ran first, on the same dist the gate read.
+    assert.deepEqual(calls.find(call => call.args.includes("--input-type=module"))?.args.slice(-3),
+      [DIST, target, SHA], selection);
+  }
 });

@@ -1,3 +1,4 @@
+import { rootCandidate } from "../lib/rootCandidate";
 import { useCallback, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 
@@ -5,7 +6,7 @@ import { ignoreExpectedError } from "../lib/errorHandling";
 import type { Grade } from "../types";
 import type { ThemeMode } from "../ui-types";
 
-const THEME_STORAGE_KEY = "collectionThemeMode";
+const THEME_STORAGE_KEY = rootCandidate ? "collectionThemeMode" : "preview:collectionThemeMode";
 const THEME_COMMIT_CLASS = "theme-commit";
 const THEME_VIEW_TRANSITION_CLASS = "theme-view-transitioning";
 let themeTransitionGeneration = 0;

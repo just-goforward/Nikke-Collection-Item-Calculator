@@ -39,6 +39,29 @@ export function assertProductionOffSiteConfiguration(text: string) {
     throw new Error("Production OFF existing-worker capability configuration mismatch");
 }
 
+const NONDEPLOYABLE = "NONDEPLOYABLE_SERVICE_CANDIDATE";
+function uploadReceipt(directory: string, file: string, optional: boolean): Record<string, unknown> | null {
+  let value: unknown;
+  try { value = JSON.parse(readFileSync(resolve(directory, file), "utf8")); }
+  catch (error) {
+    if (optional && (error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new Error(`site_upload_receipt_unreadable:${file}`);
+  }
+  if (!value || typeof value !== "object") throw new Error(`site_upload_receipt_unreadable:${file}`);
+  return value as Record<string, unknown>;
+}
+
+/** Upload authority is separate from artifact validity. Local packaging and the
+ * bundled/OFF validators accept the NONDEPLOYABLE FUSED candidate; no Site mode
+ * may hand it to Wrangler. Fails closed on a missing or malformed profile. */
+export function assertSiteUploadApproved(directory: string) {
+  const profile = uploadReceipt(directory, ".vite/local-operational-profile.json", false)!;
+  const service = uploadReceipt(directory, ".vite/service-h14.json", true);
+  if (profile["deploymentApproved"] !== true || profile["solverApproval"] === NONDEPLOYABLE ||
+      (service && (service["publicationApproved"] !== true || service["status"] === NONDEPLOYABLE)))
+    throw new Error("site_upload_nondeployable_artifact");
+}
+
 export function deploy(kind: "site" | "stats", args: string[], parent = process.env,
   execute: typeof execFileSync = execFileSync) {
 const [selection, sha, ...extra] = args;
@@ -52,6 +75,9 @@ if (extra.length || !["production", "staging"].includes(target ?? "") ||
     !/^[a-f0-9]{40}$/.test(sha ?? ""))
   throw new Error("Expected production|production-off|production-online|production-online-sealed|staging|rebuild-production|rebuild-staging and approved full SHA; stats requires rebuild");
 const root = resolve(import.meta.dirname, "..");
+// One Site artifact: validated, authorized, sealed-compared (site-release verify)
+// and uploaded via an explicit `--assets`, not the config's relative directory.
+const artifact = resolve(root, "dist");
 const candidate = (replacement || productionOff) && target === "production" ? productionTarget(kind) : null;
 const worker = candidate?.worker ?? `collection-kit-${kind}-${replacement ? "v2-" : ""}${target}`;
 const config = candidate?.config ?? (replacement ? `${kind === "site" ? "site-worker" : "cloudflare"}/rebuild.${target}.wrangler.toml`
@@ -92,7 +118,7 @@ function snapshot() {
 snapshot();
 // Check the completed local artifact without rebuilding or granting credentials to verification.
 if (kind === "site") execute(process.execPath,
-  siteArtifactValidationArgs(resolve(root, "dist"), target!, sha!, candidate !== null || productionOnline, productionOff),
+  siteArtifactValidationArgs(artifact, target!, sha!, candidate !== null || productionOnline, productionOff),
   { cwd: root, env, stdio: "inherit" });
 snapshot();
 let sealedEntry: string | undefined;
@@ -108,11 +134,14 @@ if (sealed) {
   sealedEntry = resolve(directory, "worker/worker.js");
   snapshot();
 }
+// Last step before credentials reach Wrangler; Stats has no Site artifact.
+if (kind === "site") assertSiteUploadApproved(artifact);
 execute(process.execPath, [
   resolve(root, "node_modules/wrangler/bin/wrangler.js"),
   "deploy", "--config",
   config,
   "--env", "", "--tag", sha!, "--message", `${kind === "site" ? "Site" : "Stats"} ${target} ${sha}`,
+  ...(kind === "site" ? ["--assets", artifact] : []),
   ...(sealedEntry ? [sealedEntry, "--no-bundle", "--no-experimental-auto-create"] : []),
   ...(kind === "stats" ? ["--var", `DEPLOYMENT_SHA:${sha}`] : []),
 ], {
@@ -122,5 +151,10 @@ execute(process.execPath, [
 });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
-  deploy("site", process.argv.slice(2));
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  if (process.argv[2] === "production-root-sealed") {
+    // The root has a separate, two-seal admission path. Never fall back to the legacy profile.
+    import("./ci/promote-root-pair.mjs").then(({ promoteRoot }) => promoteRoot(process.argv.slice(2), process.env))
+      .catch(error => { console.error(error); process.exitCode = 1; });
+  } else deploy("site", process.argv.slice(2));
+}

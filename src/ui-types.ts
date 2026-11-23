@@ -20,7 +20,7 @@ export type StateChangeFeedback = {
 };
 
 export type RecommendationAction = {
-  kit: Kit;
+  kit: ResultKit;
   count: number;
 };
 
@@ -37,10 +37,11 @@ export type OutcomePreview = {
 
 export type ResultView =
   | { type: "empty"; message: LocalizedMessage }
-  | { type: "loading" }
-  | { type: "callout"; reason: "final_target" | "converted" | "certified_preserve"; message: LocalizedMessage }
+  | { type: "loading"; previousAction?: RecommendationAction; previousFinalDetail?: DetailView }
+  | { type: "callout"; reason: "final_target" | "converted" | "certified_preserve" | "adaptive_no_first_kit"; message: LocalizedMessage }
   | {
       type: "error";
+      recalculationFailure?: true;
       reason:
         | "no_action"
         | "solver_failure"
@@ -55,6 +56,10 @@ export type ResultView =
       type: "recommendation";
       kit: Kit;
       count: number;
+      practicalAction?: true;
+      conditionalAction?: true;
+      stockOnlyAction?: true;
+      batchAction?: true;
       failPreview: OutcomePreview;
       successPreview: OutcomePreview;
       actionTransition?: RecommendationActionTransition;
@@ -71,6 +76,7 @@ export type ResultView =
   | {
       type: "convertRecommendation";
       reason: "r15_conversion";
+      actionTransition?: RecommendationActionTransition;
     };
 
 export type CandidateView = {
@@ -99,7 +105,28 @@ export type ValidationStageReachView = {
   points: ValidationStageReachPointView[];
 };
 
-export type DetailView =
+export type PreviewEvidence = {
+  conditional?:true;
+  legacyD0?: true;
+  action: { kit: Kit; count: number; tied: Kit[]; probability: string; pieces: number } | null;
+  lastDay: number | null;
+  prefixMetrics?: { day: number; probability: [number, number]; pieces: [number, number] }[];
+  prefixComparison?: true;
+  complete: boolean;
+  comparison?: "unavailable" | "bounded";
+  withheld: boolean;
+  source: string;
+  reason: string | null;
+};
+
+type ExpectedPieces = readonly [number, number, number];
+export type PreviewTimedSupply = {
+  asOf: string;
+  conditional: boolean;
+  arrivals: readonly { at: string; pieces: ExpectedPieces; cumulative: ExpectedPieces }[];
+};
+
+export type DetailView = { previewTimedSupply?: PreviewTimedSupply | null; previewEvidence?: PreviewEvidence } & (
   | { type: "empty"; message: LocalizedMessage; waitingLabel?: LocalizedMessage }
   | { type: "loading" }
   | {
@@ -108,11 +135,13 @@ export type DetailView =
       greatSuccessProbability: string | null;
       /** Final validated stable WAIT only; never populated by a Current checkpoint. */
       recommendedWaitDays?: number;
+      recommendedWaitAt?: string;
       waitingLabel?: LocalizedMessage;
+      focusRequestedSummary?: true;
       candidates: CandidateView[];
       monteCarloRuns: number;
       solverLabel: string;
-    };
+    });
 
 export type ValidationView = {
   buttonLabel: LocalizedMessage;

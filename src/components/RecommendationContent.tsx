@@ -1,3 +1,4 @@
+import { adaptiveShell } from "../lib/rootCandidate";
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
 import { useI18n } from "../i18n/locale";
 import type {
@@ -131,11 +132,12 @@ function ActionChip({
   );
 }
 
-function ActionCardContent({ count, kit }: { kit: ResultKit; count?: number }) {
+function ActionCardContent({ count, kit, practical=false }: { kit: ResultKit; count?: number; practical?:boolean|'conditional' }) {
   const { t } = useI18n();
   return (
     <div className={classes.nextInner}>
-      <span className={classes.actionLabel}>{t("common.recommended")}</span>
+      <span className={classes.actionLabel}>{t(adaptiveShell || practical === "conditional"
+        ? "result.recommendedAction" : practical ? "result.availableToday" : "common.recommended")}</span>
       <strong className={classes.nextStrong}>
         <ActionChip
           kit={kit}
@@ -147,10 +149,33 @@ function ActionCardContent({ count, kit }: { kit: ResultKit; count?: number }) {
   );
 }
 
+function NextActionCard({ kit, count, transition, practical=false }: {
+  kit: ResultKit; count: number; transition?: RecommendationActionTransition; practical?:boolean|'conditional';
+}) {
+  const style = transition
+    ? ({ "--next-action-feedback-ms": `${STATE_FEEDBACK_VISIBLE_MS}ms` } as CSSProperties)
+    : undefined;
+  return (
+    <div className={classes.nextAction} style={style}>
+      {transition && (
+        <div className={classes.previousActionCard} key={`previous-${transition.id}`}
+          aria-hidden={adaptiveShell || undefined}>
+          <ActionCardContent kit={transition.previous.kit} count={transition.previous.count} />
+        </div>
+      )}
+      <div className={transition ? classes.currentActionCard : classes.nextActionCard}
+        key={transition ? `current-${transition.id}` : "current-static"}>
+        <ActionCardContent kit={kit} count={count} practical={practical} />
+      </div>
+    </div>
+  );
+}
+
 function RecommendationBlock({
   actionContent,
   kit,
   count = 1,
+  practical=false,
   outcomePending = false,
   outcomeRing = false,
   title,
@@ -161,6 +186,7 @@ function RecommendationBlock({
   actionContent?: ReactNode;
   kit: ResultKit;
   count?: number;
+  practical?:boolean|'conditional';
   outcomePending?: boolean;
   outcomeRing?: boolean;
   title: string;
@@ -230,25 +256,9 @@ function RecommendationBlock({
     };
   });
 
-  const transitionStyle = transition
-    ? ({ "--next-action-feedback-ms": `${STATE_FEEDBACK_VISIBLE_MS}ms` } as CSSProperties)
-    : undefined;
-
   return (
     <div ref={receiptRef} className={classes.recommendation}>
-      <div className={classes.nextAction} style={transitionStyle}>
-        {transition ? (
-          <div className={classes.previousActionCard} key={`previous-${transition.id}`}>
-            <ActionCardContent kit={transition.previous.kit} count={transition.previous.count} />
-          </div>
-        ) : null}
-        <div
-          className={transition ? classes.currentActionCard : classes.nextActionCard}
-          key={transition ? `current-${transition.id}` : "current-static"}
-        >
-          <ActionCardContent kit={kit} count={count} />
-        </div>
-      </div>
+      <NextActionCard kit={kit} count={count} practical={practical} {...(transition && { transition })} />
       <div
         ref={outcomePanelRef}
         data-layout="inline"
@@ -347,7 +357,12 @@ function OutcomeCaptionStage({
   );
 }
 
-function ConvertRecommendation({ onConvert }: { onConvert: () => void | Promise<void> }) {
+function ConvertRecommendation({ onConvert, transition, onTransitionComplete, disabled }: {
+  disabled: boolean;
+  onConvert: () => void | Promise<void>;
+  transition?: RecommendationActionTransition;
+  onTransitionComplete: (id: number) => void;
+}) {
   const { t } = useI18n();
   return (
     <RecommendationBlock
@@ -357,6 +372,7 @@ function ConvertRecommendation({ onConvert }: { onConvert: () => void | Promise<
             className={`${classes.outcomeButton} ${classes.convertButton}`}
             type="button"
             data-convert="sr"
+            disabled={disabled}
             onClick={onConvert}
           >
             <AlignedText alignmentRole="action">{t("common.applyConversion")}</AlignedText>
@@ -364,6 +380,8 @@ function ConvertRecommendation({ onConvert }: { onConvert: () => void | Promise<
         </div>
       }
       kit="convert"
+      {...(transition && { transition })}
+      onTransitionComplete={onTransitionComplete}
       title={t("result.conversionTitle")}
     >
       <span className="sr-only">{t("result.conversionSrOnly")}</span>
@@ -487,7 +505,7 @@ function OutcomeActionButtons({
 }
 
 export type RecommendationProps = {
-  view: Extract<ResultView, { type: "recommendation" | "convertRecommendation" }>;
+  view: Extract<ResultView, { type: "recommendation" | "convertRecommendation" | "loading" }>;
   onActionTransitionComplete: (transitionId: number) => void;
   onConvert: () => void | Promise<void>;
   onOutcome: (outcome: "success" | "fail") => void;
@@ -505,7 +523,13 @@ export default function RecommendationContent({
   pendingOutcome,
 }: RecommendationProps) {
   const { t } = useI18n();
-  if (view.type === "convertRecommendation") return <ConvertRecommendation onConvert={onConvert} />;
+  if (view.type === "loading")
+    return view.previousAction ? <NextActionCard {...view.previousAction} /> : null;
+  if (view.type === "convertRecommendation") return (
+    <ConvertRecommendation disabled={adaptiveShell && outcomeDisabled} onConvert={onConvert} onTransitionComplete={onActionTransitionComplete}
+      {...(view.actionTransition && { transition: view.actionTransition })} />
+  );
+  const preview = adaptiveShell;
   return (
     <RecommendationBlock
       actionContent={
@@ -520,13 +544,19 @@ export default function RecommendationContent({
       }
       kit={view.kit}
       count={view.count}
+      practical={view.conditionalAction ? "conditional" : view.practicalAction===true}
       outcomePending={pendingOutcome !== null}
       outcomeRing
       onTransitionComplete={onActionTransitionComplete}
       title={t("result.outcomeTitle")}
       {...(view.actionTransition ? { transition: view.actionTransition } : {})}
     >
-      <p className={classes.changeNote}>{t("result.outcomePrompt")}</p>
+      {!preview && view.stockOnlyAction && <p className={classes.changeNote}>{t("result.stockOnlyAction")}</p>}
+      <p className={classes.changeNote}>{preview
+        ? t("result.conditionalOutcomePrompt")
+        : view.batchAction
+          ? t("result.batchOutcomePrompt", { count: view.count })
+          : t(view.conditionalAction ? "result.conditionalOutcomePrompt" : "result.outcomePrompt")}</p>
     </RecommendationBlock>
   );
 }

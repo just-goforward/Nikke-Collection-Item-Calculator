@@ -1,3 +1,4 @@
+import { adaptiveShell, rootCandidate } from "../lib/rootCandidate";
 import { useCallback, useRef, useState } from "react";
 import { observeDecision, type DecisionLifecycle } from "../analytics/decisionLifecycle";
 import type {
@@ -7,6 +8,7 @@ import type {
   StockCorrectionView,
   ValidationView,
 } from "../ui-types";
+import type { LocalizedMessage } from "../i18n/messages.ko";
 import { useCalculatorAppLifecycle, useInputChangeTracker } from "./calculatorAppLifecycle";
 import { makeCalculatorAppModel } from "./calculatorAppModel";
 import { makeRuntimeInvariantEvent, type RuntimeInvariantReporter } from "./calculatorDiagnostics";
@@ -31,18 +33,16 @@ import { useValidationCoordinator, useValidationFlow } from "./calculatorValidat
 import { useCalculatorState } from "./useCalculatorState";
 import { useOutcomeFlow } from "./useOutcomeFlow";
 import { usePendingStatsEvent } from "./usePendingStatsEvent";
-import { useSolverWorker } from "./useSolverWorker";
 import { useStats } from "./useStats";
 import { useTheme } from "./useTheme";
 import { SERVICE_CERTIFIED_SOLVER } from "../lib/serviceCertified";
-import { useServiceCertifiedSolver } from "./useServiceCertifiedSolver";
+import { useServiceCertifiedSolver as useCalculatorSolver } from "./useServiceCertifiedSolver";
+import { physicalParentHash } from "./serviceCertifiedTypes";
 import { withoutRecommendedWait } from "./serviceCertifiedPresentation";
 
-// A build-time constant selects one hook for this App's entire lifetime, never two engines.
-const useCalculatorSolver = SERVICE_CERTIFIED_SOLVER ? useServiceCertifiedSolver : useSolverWorker;
 
 export function invalidatedDetailView(view: DetailView): DetailView {
-  return view.type === "loading" ? EMPTY_DETAIL : withoutRecommendedWait(view);
+  return view.type === "loading" || view.previewEvidence?.legacyD0 ? EMPTY_DETAIL : withoutRecommendedWait(view);
 }
 
 type ConfiguredOutcomeFlowOptions = Omit<
@@ -88,7 +88,11 @@ function stockCorrectionView(
   return { ...view, status: "invalid", reason: resolution.reason };
 }
 
-export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: DecisionLifecycle) {
+export function useCalculatorApp(
+  statsQueryEnabled = false,
+  lifecycle?: DecisionLifecycle,
+  onManualCalculationAccepted?: () => void,
+) {
   const observerOwner = observeDecision(lifecycle ? () => lifecycle.captureOutcomeOwner() : undefined);
   const [resultView, setResultView] = useState<ResultView>(EMPTY_RESULT);
   const [detailView, setDetailView] = useState<DetailView>(EMPTY_DETAIL);
@@ -102,6 +106,12 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
     [detailView, resultView],
   );
   const [staleSource, setStaleSource] = useState<"state" | "stock" | null>(null);
+  const [history, setHistory] = useState<{ problem?: LocalizedMessage } | null>(null);
+  const readOnlyRef = useRef(false);
+  const setRetainedReplacement = useCallback((retained: boolean, problem?: LocalizedMessage) => {
+    readOnlyRef.current = retained && !(rootCandidate && problem);
+    setHistory(retained ? (problem ? {problem} : {}) : null);
+  }, []);
   const actionTransitionIdRef = useRef(0);
   const inputRevisionRef = useRef(0);
   const latestResultRef = useRef<SolverResult | null>(null);
@@ -126,7 +136,8 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
   );
   const { cancelValidationForSolve, solveBestAvailable, validateBestAvailable } = solver;
   const retireService = "invalidateSolve" in solver ? solver.invalidateSolve : undefined;
-  const checkForecastBoundary = "checkForecastBoundary" in solver ? solver.checkForecastBoundary : undefined;
+  const checkForecastBoundary = !adaptiveShell && "checkForecastBoundary" in solver
+    ? solver.checkForecastBoundary : undefined;
 
   const {
     clearActionTransition,
@@ -145,6 +156,7 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
     setValidationView,
   });
   const forecastInvalidated = useCallback(() => {
+    // Only non-preview service builds follow the live head after calculation.
     if (observerOwner !== undefined)
       observeDecision(lifecycle ? () => lifecycle.retire(observerOwner, "forecast_invalid") : undefined);
     ++inputRevisionRef.current;
@@ -181,22 +193,25 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
   const trackInputChanged = useInputChangeTracker(setStaleSource, markInputChanged);
   const handleInputChanged = useCallback(
     (manualStockEditRequired: boolean, source: "state" | "stock") => {
+      if (adaptiveShell) setRetainedReplacement(false);
       inputRevisionRef.current += 1;
       trackInputChanged(manualStockEditRequired, source);
       if (retireService) {
+        const clearPreview = adaptiveShell;
         retireService();
         latestResultRef.current = null;
-        setDetailView(invalidatedDetailView);
-        setResultView((current) => current.type === "loading" ? EMPTY_RESULT : current);
+        setDetailView(clearPreview ? EMPTY_DETAIL : invalidatedDetailView);
+        setResultView((current) => clearPreview || current.type === "loading" ? EMPTY_RESULT : current);
       }
     },
-    [retireService, trackInputChanged],
+    [retireService, trackInputChanged, setRetainedReplacement],
   );
   const invalidateSolveInput = useCallback(() => {
+    if (adaptiveShell) setRetainedReplacement(false);
     inputRevisionRef.current += 1;
     retireService?.();
     setDetailView(invalidatedDetailView);
-  }, [retireService]);
+  }, [retireService, setRetainedReplacement]);
 
   const onInputRestored = useCallback(() => {
     if (observerOwner !== undefined)
@@ -218,6 +233,7 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
 
   const calculatorState = useCalculatorState({
     onBeforeInputMutation: () => {
+      if (adaptiveShell) resetOutcomeRef.current?.();
       if (observerOwner !== undefined) {
         observeDecision(lifecycle ? () => lifecycle.explicitAction?.(observerOwner, "input_edit") : undefined);
         observeDecision(lifecycle ? () => lifecycle.retire(observerOwner, "input_edit") : undefined);
@@ -247,12 +263,17 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
   resetOutcomeRef.current = outcomeFlow.resetOutcomeFlow;
   const applyOwnedOutcome = useCallback((outcome: "success" | "fail") => {
     if (SERVICE_CERTIFIED_SOLVER) {
-      if (checkForecastBoundary?.() === false) return null;
+      if (readOnlyRef.current || checkForecastBoundary?.() === false) return null;
       if (!sameState(currentStateSnapshot(), latestResultRef.current?.input?.start)) return null;
       setDetailView(withoutRecommendedWait);
     }
     return outcomeFlow.applyOutcome(outcome);
   }, [checkForecastBoundary, currentStateSnapshot, outcomeFlow.applyOutcome]);
+  const applyOwnedConvert = useCallback(() => {
+    // Manually reaching R15 still permits the ordinary physical conversion.
+    if (readOnlyRef.current) return null;
+    return outcomeFlow.applyConvert();
+  }, [outcomeFlow.applyConvert]);
   const runMonteCarloValidation = useValidationFlow({
     generationRef: validationGenerationRef,
     latestResultRef,
@@ -260,11 +281,13 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
     setValidationView,
     validateBestAvailable,
   });
-  const { applyConvertAndCalculate, applyOutcomeAndMaybeCalculate, runCalculation, captureCalculationOwnership } = useSolveFlow({
+  const { solveAndRenderInput, applyConvertAndCalculate, applyOutcomeAndMaybeCalculate, runCalculation, captureCalculationOwnership } = useSolveFlow({
     ...(lifecycle ? { lifecycle } : {}),
     observerOwner,
     ...(checkForecastBoundary ? { checkForecastBoundary } : {}),
-    applyConvert: outcomeFlow.applyConvert,
+    ...(onManualCalculationAccepted ? { onManualCalculationAccepted } : {}),
+    ...(adaptiveShell ? {setRetainedReplacement} : {}),
+    applyConvert: applyOwnedConvert,
     applyOutcome: applyOwnedOutcome,
     collectInput: calculatorState.collectInput,
     getCurrentViews,
@@ -284,9 +307,22 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
   });
   const ownsRenderedOutcome = captureCalculationOwnership();
   const submitOwnedSuccessAttempt = useCallback((attempt: number | null) => {
-    if (!ownsRenderedOutcome() || checkForecastBoundary?.() === false) return;
-    outcomeFlow.submitSuccessAttempt(attempt);
-  }, [checkForecastBoundary, outcomeFlow.submitSuccessAttempt, ownsRenderedOutcome]);
+    if (readOnlyRef.current || !ownsRenderedOutcome() || checkForecastBoundary?.() === false) return;
+    const latest = latestResultRef.current;
+    const parent = latest?.certified;
+    const parentInputHash = physicalParentHash(parent);
+    if (parentInputHash && attempt !== null) {
+      const input = latest?.input, stock = calculatorState.stateRef.current.stock;
+      if (!input || !parent?.action || !Number.isInteger(attempt) || attempt < 1 || attempt > parent.action.run.count ||
+          !sameState(currentStateSnapshot(),input.start) || stock.blue !== input.stock.blue ||
+          stock.purple !== input.stock.purple || stock.yellow !== input.stock.yellow) return;
+    }
+    const settled = outcomeFlow.submitSuccessAttempt(attempt, !!parentInputHash);
+    if (settled && parentInputHash) void solveAndRenderInput(settled.nextInput, {
+      ...(!parent?.retainedPhysical ? {parentInputHash} : {}), previousAction:settled.previousAction, failureContext:"outcome",
+    });
+    return settled;
+  }, [calculatorState.stateRef, checkForecastBoundary, currentStateSnapshot, outcomeFlow.submitSuccessAttempt, ownsRenderedOutcome, solveAndRenderInput]);
 
   const setStock = useGuardedStockSetter({
     setStock: calculatorState.actions.setStock,
@@ -326,7 +362,8 @@ export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: Decision
     calculatorState,
     clearActionTransition,
     detailView,
-    isResultStale,
+    isResultStale: isResultStale || (!!history && !(rootCandidate && history.problem)),
+    history,
     staleSource,
     loading,
     outcomeFlow: { ...outcomeFlow, submitSuccessAttempt: submitOwnedSuccessAttempt },

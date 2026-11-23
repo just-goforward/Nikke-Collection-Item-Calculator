@@ -52,7 +52,7 @@ export function localizedSeoBlock(locale: SiteLocale) {
     "<!-- localized-seo:start -->",
     `    <title>${title}</title>`,
     `    <meta name="description" content="${description}" />`,
-    '    <meta name="robots" content="index,follow,max-image-preview:large" />',
+    '    <meta name="robots" content="noindex,nofollow" />',
     `    <link rel="canonical" href="${canonical}" />`,
     ...alternateLinks,
     '    <meta property="og:type" content="website" />',
@@ -119,7 +119,7 @@ async function writeLocalizedBuildPages(distDir: string) {
   const rootIndex = resolve(distDir, "index.html");
   const rootHtml = await readFile(rootIndex, "utf8");
   for (const locale of ["en", "ja"] as const) {
-    const output = resolve(distDir, SITE_LOCALES[locale].path.slice(1), "index.html");
+    const output = resolve(distDir, locale, "index.html");
     await mkdir(dirname(output), { recursive: true });
     await writeFile(output, renderLocalizedPage(rootHtml, locale), "utf8");
   }

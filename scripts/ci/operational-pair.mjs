@@ -318,7 +318,7 @@ export class DockerAdapter {
     if (this.#executed || !this.#starts.producer) fail();
     this.#executed = true;
     const context = { node: '/usr/local/bin/node', root: '/work/repo', platform: 'linux',
-      npmCli: '/work/npm/package/bin/npm-cli.js' };
+      pnpmBinary: '/work/pnpm/package/pnpm' };
     for (const id of EXECUTION_STAGES) {
       if (this.#failure) { this.#stages.push({ id, durationMs: 0, passed: 0, status: 'incomplete' }); continue; }
       const begin = Date.now();
@@ -346,7 +346,7 @@ export class DockerAdapter {
           OPERATIONAL_NODE_SUITE: SUITE_STAGES[id] ?? '', NODE_OPTIONS: '' };
         const bytes = await this.#run(id, ['exec', '--user=1001:1001', '--workdir',
           trusted ? '/source' : '/work/repo', ...Object.entries(env).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
-          this.#ids[role], command.executable,
+          this.#ids[role], context.node,
           ...(trusted ? command.args : ['/source/scripts/ci/operational-container.mjs', 'stage', id])],
         { durationMs: command.durationMs, signal, terminate: () => this.#reap(role, false),
           responseLimit: id === 'S14' ? RECEIPT_LIMIT : 0,

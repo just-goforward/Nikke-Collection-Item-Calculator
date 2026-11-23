@@ -1,0 +1,20 @@
+packages:
+  - cloudflare
+  - forecast-collector
+  - forecast-dispatcher
+  - forecast-interactions
+  - personal-data
+  - stats-observer
+  - usage-guard
+verifyDepsBeforeRun: error
+pmOnFail: error
+enablePrePostScripts: true
+overrides:
+  "ajv@8.20.0>fast-uri": "3.1.9"
+  "typed-rest-client@2.3.1>qs": "6.17.1"
+  "@stryker-mutator/core@10.1.1>minimatch": "11.0.1"
+allowBuilds:
+  "esbuild@0.28.2": true
+  "workerd@1.20261119.1": true
+  "fsevents@2.3.3": false
+minimumReleaseAgeStrict: true

@@ -1,3 +1,4 @@
+import { adaptiveShell } from "../lib/rootCandidate";
 import { type Dispatch, type SetStateAction, useCallback } from "react";
 import { message } from "../i18n/locale";
 import { transition } from "../solver/domain";
@@ -19,16 +20,26 @@ type ResultRenderingOptions = {
 };
 
 function withoutActionTransition(current: ResultView, transitionId: number): ResultView {
-  if (current.type !== "recommendation" || current.actionTransition?.id !== transitionId) {
+  if ((current.type !== "recommendation" && current.type !== "convertRecommendation") ||
+      current.actionTransition?.id !== transitionId) {
     return current;
   }
-  return {
-    type: "recommendation",
-    kit: current.kit,
-    count: current.count,
-    failPreview: current.failPreview,
-    successPreview: current.successPreview,
-  };
+  const { actionTransition: _finished, ...settled } = current;
+  return settled;
+}
+
+function withActionTransition(
+  view: ResultView,
+  previous: RecommendationAction | null | undefined,
+  sequence: MutableRef<number>,
+): ResultView {
+  const preview = adaptiveShell;
+  if (!previous || (view.type !== "recommendation" && !(preview && view.type === "convertRecommendation")))
+    return view;
+  if (preview && ((view.type === "recommendation" && view.kit === previous.kit && view.count === previous.count) ||
+      (view.type === "convertRecommendation" && previous.kit === "convert") ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)) return view;
+  return { ...view, actionTransition: { id: ++sequence.current, previous } };
 }
 
 export function useCalculatorResultRendering({
@@ -77,12 +88,7 @@ export function useCalculatorResultRendering({
       latestResultRef.current = result;
       if (result.certified && result.input) {
         const views = serviceCertifiedViews(result.input, result.certified);
-        if (previousAction && views.result.type === "recommendation")
-          views.result.actionTransition = {
-            id: ++actionTransitionIdRef.current,
-            previous: previousAction,
-          };
-        setResultView(views.result);
+        setResultView(withActionTransition(views.result, previousAction, actionTransitionIdRef));
         setDetailView(views.detail);
         setValidationView({ ...INITIAL_VALIDATION, disabled: true });
         return;
@@ -128,17 +134,13 @@ export function useCalculatorResultRendering({
         fail: edge.fail,
         greatSuccessProbability: best.firstProbability,
       };
-      const actionTransition = previousAction
-        ? { id: ++actionTransitionIdRef.current, previous: previousAction }
-        : undefined;
-      setResultView({
+      setResultView(withActionTransition({
         type: "recommendation",
         kit: best.firstAction,
         count: run.count,
         failPreview: makeOutcomePreview(result.input.start, run.fail),
         successPreview: makeOutcomePreview(result.input.start, run.success),
-        ...(actionTransition ? { actionTransition } : {}),
-      });
+      }, previousAction, actionTransitionIdRef));
       setDetailView(
         makeMetricsDetailView(
           {

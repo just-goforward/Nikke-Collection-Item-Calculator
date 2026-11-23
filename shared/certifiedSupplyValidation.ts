@@ -56,7 +56,7 @@ export function assertFutureLawIndependence(snapshot: CertifiedSupplySnapshot): 
 function validateMetadata(snapshot: CertifiedSupplySnapshot) {
   knownFields(
     snapshot,
-    "version futureLawSemantics revision sourceHash asOf sourceStatus rules laws events soloRounds cadence delayState coverage warnings provenance",
+    "version futureLawSemantics revision sourceHash asOf sourceStatus sourceAuthority rules laws events soloRounds cadence delayState coverage warnings provenance",
   );
   assertFutureLawIndependence(snapshot);
   if (
@@ -77,6 +77,27 @@ function validateMetadata(snapshot: CertifiedSupplySnapshot) {
   )
     snapshotError("version_or_provenance_invalid");
   timestamp(snapshot.asOf);
+  const authority = snapshot.sourceAuthority;
+  if (authority !== undefined) {
+    knownFields(authority, "manifestDigest decisionId approvedAt observedAt freshUntil from until historyUntil futureProjection modelDigest modelPolicy semanticAttestation");
+    if (!/^[a-f0-9]{64}$/.test(authority.manifestDigest) ||
+      !/^[a-f0-9]{64}$/.test(authority.modelDigest) ||
+      typeof authority.decisionId !== "string" || !authority.decisionId || authority.decisionId.length > 500 ||
+      authority.modelPolicy !== "declared_model_assumptions_not_official_probabilities" ||
+      authority.semanticAttestation !== "operator_reviewed_complete_source_census" ||
+      authority.futureProjection !== "known_inputs_and_adopted_model_not_future_source_completeness" ||
+      timestamp(authority.historyUntil) !== gameDayStartMs(timestamp(authority.observedAt)) ||
+      timestamp(authority.from) !== timestamp(snapshot.coverage.from) ||
+      timestamp(authority.until) < timestamp(snapshot.coverage.until) ||
+      timestamp(authority.approvedAt) < timestamp(authority.observedAt) ||
+      timestamp(authority.freshUntil) <= timestamp(authority.approvedAt))
+      snapshotError("source_authority_invalid");
+    if (snapshot.sourceStatus === "healthy" && (
+      timestamp(snapshot.asOf) >= timestamp(authority.freshUntil) ||
+      timestamp(snapshot.asOf) < timestamp(authority.approvedAt) ||
+      gameDayStartMs(timestamp(snapshot.asOf)) !== gameDayStartMs(timestamp(authority.observedAt))
+    )) snapshotError("source_authority_expired");
+  }
 }
 
 function validateCollections(snapshot: CertifiedSupplySnapshot) {
@@ -401,7 +422,7 @@ function validateEventIdentity(
 ) {
   knownFields(
     event,
-    `id gameDate at kind status refs ruleId round dayNumber expiresAt cancelled sourceIds${certifiedVersionPolicy(version).segmentsAndGrants ? " segment claimWindowAssumed restatementOf" : ""}`,
+    `id gameDate at kind status refs ruleId round dayNumber expiresAt cancelled sourceIds${certifiedVersionPolicy(version).segmentsAndGrants ? " segment claimWindowAssumed restatementOf grantTiming" : ""}`,
   );
   if (
     !event ||
@@ -448,6 +469,10 @@ function validateStableEventId(event: CertifiedSupplyEvent) {
 
 function validateEventDates(event: CertifiedSupplyEvent, snapshot: CertifiedSupplySnapshot) {
   const at = timestamp(event.at);
+  if (event.grantTiming !== undefined && (event.kind !== "grant" || event.grantTiming !== "scheduled-v1"))
+    snapshotError("event_date_invalid");
+  if (event.kind === "grant" && event.grantTiming === undefined && at !== gameDayStartMs(at))
+    snapshotError("event_date_invalid");
   if (
     at < timestamp(snapshot.coverage.from) ||
     at >= timestamp(snapshot.coverage.until) ||

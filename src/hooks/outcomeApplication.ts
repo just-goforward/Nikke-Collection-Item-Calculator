@@ -144,7 +144,7 @@ export function useOutcomeApplication(options: OutcomeApplicationOptions) {
         terminalSuccessContextRef,
       };
       const prepared = prepareOutcome(currentOptions);
-      if (!prepared) return null;
+      if (!prepared || (latestResultRef.current?.certified && outcome === "fail" && prepared.run.noGreatSuccessProbability === 0)) return null;
       capturePreparedOutcome(prepared.currentStock, prepared.best.firstAction, prepared.run.count);
       return outcome === "success"
         ? applySuccessfulOutcome(prepared, currentOptions)

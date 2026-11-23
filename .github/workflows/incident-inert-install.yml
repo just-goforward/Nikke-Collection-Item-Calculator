@@ -1,0 +1,73 @@
+name: First install of inert recalculation incident Worker
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Independently reviewed full protected main SHA (inert installation only)
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: cloudflare-site-production
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.ref_protected && github.ref == 'refs/heads/main' && github.sha == inputs.source_sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - run: bash scripts/ci/setup-pnpm.sh
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: node --test production-incidents/worker.test.mjs
+      - name: Bundle only the reviewed inert entry without credentials
+        working-directory: production-incidents
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          build=$(jq -er '.serviceCodeHash|select(test("^[a-f0-9]{64}$"))' ../site-worker/production-root-release-v1.json)
+          node config.mjs inert 9a516350-d7d8-4a77-9cce-45d669fd3502 419204 "$build" > inert.wrangler.json
+          node ../node_modules/wrangler/bin/wrangler.js deploy --dry-run --config inert.wrangler.json --outdir "$RUNNER_TEMP/incident-bundle"
+          sha256sum "$RUNNER_TEMP/incident-bundle/worker.js"
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: inert-incident-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/incident-bundle/worker.js
+          if-no-files-found: error
+          retention-days: 7
+  install:
+    needs: prepare
+    environment: cloudflare-site-production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact }}
+          path: ${{ runner.temp }}/incident-bundle
+          merge-multiple: true
+      - name: Reserve new Worker and install exactly one private version
+        run: node scripts/ci/install-incident-inert.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INCIDENT_REVIEWED_MAIN: ${{ vars.INCIDENT_REVIEWED_MAIN }}
+          INCIDENT_MODULE_SHA256: ${{ vars.INCIDENT_MODULE_SHA256 }}
+          CF_INCIDENT_INSTALL_TOKEN: ${{ secrets.CF_INCIDENT_INSTALL_TOKEN }}

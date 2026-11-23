@@ -141,6 +141,14 @@ export function viewCertifiedSupplySnapshot(
   const today = gameDayStartMs(now);
   const authorityFrom = timestamp(snapshot.coverage.from);
   const authorityUntil = timestamp(snapshot.coverage.until);
+  const sourceAuthority = snapshot.sourceAuthority;
+  const sourceAuthorityExpired = Boolean(sourceAuthority && (
+    now < timestamp(sourceAuthority.approvedAt) ||
+    now >= timestamp(sourceAuthority.freshUntil) ||
+    today !== gameDayStartMs(timestamp(sourceAuthority.observedAt)) ||
+    today - certifiedVersionPolicy(snapshot.version).historyDays * DAY_MS < timestamp(sourceAuthority.from) ||
+    today + 57 * DAY_MS > timestamp(sourceAuthority.until)
+  ));
   const soloRounds = snapshot.soloRounds.map(
     (round): CertifiedSoloRound =>
       snapshot.cadence.version !== "observed-median-v2" &&
@@ -161,6 +169,8 @@ export function viewCertifiedSupplySnapshot(
         ),
     );
     if (from < authorityFrom || until > authorityUntil) missing.push("authority_coverage");
+    if (sourceAuthorityExpired && !missing.includes("source_authority_expired"))
+      missing.push("source_authority_expired");
     for (
       let at = Math.max(from, authorityFrom);
       at < Math.min(until, authorityUntil);
@@ -192,11 +202,13 @@ export function viewCertifiedSupplySnapshot(
   return freezeJson({
     ...snapshot,
     asOf: iso(now),
+    sourceStatus: sourceAuthorityExpired ? "uncertain" : snapshot.sourceStatus,
     soloRounds,
     coverage: { ...snapshot.coverage, currentDay: gameDayKey(today), past, future },
     warnings: [
       ...new Set([
         ...snapshot.warnings,
+        ...(sourceAuthorityExpired ? ["source_authority_expired"] : []),
         ...soloRounds
           .filter(
             (round) =>

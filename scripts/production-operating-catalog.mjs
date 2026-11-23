@@ -292,6 +292,8 @@ export const buildValues = [
   ["VITE_FORECAST_RUNTIME", "production (gated)", "scripts/forecast-runtime-build.ts", "scripts/build-production-service.mjs"],
   ["VITE_FORECAST_PUBLIC_KEY_ID", "unresolved", "site-worker/production-forecast.proposed.json", "scripts/forecast-runtime-build.ts"],
   ["VITE_FORECAST_PUBLIC_KEY_BASE64", "unresolved", "site-worker/production-forecast.proposed.json", "scripts/forecast-runtime-build.ts"],
+  ["VITE_FORECAST_TIMED_V1_PUBLIC_KEY_ID", "production-timed-v1", "site-worker/production-forecast-timed-v1.proposed.json", "scripts/forecast-runtime-build.ts"],
+  ["VITE_FORECAST_TIMED_V1_PUBLIC_KEY_BASE64", "unresolved", "site-worker/production-forecast-timed-v1.proposed.json", "scripts/forecast-runtime-build.ts"],
 ];
 const historicalOperatingEvidence = [
   ["A — Targets and protection", [

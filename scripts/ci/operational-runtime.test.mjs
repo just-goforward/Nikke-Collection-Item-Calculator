@@ -15,7 +15,7 @@ import { tarEntries, extractTgz } from './operational-archives.mjs';
 import { nodeReport, validateNodeSuite } from './operational-node-reporter.mjs';
 import { CapturedTransport } from './operational-supervisor.mjs';
 import { networkObservation } from './operational-probe.mjs';
-import { sha256, STAGES, GENERATED, NPM_SRI, sealedCommand, validateBrowserConfig, cleanEnvironment } from './operational-policy.mjs';
+import { sha256, STAGES, GENERATED, PNPM_SRI, sealedCommand, validateBrowserConfig, cleanEnvironment } from './operational-policy.mjs';
 import { encodeReceipt, decodeReceipt, RECEIPT_LIMIT } from './operational-receipt.mjs';
 import { validateFootprint, validateKernelStorage } from './operational-storage.mjs';
 import { LifecycleJournal, watchLifecycle } from './operational-events.mjs';
@@ -34,26 +34,29 @@ function approved() {
   for (const [classification, count] of [['protected', 136], ['wasm', 13], ['fixture', 46]]) {
     for (let i = 0; i < count; i++) files.push({ path: `${classification}/${i}`, size: 0, mode: '100644', sha256: sha256(''), classification });
   }
-  for (const [path, classification] of [['package-lock.json', 'lock'], ['e2e/operational-inventory.json', 'source'],
+  for (const [path, classification] of [['pnpm-lock.yaml', 'lock'], ['pnpm-workspace.yaml', 'source'],
+    ['scripts/pnpm-lock.mjs', 'provision'], ['scripts/ci/run-checked-command.mjs', 'provision'],
+    ['e2e/operational-inventory.json', 'source'],
     ['scripts/ci/operational-node-inventory.json', 'source'], ['scripts/ci/operational-main.mjs', 'provision'],
     ['a.test.mjs', 'test'], ['tsconfig.operational-ci.json', 'test'],
     ['e2e/operational-console-flood.test.mjs', 'test'], ['e2e/operational-type-config.test.mjs', 'test']])
     files.push({ path, classification, size: 0, mode: '100644', sha256: sha256('') });
-  const a = { schemaVersion: 1, candidateSha: commit, parents: [parent], tree, event: 'workflow_dispatch',
+  const a = { schemaVersion: 2, candidateSha: commit, parents: [parent], tree, event: 'workflow_dispatch',
     executionAuthorized: true, image: `docker.io/library/node@sha256:${hex}`, platform: 'linux/amd64',
-    node: '26.13.0', npm: '12.2.1', stageIds: Object.keys(STAGES),
+    node: '26.13.1', pnpm: '12.21.0', stageIds: Object.keys(STAGES),
     source: { schemaVersion: 1, generatedDirectories: [...GENERATED], files },
-    inventoryDigest: sha256(''), nodeInventoryDigest: sha256(''), lockDigest: sha256(''),
-    reviewedBackendDigest: sha256(JSON.stringify([['scripts/ci/operational-main.mjs', sha256('')]])),
+    inventoryDigest: sha256(''), nodeInventoryDigest: sha256(''), lockDigest: sha256(''), workspaceDigest: sha256(''),
+    reviewedBackendDigest: sha256(JSON.stringify(['scripts/ci/operational-main.mjs',
+      'scripts/ci/run-checked-command.mjs', 'scripts/pnpm-lock.mjs'].map(path => [path, sha256('')]))),
     testDigests: { 'a.test.mjs': sha256(''), 'tsconfig.operational-ci.json': sha256(''),
       'e2e/operational-console-flood.test.mjs': sha256(''), 'e2e/operational-type-config.test.mjs': sha256('') },
     seccompDigest: hex, hostNodeDigest: hex,
-    dockerDigest: hex, nodeDigest: hex, npmCliDigest: hex, npmIntegrity: NPM_SRI,
+    dockerDigest: hex, nodeDigest: hex, pnpmBinaryDigest: hex, pnpmIntegrity: PNPM_SRI,
     storage: { workspaceBytes: 2147483648, frameworkBytes: 67108864, tmpBytes: 268435456,
       shmBytes: 268435456, backend: 'named-tmpfs-pair-v1',
       footprint: { sourceBytes: 0, sourceAllocatedBytes: 32768, provisionExpandedBytes: 0,
-        npmCacheBytes: 0, buildReserveBytes: 1048576, metadataReserveBytes: 65536 } },
-    provision: { artifacts: [], lifecycles: [] },
+        pnpmStoreBytes: 0, buildReserveBytes: 1048576, metadataReserveBytes: 65536 } },
+    provision: { schemaVersion: 2, storeFormat: 'pnpm-12.21.0-tarball-v1', artifacts: [], lifecycles: [] },
     runtime: { profile: 'moby-28.0.4-containerd-1.7.27-runc-1.2.6-private-pid-v1',
       kernelVersion: '7.0.0-1017-azure',
       commits: { engine: 'a'.repeat(7), containerd: 'b'.repeat(40), runc: 'c'.repeat(40) },
@@ -108,6 +111,8 @@ test('[model only] detached approval validation binds bytes, parents, tree, clas
     a => { a.source.files[0].classification = 'source'; }, a => { a.testDigests = {}; },
     a => { a.reviewedBackendDigest = hex; }, a => { a.executionAuthorized = false; },
     a => { delete a.testDigests['tsconfig.operational-ci.json']; },
+    a => { a.schemaVersion = 1; }, a => { a.npm = '12.2.1'; },
+    a => { a.pnpm = '12.17.0'; }, a => { a.pnpmIntegrity = hex; },
   ]) { const a = approved(); mutate(a); assert.throws(() => admissionModel(a), /ADMISSION_BLOCKED/); }
   const identity = parseGitIdentity(Buffer.from(`tree ${tree}\nparent ${parent}\nparent ${commit}\nauthor private\n\nmessage`),
     Buffer.from(`100644 blob ${commit}\tpublic/x\0`), Buffer.from(commit));
@@ -133,6 +138,22 @@ test('[mocked components only] receipt acceptance follows exit and removal', asy
   for (const call of calls.filter(c => ['inspect', 'start', 'stop', 'kill', 'rm'].includes(c.args[0]))) {
     assert.ok(['e'.repeat(64), 'f'.repeat(64)].includes(call.args.at(-1)));
   }
+});
+test('[transport model only] pnpm stages launch the immutable wrapper with pinned Node', async () => {
+  const { adapter, calls, ids, validate } = engine();
+  await adapter.prepare();
+  const outcome = await executeOwned(adapter, { validate });
+  assert.equal(outcome.failure, null);
+  const invocations = calls.filter(call => call.args[0] === 'exec' &&
+    ['S08', 'S09'].includes(call.stage));
+  assert.deepEqual(invocations.map(({ stage, args }) => ({
+    stage, argv: args.slice(args.indexOf(ids.producer) + 1),
+  })), [
+    { stage: 'S08', argv: ['/usr/local/bin/node',
+      '/source/scripts/ci/operational-container.mjs', 'stage', 'S08'] },
+    { stage: 'S09', argv: ['/usr/local/bin/node',
+      '/source/scripts/ci/operational-container.mjs', 'stage', 'S09'] },
+  ]);
 });
 test('[mocked components only] Docker policy, cancellation and cleanup failures reject success', async () => {
   for (const [options, expected] of [
@@ -187,7 +208,9 @@ test('[model only] pair argv seals resource shares, named volume nocopy and RO c
   assert.ok(!collector.includes('--tmpfs'));
   assert.equal(args[args.indexOf('--shm-size') + 1], '268435456');
   assert.ok(args.includes('OPERATIONAL_APPROVAL_DIGEST=' + hex));
-  const context = { node: process.execPath, npmCli: resolve('/approved/npm-cli.js'), root: resolve('/candidate'), platform: 'linux' };
+  const context = { node: process.execPath, pnpmBinary: resolve('/approved/pnpm'), root: resolve('/candidate'), platform: 'linux' };
+  assert.equal(sealedCommand('S08', context).executable, context.pnpmBinary);
+  assert.deepEqual(sealedCommand('S08', context).args, ['run', 'build:site-production']);
   assert.deepEqual(sealedCommand('S11', context).args, ['node_modules/vitest/vitest.mjs', 'run',
     '--config', 'vitest.operational-ci.config.ts', '--configLoader', 'runner']);
   assert.deepEqual(sealedCommand('S06', context).args, ['node_modules/typescript/bin/tsc',
@@ -615,12 +638,12 @@ test('independent footprint admission reserves expansion, cache and build space 
   const a = approved();
   a.provision.artifacts = [{ kind: 'package', size: 8192, unpackedBytes: 16384 }];
   a.storage.footprint.provisionExpandedBytes = 16384;
-  a.storage.footprint.npmCacheBytes = 8192;
+  a.storage.footprint.pnpmStoreBytes = 16384;
   validateFootprint(a);
   for (const mutate of [
     p => { p.storage.footprint.sourceAllocatedBytes = 2147483648; },
     p => { p.storage.footprint.provisionExpandedBytes = 8192; },
-    p => { p.storage.footprint.npmCacheBytes = 4096; },
+    p => { p.storage.footprint.pnpmStoreBytes = 8192; },
     p => { p.storage.footprint.buildReserveBytes = 0; },
     p => { p.storage.footprint.sourceBytes = 1; },
   ]) {

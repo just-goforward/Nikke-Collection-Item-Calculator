@@ -2,6 +2,7 @@ import type { DecisionLifecycle } from "./decisionLifecycle";
 import type { SolverInput } from "../types";
 import type { SolverResult } from "../hooks/calculatorShared";
 import { acquisitionForResult, requestDecisionAcquisition, verifiedAcquisitionSupply, type PublicAcquisition } from "./decisionAcquisition";
+import { serviceCertifiedWaitDays } from "../hooks/serviceCertifiedPresentation";
 
 /** Internal correspondence, not a proposed v3 wire schema. Never serialized wholesale. */
 type SupplyMetadata = Readonly<{
@@ -94,14 +95,9 @@ export function createDecisionRun(options: Options = {}): DecisionLifecycle {
         entry.expectedSupply.yellow === match.expectedSupply.yellow)) return;
       const value = result.certified, output = value.output;
       if (input.start.level >= 15 || output.current?.status === "complete") return;
-      if (owner.provider.producerCodeHash !== output.runtimeBinding.engineProfile.codeHash) return;
-      if (output.status !== "completed" || output.refusal || output.claimNotice ||
-          output.waiting.status === "claim_required") return;
-      const stable = output.stableRecommendation;
-      const selection = stable?.selection, guidance = stable?.guidance;
-      const wait = selection?.status === "WAIT" && guidance?.status === "WAIT" &&
-        Number.isInteger(selection.day) && selection.day >= 1 && selection.day <= 14 &&
-        guidance.day === selection.day ? selection.day : null;
+      if (owner.provider.producerCodeHash !== output.profile.codeHash) return;
+      if (output.status !== "complete") return;
+      const wait = serviceCertifiedWaitDays(value) ?? null;
       // Current and verified WAIT remain independent; no A/B/C precedence is applied.
       const kit = value.action?.kit ?? null;
       if (!kit && wait === null && output.current?.status !== "preserve") return;

@@ -224,6 +224,6 @@ export async function retryPagesSmoke(
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [pageUrl, revision] = process.argv.slice(2);
-  if (!pageUrl || !revision) throw new Error("Usage: npm run smoke:pages -- <page-url> <sha>");
+  if (!pageUrl || !revision) throw new Error("Usage: pnpm run smoke:pages <page-url> <sha>");
   console.log(JSON.stringify(await retryPagesSmoke(pageUrl, revision)));
 }

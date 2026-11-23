@@ -274,7 +274,7 @@ function ResultViewContent({
     const phase = `${state.grade} ${t("common.phase", { phase: state.level })}`;
     return state.exp > 0 ? `${phase} · EXP ${formatInteger(state.exp)}` : phase;
   };
-  if (view.type === "loading") {
+  if (view.type === "loading" && !view.previousAction) {
     return (
       <div className={classes.loadingResult} role="status" aria-live="polite" aria-atomic="true">
         <div className={classes.loadingStack}>
@@ -303,6 +303,7 @@ function ResultViewContent({
     return (
       <div className={classes.resultContent}>
         <div className={`${classes.error} ${classes.errorContent}`} role="alert">
+          {view.recalculationFailure && <strong>{t("result.recalculationError")}</strong>}
           <span>{text(view.message)}</span>
           {followUpFailure ? (
             <button className={classes.retryButton} type="button" onClick={onRetryCalculation}>
@@ -314,7 +315,7 @@ function ResultViewContent({
     );
   }
 
-  if (view.type === "convertRecommendation" || view.type === "recommendation") {
+  if (view.type === "convertRecommendation" || view.type === "recommendation" || view.type === "loading") {
     return (
       <div className={classes.resultContent}>
         <LazyRecommendation
@@ -388,6 +389,7 @@ export default function ResultPanel({
   onPendingOutcomeChange,
 }: ResultPanelProps) {
   const { locale, t, text } = useI18n();
+  const followUp = view.type === "loading" && !!view.previousAction;
   const showStaleOverlay =
     view.type !== "loading" && (needsStockEdit || (isStale && view.type !== "empty"));
   const staleMessage = staleOverlayMessage(needsStockEdit, stockEditNotice, staleSource, {
@@ -397,7 +399,7 @@ export default function ResultPanel({
   });
 
   return (
-    <section className={classes.panel} aria-busy={view.type === "loading" || undefined}>
+    <section className={classes.panel} aria-busy={(view.type === "loading" && !followUp) || undefined}>
       <div className={classes.heading}>
         <h2>{t("result.title")}</h2>
         <CurrentStateStrip feedback={feedback} state={state} />
@@ -410,6 +412,7 @@ export default function ResultPanel({
         ) : null}
         <div
           id="resultBox"
+          aria-busy={followUp || undefined}
           className={view.type === "empty" ? classes.emptyResult : ""}
           inert={showStaleOverlay || undefined}
         >
@@ -425,6 +428,13 @@ export default function ResultPanel({
             onRetryCalculation={onRetryCalculation}
           />
         </div>
+        {followUp && (
+          <p className="mx-[18px] mb-3 flex items-center gap-2 text-xs text-muted max-mobile:mx-3.5"
+            data-testid="preview-follow-up-status" role="status" aria-atomic="true">
+            <span aria-hidden="true" className="size-3.5 shrink-0 rounded-full border-2 border-primary-soft border-t-primary motion-safe:animate-spin" />
+            {t("result.showingPrevious")}
+          </p>
+        )}
       </div>
     </section>
   );

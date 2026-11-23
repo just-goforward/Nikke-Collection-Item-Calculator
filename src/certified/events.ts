@@ -1,3 +1,4 @@
+import { receiptDay } from "../../shared/receiptClock";
 import { CERTIFIED_RECOMMENDED_HORIZON_DAYS } from "../../shared/certifiedHorizon";
 import { type CertifiedSupplyEvent, isCertifiedEventModeled } from "../../shared/certifiedSupply";
 import {
@@ -8,17 +9,11 @@ import {
 import type { WorkBudget } from "./budget";
 import type { CertifiedInput, CertifiedWaiting } from "./types";
 
-const GAME_DAY_MS = 86_400_000;
-/** Dates are game dates (the snapshot owns the 05:00 KST boundary). */
-export function eventOffset(input: CertifiedInput, event: CertifiedSupplyEvent): number {
-  const day =
-    (Date.parse(`${event.gameDate}T00:00:00Z`) -
-      Date.parse(`${input.snapshot.coverage.currentDay}T00:00:00Z`)) /
-    GAME_DAY_MS;
-  // D0 contains only input stock. A later reward today first belongs to D1.
-  return day === 0 && Date.parse(event.at) > Date.parse(input.asOf) ? 1 : day;
+/** Exact elapsed-day cutoffs. A positive offset never includes a past receipt. */
+export function eventOffset(input: Pick<CertifiedInput,"asOf">, event: CertifiedSupplyEvent): number {
+  return receiptDay(Date.parse(input.asOf), Date.parse(event.at));
 }
-export function futureEvents(input: CertifiedInput): CertifiedSupplyEvent[] {
+export function futureEvents(input: Pick<CertifiedInput,"asOf"|"snapshot"|"receivedEventIds">): CertifiedSupplyEvent[] {
   const received = new Set(input.receivedEventIds ?? []);
   return input.snapshot.events
     .filter((event) => {
@@ -30,7 +25,7 @@ export function futureEvents(input: CertifiedInput): CertifiedSupplyEvent[] {
         !received.has(event.id)
       );
     })
-    .sort((a, b) => eventOffset(input, a) - eventOffset(input, b) || a.id.localeCompare(b.id));
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));
 }
 export function law(
   input: CertifiedInput,

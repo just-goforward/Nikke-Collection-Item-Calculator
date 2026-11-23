@@ -1,5 +1,6 @@
 import { isAbsolute, relative, sep } from 'node:path';
-import { HEX, sha256, fail, safePath, STAGES, GENERATED, NPM_SRI } from './operational-policy.mjs';
+import { HEX, sha256, fail, safePath, STAGES, GENERATED, PNPM_SRI, PNPM_VERSION,
+  reviewedBackendPath } from './operational-policy.mjs';
 import { validateFootprint } from './operational-storage.mjs';
 import { validateRuntimePins } from './operational-runtime-profile.mjs';
 
@@ -27,7 +28,7 @@ export function validateDetachedApprovalModel({ approvalBytes, approvalDigest, a
   catch { fail(); }
   if (eventName !== 'workflow_dispatch' || !/^[a-f0-9]{40}$/.test(head ?? '') ||
       expectedSha !== head || eventSha !== head || a.candidateSha !== head ||
-      a.schemaVersion !== 1 || a.event !== eventName || a.tree !== tree ||
+      a.schemaVersion !== 2 || a.event !== eventName || a.tree !== tree ||
       !Array.isArray(parents) || JSON.stringify(a.parents) !== JSON.stringify(parents) ||
       parents.some(p => !/^[a-f0-9]{40}$/.test(p)) || !/^[a-f0-9]{40}$/.test(tree ?? '')) fail();
   validateApprovalModel(a);
@@ -44,16 +45,18 @@ export function validateApproval(a) {
 
 export function validateApprovalModel(a) {
   validateRuntimePins(a.runtime);
-  if (a.executionAuthorized !== true ||
+  if (a.schemaVersion !== 2 || a.executionAuthorized !== true ||
       !/^docker\.io\/library\/node@sha256:[a-f0-9]{64}$/.test(a.image ?? '') ||
-      a.platform !== 'linux/amd64' || a.node !== '26.13.0' || a.npm !== '12.2.1' ||
+      a.platform !== 'linux/amd64' || a.node !== '26.13.1' || a.pnpm !== PNPM_VERSION ||
+      ['npm', 'npmCliDigest', 'npmIntegrity'].some(key => Object.hasOwn(a, key)) ||
       !HEX.test(a.reviewedBackendDigest ?? '') ||
       JSON.stringify(a.stageIds) !== JSON.stringify(Object.keys(STAGES)) ||
       !HEX.test(a.inventoryDigest ?? '') || !HEX.test(a.nodeInventoryDigest ?? '') ||
       !HEX.test(a.lockDigest ?? '') || !HEX.test(a.provisionDigest ?? '') ||
       !HEX.test(a.seccompDigest ?? '') || !HEX.test(a.hostNodeDigest ?? '') ||
       !HEX.test(a.dockerDigest ?? '') || !HEX.test(a.nodeDigest ?? '') ||
-      !HEX.test(a.npmCliDigest ?? '') || a.npmIntegrity !== NPM_SRI ||
+      !HEX.test(a.pnpmBinaryDigest ?? '') || a.pnpmIntegrity !== PNPM_SRI ||
+      !HEX.test(a.workspaceDigest ?? '') ||
       !a.source || a.source.schemaVersion !== 1 || !Array.isArray(a.source.files) ||
       !a.source.files.length || JSON.stringify(a.source.generatedDirectories) !== JSON.stringify(GENERATED)) fail();
   const files = new Map();
@@ -71,11 +74,13 @@ export function validateApprovalModel(a) {
     if (Object.hasOwn(counts, f.classification)) counts[f.classification]++;
   }
   if (counts.protected !== 136 || counts.wasm !== 13 || counts.fixture !== 46 ||
-      files.get('package-lock.json')?.sha256 !== a.lockDigest ||
-      files.get('package-lock.json')?.classification !== 'lock' ||
+      files.get('pnpm-lock.yaml')?.sha256 !== a.lockDigest ||
+      files.get('pnpm-lock.yaml')?.classification !== 'lock' ||
+      files.get('pnpm-workspace.yaml')?.sha256 !== a.workspaceDigest ||
+      !files.has('scripts/pnpm-lock.mjs') || !files.has('scripts/ci/run-checked-command.mjs') ||
       files.get('e2e/operational-inventory.json')?.sha256 !== a.inventoryDigest ||
       files.get('scripts/ci/operational-node-inventory.json')?.sha256 !== a.nodeInventoryDigest) fail();
-  const backend = [...files.values()].filter(f => /^scripts\/ci\/operational-.*\.mjs$/.test(f.path))
+  const backend = [...files.values()].filter(f => reviewedBackendPath(f.path))
     .sort((x, y) => x.path < y.path ? -1 : 1).map(f => [f.path, f.sha256]);
   if (!backend.length || sha256(JSON.stringify(backend)) !== a.reviewedBackendDigest) fail();
   if (!a.testDigests || !Object.keys(a.testDigests).length) fail();

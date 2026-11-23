@@ -1,6 +1,6 @@
 import { isCertifiedEventClaimable, type CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import type { PublicationBytes } from "../../shared/forecastPublicationBytes";
-import type { CertifiedInput } from "../certified/types";
+import type { ServiceH14Input } from "../serviceH14/types";
 import type { SolverInput } from "../types";
 
 /** Pure request projection. Forecast selection belongs to preparation, not this boundary. */
@@ -10,7 +10,8 @@ export function serviceCertifiedInput(
   asOf: string,
   publication?: PublicationBytes,
   forecastSource?: "local",
-): CertifiedInput {
+  legacyD0?: ServiceH14Input["legacyD0"],
+): ServiceH14Input {
   return {
     ...input.start,
     stock: [input.stock.blue, input.stock.purple, input.stock.yellow],
@@ -23,15 +24,10 @@ export function serviceCertifiedInput(
     receivedEventIds: snapshot.events
       .filter((event) => isCertifiedEventClaimable(snapshot, event, asOf))
       .map((event) => event.id),
-    computeMinimumWait: true,
-    computeWaiting: true,
+    ...(legacyD0 ? { legacyD0 } : {}),
+    computeMinimumWait: !legacyD0,
+    computeWaiting: !legacyD0,
     batchLimit: 10,
-    autoRecommendation: true,
     riskSummary: true,
-    stableRecommendation: {
-      version: "experimental-stable-w-selector-v1",
-      gainRiskLimit: { numerator: "1", denominator: "20" },
-      repeatRiskLimit: { numerator: "1", denominator: "20" },
-    },
   };
 }

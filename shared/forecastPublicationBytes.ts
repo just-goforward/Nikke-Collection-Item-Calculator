@@ -4,16 +4,36 @@ import { publicationBytesHash } from "./publicationBytesHash.ts";
 export { publicationBytesHash } from "./publicationBytesHash.ts";
 export const ARTIFACT_DOMAIN = "nikke.forecast.artifact.v1";
 export const POINTER_DOMAIN = "nikke.forecast.pointer.v1";
+export type PublicationChannel = 'legacy' | 'timed-v1';
+const legacyDomains = { pointer: POINTER_DOMAIN, artifact: ARTIFACT_DOMAIN } as const;
+const timedDomains = { pointer: 'nikke.forecast.pointer.timed-v1', artifact: 'nikke.forecast.artifact.timed-v1' } as const;
+export function publicationDomains(channel: PublicationChannel = 'legacy') {
+  if (channel === 'legacy') return legacyDomains;
+  if (channel === 'timed-v1') return timedDomains;
+  throw new Error('publication_invalid_channel');
+}
+/** Never admit timing extensions on the unchanged legacy wire contract. */
+export function assertPublicationChannel(candidate: unknown, channel: PublicationChannel = 'legacy') {
+  publicationDomains(channel);
+  if (channel === 'timed-v1') return;
+  if (!candidate || typeof candidate !== "object") throw new Error("publication_unsupported_rules");
+  const grants = Reflect.get(candidate, "grants");
+  const snapshot = Reflect.get(candidate, "certifiedSnapshot");
+  const events = snapshot && typeof snapshot === "object" ? Reflect.get(snapshot, "events") : undefined;
+  if ((Array.isArray(grants) && grants.some(grant => grant && Object.hasOwn(grant, "scheduledAt"))) ||
+      (Array.isArray(events) && events.some(event => event && Object.hasOwn(event, "grantTiming"))))
+    throw new Error("publication_unsupported_rules");
+}
 export type PublicationEnvironment = "staging" | "production";
 export type ArtifactStatement = {
-  domain: typeof ARTIFACT_DOMAIN;
+  domain: typeof ARTIFACT_DOMAIN | typeof timedDomains.artifact;
   environment: PublicationEnvironment;
   keyId: string;
   candidateId: string;
   contentHash: string;
 };
 export type PointerStatement = {
-  domain: typeof POINTER_DOMAIN;
+  domain: typeof POINTER_DOMAIN | typeof timedDomains.pointer;
   environment: PublicationEnvironment;
   keyId: string;
   sequence: number;
@@ -29,6 +49,7 @@ export type PublicationBytes = {
   artifact: { authorization: SignedPublicationBytes; candidate: string } | null;
 };
 export type PublicationByteTrust = {
+  channel?: PublicationChannel;
   environment: PublicationEnvironment;
   keyId: string;
   publicKeyBase64: string;
@@ -135,7 +156,7 @@ function assertPointer(pointer: PointerStatement, trust: PublicationByteTrust) {
   if (
     !Number.isSafeInteger(trust.minimumSequence) ||
     trust.minimumSequence < 0 ||
-    pointer.domain !== POINTER_DOMAIN ||
+    pointer.domain !== publicationDomains(trust.channel).pointer ||
     pointer.environment !== trust.environment ||
     pointer.keyId !== trust.keyId ||
     !Number.isSafeInteger(pointer.sequence) ||
@@ -161,7 +182,7 @@ async function verifyArtifactBytes(
   fields(artifact, "candidateId,contentHash,domain,environment,keyId");
   if (
     typeof bytes !== "string" ||
-    artifact.domain !== ARTIFACT_DOMAIN ||
+    artifact.domain !== publicationDomains(trust.channel).artifact ||
     artifact.environment !== trust.environment ||
     artifact.keyId !== trust.keyId ||
     artifact.candidateId !== pointer.candidateId ||
@@ -170,6 +191,7 @@ async function verifyArtifactBytes(
   )
     throw new Error("publication_artifact_mismatch");
   const candidate = JSON.parse(bytes);
+  assertPublicationChannel(candidate, trust.channel);
   if (
     !isPublicationVersionPair(candidate.payloadVersion, candidate.rulesVersion) ||
     candidate.candidateId !== pointer.candidateId ||

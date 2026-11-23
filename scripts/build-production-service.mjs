@@ -17,7 +17,7 @@ export function buildProductionService(parent, execute = spawnSync) {
   const commands = serviceCommands("dist");
   commands[commands.length - 1] = [
     "--input-type=module", "-e",
-    "const {buildSiteProduction}=await import('./scripts/build-site-production.ts'); const {default:contract}=await import('./site-worker/production-forecast.proposed.json',{with:{type:'json'}}); await buildSiteProduction(process.argv[1],false,contract); await buildSiteProduction(process.argv[1],true,contract);",
+    "const {buildSiteProduction}=await import('./scripts/build-site-production.ts'); const {assertProductionSiteCandidateProfile}=await import('./scripts/site-deployment-artifact.mjs'); const {default:contract}=await import('./site-worker/production-forecast.proposed.json',{with:{type:'json'}}); await buildSiteProduction(process.argv[1],false,contract); await buildSiteProduction(process.argv[1],true,contract); await assertProductionSiteCandidateProfile(process.argv[1],process.env.GITHUB_SHA);",
     "dist",
   ];
   for (const args of commands) {

@@ -3,6 +3,7 @@
 @source not "../.tmp";
 @source not "../tmp";
 @source not "../.certified-test-tmp";
+@source not "../nikke-*/**";
 
 @layer components {
   .modal-cover {

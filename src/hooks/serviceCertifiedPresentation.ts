@@ -1,5 +1,7 @@
+import { adaptiveShell } from "../lib/rootCandidate";
 import { REQUIRED_EXP } from "../../shared/game";
-import type { CertifiedRuntimeOutput } from "../certifiedRuntime/outputBinding";
+import { conditionalCurrent } from "../../shared/conditionalCurrent";
+import type { ServiceH14Output } from "../serviceH14/types";
 import { message } from "../i18n/locale";
 import type { SolverInput } from "../types";
 import type { DetailView, ResultView } from "../ui-types";
@@ -8,36 +10,42 @@ import { makeOutcomePreview } from "../view-models/outcomePresentation";
 import { buildRecommendedRunForKit } from "../wasm/rustProductView";
 import type { ServiceCertifiedResult, ServiceCertifiedSolveOutcome } from "./serviceCertifiedTypes";
 
+export function previewStopMessage(stop: string | undefined, followUp = false) {
+  if (stop === "resource" || stop === "memory")
+    return message(followUp ? "result.previewFollowUpResourceLimit" : "result.previewResourceLimit");
+  if (stop === "deadline") return message(followUp ? "result.previewFollowUpDeadline" : "result.previewDeadline");
+  return message(stop === "worker" ? "result.solverError" : "result.previewInterrupted");
+}
+
 export function withoutRecommendedWait(view: DetailView): DetailView {
   if (view.type === "loading") return view;
   if (view.type === "empty") {
-    const { waitingLabel: _label, ...rest } = view;
+    const { waitingLabel: _label, previewTimedSupply: _supply, previewEvidence: _evidence, ...rest } = view;
     return rest;
   }
-  const { recommendedWaitDays: _removed, waitingLabel: _label, ...rest } = view;
+  const { recommendedWaitDays: _removed, recommendedWaitAt: _at, waitingLabel: _label,
+    focusRequestedSummary: _focus, previewTimedSupply: _supply, previewEvidence: _evidence, ...rest } = view;
   return rest;
 }
 
-/** Called only with output already validated by the production certified client. */
+/** Called only with output already validated by the request-owning service H14 client. */
 export function projectServiceCertifiedResult(
   input: SolverInput,
-  output: CertifiedRuntimeOutput,
+  output: ServiceH14Output,
   final: boolean,
+  verifiedPrefix = false,
 ): ServiceCertifiedSolveOutcome {
-  const current = output.current;
   let action: ServiceCertifiedResult["action"] = null;
-  if (
-    output.status !== "refused" &&
-    !output.claimNotice &&
-    output.waiting.status !== "claim_required" &&
-    current?.status === "use_certified"
-  ) {
-    const kit = current.kit;
-    const uses = current.uses;
-    if (
-      !kit || !Number.isInteger(uses) || uses < 1 ||
-      current.pieces !== uses * 10 || input.stock[kit] < current.pieces
-    ) throw new Error("service_certified_action_contract");
+  // The signed OFF route has D0 physical evidence, never a wait verdict.
+  const d0 = final && output.status === "withheld" && output.reason === "legacy_current_only";
+  const preview = adaptiveShell;
+  const choice = final ? conditionalCurrent(output, input.start,
+    [input.stock.blue, input.stock.purple, input.stock.yellow], {legacyD0:d0, verifiedPrefix:preview && verifiedPrefix, currentBatch:preview}) : null;
+  const allowed = choice && (preview || (d0 && choice.kind === "conditional-current") ||
+    choice.kind === "strict" || choice.kind === "practical" ||
+    (choice.kind === "conditional-current" && output.adaptive?.actionable === "unresolved"));
+  if (choice && allowed) {
+    const {kit, uses} = choice;
     // Physical inventory only. Never call the legacy normalizer, caps or action lookup.
     const stockUses = {
       blue: Math.floor(input.stock.blue / 10),
@@ -59,17 +67,41 @@ export function projectServiceCertifiedResult(
   };
 }
 
-export function serviceCertifiedWaitDays(value: ServiceCertifiedResult): number | undefined {
+function hasCompleteHorizon(value: ServiceCertifiedResult): boolean {
   const { output, final } = value;
-  const stable = output.stableRecommendation;
-  if (
-    !final || output.status === "refused" || output.refusal || output.claimNotice ||
-    output.waiting.status === "claim_required" ||
-    stable?.selection.status !== "WAIT" || stable.guidance.status !== "WAIT"
-  ) return undefined;
-  const day = stable.selection.day;
-  return Number.isInteger(day) && day >= 1 && day <= 14 && stable.guidance.day === day
-    ? day : undefined;
+  return final && output.status === "complete" && output.reason === null &&
+    output.accuracy.practical && output.profile.policy === "adaptive-next-batch-balanced-v1" &&
+    output.records.length === 15 && output.records.every((record, day) => record.day === day);
+}
+
+function certifiedAdaptive(value: ServiceCertifiedResult) {
+  return !value.previewLegacyD0 && !value.interruption && hasCompleteHorizon(value)
+    ? value.output.adaptive : undefined;
+}
+
+function waitDays(a: ServiceH14Output["adaptive"], horizon: number): number | undefined {
+  return a?.actionable === "wait" && a.mathematical === "wait" && a.nextDay !== null &&
+    Number.isInteger(a.nextDay) && a.nextDay >= 1 && a.nextDay <= horizon ? a.nextDay : undefined;
+}
+
+/** Full-horizon analytics only. A prefix verdict is presentation evidence, not H14. */
+export function serviceCertifiedWaitDays(value: ServiceCertifiedResult): number | undefined {
+  return waitDays(certifiedAdaptive(value), 14);
+}
+
+function previewNonDateStatus(adaptive: ServiceH14Output["adaptive"]) {
+  const delta = adaptive?.delta;
+  if (!adaptive || !delta || !Number.isFinite(delta.lower) || !Number.isFinite(delta.upper) ||
+      delta.lower > delta.upper) return "comparisonUnavailable";
+  // The certified flags compare the exact bounds; the published endpoints are
+  // rounded outwards and must not be used to reclassify a threshold equality.
+  if (adaptive.actionable === "unresolved") return "benefitUncertain";
+  if (adaptive.actionable === "no_material_wait") {
+    if (adaptive.mathematical === "use_now") return "noBenefit";
+    if (adaptive.mathematical === "wait") return "smallBenefit";
+    return "noMaterialBenefit";
+  }
+  return "comparisonUnavailable";
 }
 
 export function serviceCertifiedViews(
@@ -78,22 +110,73 @@ export function serviceCertifiedViews(
 ): { result: ResultView; detail: DetailView } {
   const views = serviceCertifiedBaseViews(input, value);
   const { output, final } = value;
-  const status = output.claimNotice || output.waiting.status === "claim_required"
-    ? "claim"
-    : output.status === "refused" || output.refusal || !output.current ? "error"
-    : output.current?.status === "complete" ? "complete"
-    : !final ? "incomplete"
-    : serviceCertifiedWaitDays(value) !== undefined ? "date"
-    : output.stableRecommendation?.guidance.status === "NOW" &&
-      output.stableRecommendation.selection.status === "NOW" ? "now"
-    : output.stableRecommendation?.guidance.status === "WITHHELD" ? "withheld"
-    : output.stableRecommendation?.guidance.status === "PRESERVE" ? "preserve"
-    : output.stableRecommendation?.guidance.status === "UNAVAILABLE" ? "unavailable"
-    : output.stableRecommendation?.guidance.status === "ERROR" ? "error"
-    : output.stableRecommendation?.selection.status === "STABLE_WAIT_UNCONFIRMED" ? "unresolved"
-    : "incomplete";
+  const legacyD0 = value.previewLegacyD0 === true;
+  const preview = adaptiveShell;
+  const partial = preview && !!output.current && output.status === "incomplete" &&
+    (value.interruption === "resource" || value.interruption === "memory" || value.interruption === "deadline") &&
+    output.records.length > 0 && output.records.every((row, day) => row.day === day);
+  const prefix = partial && final ? output.prefixDecision : undefined;
+  const verifiedPrefix = prefix && prefix.horizon >= 1 && prefix.horizon < 14 &&
+    prefix.horizon === output.sourceCertificate?.completedThrough &&
+    prefix.horizon === output.records.length - 1 ? prefix : undefined;
+  const adaptive = verifiedPrefix?.verdict ?? certifiedAdaptive(value);
+  const waitDay = waitDays(adaptive, verifiedPrefix?.horizon ?? 14);
+  const nextAt = adaptive?.nextAt;
+  const waitAt = preview && waitDay !== undefined && typeof nextAt === "string" &&
+    Number.isFinite(Date.parse(nextAt)) && new Date(nextAt).toISOString() === nextAt ? nextAt : undefined;
+  const previewStatus = waitAt !== undefined ? "date" : previewNonDateStatus(adaptive);
+  if (value.userRequestedDecision && adaptive && views.detail.type === "metrics" &&
+      ((preview ? waitAt !== undefined : adaptive.actionable === "wait") || value.action)) views.detail.focusRequestedSummary = true;
+  const status = output.status === "error" ? "error"
+    : output.status === "claim_required" ? "claim"
+    : legacyD0 ? "d0Only"
+    : output.status === "withheld" ? "withheld"
+    : !output.current ? "error"
+    : partial ? previewStatus
+    : output.current.status === "complete" ? "complete"
+    : !final || output.status === "incomplete" ? "incomplete"
+    : preview ? previewStatus
+    : waitDay !== undefined ? "date"
+    : adaptive?.actionable === "no_material_wait"
+      ? (adaptive.mathematical === "wait" ? "smallWait" : "noMaterialWait")
+      : "unresolved";
   if (views.detail.type !== "loading" && status !== "date")
-    views.detail = { ...views.detail, waitingLabel: message(`detail.wait.${status}`) };
+    views.detail = { ...views.detail, waitingLabel: !preview && adaptive?.practicalFirstKit && value.action?.kit === adaptive.practicalFirstKit
+      ? message(`detail.wait.practical.${adaptive.practicalFirstKit}`, {count:value.action.run.count}) : message(`detail.wait.${status}`) };
+  if (views.detail.type === "metrics" && status === "date") {
+    views.detail.waitingLabel = message("detail.wait.nextSupply");
+    if (waitAt !== undefined) views.detail.recommendedWaitAt = waitAt;
+    if (waitDay !== undefined) views.detail.recommendedWaitDays = waitDay;
+  }
+  if (preview && (final || partial) &&
+      (!legacyD0 || (output.status === "withheld" && output.reason === "legacy_current_only"))) {
+    const current = output.current;
+    const records = output.records;
+    const ordered = records.length <= 15 && records.every((record, day) => record.day === day);
+    views.detail.previewEvidence = {
+      ...(partial ? {prefixMetrics:records.map(({day,value:{p,c}}) => ({
+        day, probability:[p.lower,p.upper] as [number,number], pieces:[c.lower,c.upper] as [number,number],
+      }))} : {}),
+      ...(value.previewConditional ? {conditional:true as const} : {}),
+      ...(legacyD0 ? { legacyD0: true as const } : {}),
+      action: (!partial || final) && current?.status === "use_certified" && current.kit ? {
+        kit: current.kit, count: current.uses,
+        tied: (["blue", "purple", "yellow"] as const).filter((kit, index) =>
+          kit !== current.kit && (current.optimalActionMask & (1 << index)) !== 0),
+        probability: formatReadablePercent(current.value.display.successP, 2),
+        pieces: current.value.display.expectedTotalConsumptionC,
+      } : null,
+      lastDay: ordered && records.length ? records[records.length - 1]!.day : null,
+      complete: !partial && (status === "date" || status === "noBenefit" || status === "smallBenefit" || status === "noMaterialBenefit"),
+      ...(verifiedPrefix && previewStatus !== "comparisonUnavailable" ? { prefixComparison: true as const } : {}),
+      ...(status === "comparisonUnavailable" ? { comparison: "unavailable" as const } :
+        status === "benefitUncertain" ? { comparison: "bounded" as const } : {}),
+      withheld: output.status === "withheld" || output.status === "claim_required",
+      source: [output.forecastIdentity.forecastId, output.forecastIdentity.snapshotRevision, value.previewSourceStatus].filter(Boolean).join(" · "),
+      reason: value.interruption ?? output.reason,
+    };
+    if (!legacyD0) views.detail.previewTimedSupply = value.previewTimedSupply ?? null;
+  }
   return views;
 }
 
@@ -102,55 +185,69 @@ function serviceCertifiedBaseViews(
   value: ServiceCertifiedResult,
 ): { result: ResultView; detail: DetailView } {
   const { output, action } = value;
-  if (input.start.grade === "SR" && input.start.level === 15) {
+  const solverLabel = value.previewLegacyD0 ? "Rust/WASM · D0"
+    : adaptiveShell && value.interruption && output.records.length
+      ? `Rust/WASM · ${output.records.length === 1 ? "D0" : `D0–D${output.records.length-1}`}`
+      : "Rust/WASM · exact Current / bounded H14";
+  if (output.status === "claim_required" || (output.status === "withheld" && !value.final)) {
+    const explanation = message(output.status === "claim_required"
+      ? "result.certifiedClaimRequired" : "result.certifiedForecastWithheld");
     return {
-      result: { type: "callout", reason: "final_target", message: message("result.complete") },
-      detail: { type: "empty", message: message("result.complete") },
-    };
-  }
-  if (output.claimNotice || output.waiting.status === "claim_required") {
-    const explanation = message("result.certifiedClaimRequired");
-    return {
-      result: { type: "error", reason: "certified_claim_required", message: explanation },
+      result: { type: "error", reason: output.status === "claim_required" ? "certified_claim_required" : "solver_failure", message: explanation },
       detail: { type: "empty", message: explanation },
     };
   }
-  if (input.start.grade === "R" && input.start.level === 15) {
-    return {
-      result: { type: "convertRecommendation", reason: "r15_conversion" },
-      detail: { type: "empty", message: message("result.convertAvailable") },
-    };
-  }
-  if (output.status === "refused" || !output.current) {
+  if (output.status === "error" || !output.current) {
     const explanation = message("result.solverError");
     return {
       result: { type: "error", reason: "solver_failure", message: explanation },
       detail: { type: "empty", message: explanation },
     };
   }
-  if (output.current.status === "preserve") {
-    const explanation = message("result.certifiedPreserve");
-    const day = serviceCertifiedWaitDays(value);
+  if (input.start.grade === "SR" && input.start.level === 15) {
     return {
-      result: { type: "callout", reason: "certified_preserve", message: explanation },
+      result: { type: "callout", reason: "final_target", message: message("result.complete") },
+      detail: { type: "empty", message: message("result.complete") },
+    };
+  }
+  if (!value.interruption && input.start.grade === "R" && input.start.level === 15) {
+    return {
+      result: { type: "convertRecommendation", reason: "r15_conversion" },
+      detail: { type: "empty", message: message("result.convertAvailable") },
+    };
+  }
+  if (!action) {
+    const preview = adaptiveShell;
+    const preserve = !preview && value.previewLegacyD0 && output.current.status === "preserve";
+    const explanation = preview
+      ? value.interruption ? previewStopMessage(value.interruption, value.followUp)
+        : message(Object.values(input.stock).some(pieces => pieces >= 10)
+          ? "result.previewActionUnavailable" : "result.previewNoUsableKit")
+      : message(preserve ? "result.certifiedPreserve" : "detail.wait.noFirstKit");
+    return {
+      result: { type: "callout", reason: preserve ? "certified_preserve" : "adaptive_no_first_kit", message: explanation },
       detail: {
         type: "metrics",
         successProbability: formatReadablePercent(output.current.value.display.successP, 2),
         greatSuccessProbability: null,
         candidates: [],
         monteCarloRuns: 0,
-        solverLabel: "Certified Rust/WASM",
-        ...(day === undefined ? {} : { recommendedWaitDays: day }),
+        solverLabel,
       },
     };
   }
-  if (!action) throw new Error("service_certified_current_contract");
-  const day = serviceCertifiedWaitDays(value);
   return {
     result: {
       type: "recommendation",
       kit: action.kit,
       count: action.run.count,
+      ...(value.final && output.status === "incomplete" && value.interruption ? {stockOnlyAction:true as const} : {}),
+      ...((value.output.adaptive || adaptiveShell) && action.run.count > 1
+        ? { batchAction: true as const } : {}),
+      ...(adaptiveShell ||
+        (output.adaptive?.actionable === "unresolved" && output.current.kit === action.kit)
+        ? { conditionalAction: true as const } :
+        value.output.adaptive?.practicalFirstKit === action.kit ? { practicalAction: true as const } : {}),
       failPreview: makeOutcomePreview(input.start, action.run.fail),
       successPreview: makeOutcomePreview(input.start, action.run.success),
     },
@@ -161,8 +258,7 @@ function serviceCertifiedBaseViews(
       greatSuccessProbability: formatReadablePercent(action.run.greatSuccessProbability!, 1),
       candidates: [],
       monteCarloRuns: 0,
-      solverLabel: "Certified Rust/WASM",
-      ...(day === undefined ? {} : { recommendedWaitDays: day }),
+      solverLabel,
     },
   };
 }
