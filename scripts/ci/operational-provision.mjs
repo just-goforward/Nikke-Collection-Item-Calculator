@@ -9,7 +9,14 @@ const officialHosts = new Set(['registry.npmjs.org', 'nodejs.org', 'cdn.playwrig
   'playwright.download.prss.microsoft.com', 'download.playwright-chromium.org',
   'raw.githubusercontent.com']);
 export const artifactName = item => `${item.id}.${item.kind === 'browser' ? 'zip' : item.kind === 'registry-metadata' ? 'json' : 'tgz'}`;
-export const registryMetadataUrl = name => `https://registry.npmjs.org/${name.replace('/', '%2F')}`;
+export function registryMetadataUrl(name) {
+  if (typeof name !== 'string') fail();
+  const parts = /^(?:@([a-z0-9._-]+)\/)?([a-z0-9._-]+)$/.exec(name);
+  if (!parts) fail();
+  const [, scope, pkg] = parts;
+  if (scope === '.' || scope === '..' || pkg === '.' || pkg === '..') fail();
+  return `https://registry.npmjs.org/${scope ? `@${scope}%2F` : ''}${pkg}`;
+}
 export function validateDownload(item) {
   if (!item || !HEX.test(item.sha256 ?? '') || !Number.isSafeInteger(item.size) || item.size <= 0 ||
       item.size > 512 * 1024 * 1024 || !Array.isArray(item.redirects) || item.redirects.length > 4) fail();

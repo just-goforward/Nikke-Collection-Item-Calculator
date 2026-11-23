@@ -44,6 +44,14 @@ function fixtureApproval() {
   return { a, lock };
 }
 
+test('registry metadata URLs preserve only the canonical npm scope separator', () => {
+  assert.equal(registryMetadataUrl('pnpm'), 'https://registry.npmjs.org/pnpm');
+  assert.equal(registryMetadataUrl('@pnpm/exe.linux-x64'), 'https://registry.npmjs.org/@pnpm%2Fexe.linux-x64');
+  for (const name of ['a/b', '@a/b/c', '@a/', 'a\\b', '@a%2Fb', '@a/..', 'a?b', 'a#b', 'a\n', null]) {
+    assert.throws(() => registryMetadataUrl(name), /ADMISSION_BLOCKED/);
+  }
+});
+
 test('pnpm provision binds application tarballs, native manager and every lifecycle snapshot', () => {
   const { a, lock } = fixtureApproval();
   validateProvision(a, lock);

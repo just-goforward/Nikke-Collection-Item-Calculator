@@ -845,131 +845,61 @@ fn boundary_shape() -> (Vec<Outcome>, Vec<Outcome>, BigUint) {
 const MEMORY_CHILD_ENV: &str = "CERTIFIED_W2A_CONVOLVE_MEMORY_CHILD";
 #[cfg(not(target_arch = "wasm32"))]
 const MEMORY_TEST_NAME: &str = "supply::convolve_tests::peak_memory_for_unreduced_numerators_at_the_25000_row_boundary_stays_within_160_mib";
+/// Assert absolute and projected peak bounds around one isolated convolution.
 #[cfg(not(target_arch = "wasm32"))]
-const MEMORY_REPORT_PREFIX: &str = "W2A_CONVOLVE_MEMORY ";
-
-/// One isolated measurement: absolute baseline and absolute peak of the
-/// accounted allocator around a single `convolve`, under a 160 MiB ceiling.
-#[cfg(not(target_arch = "wasm32"))]
-struct Measurement {
-    label: &'static str,
-    baseline: usize,
-    peak: usize,
-    projection: usize,
-}
-#[cfg(not(target_arch = "wasm32"))]
-impl Measurement {
-    fn take(label: &'static str, a: &[Outcome], b: &[Outcome], caps: Pieces, rows: usize) -> Self {
-        let (_, _, product) = boundary_shape();
-        // The projection `convolve` admits for this exact shape: the capped
-        // variant with the measured call's caps, the final denominator bits
-        // (D_A = the prime product, D_B = lcm(3, 7) = 21) and excess bits of 1
-        // on both sides (every numerator has the bit length of its denominator).
-        let projection = convolve_capped_workspace_bytes(
-            [a.len(), b.len()],
-            25_000,
-            caps,
-            [product.bits(), 5],
-            [1, 1],
-        )
-        .unwrap();
-        let mut supply = fresh();
-        allocation::certified_reset_heap_peak();
-        allocation::certified_heap_limit(160 * MIB);
-        let baseline = allocation::certified_heap_live();
-        let out = supply.convolve(a, b, caps, 25_000).unwrap();
-        let peak = allocation::certified_heap_peak();
-        assert!(
-            !allocation::certified_allocation_denied(),
-            "memory_allocation_denied"
-        );
-        assert!(
-            supply.convolve_last_path == Some(ConvolvePath::Fast),
-            "memory_path_mismatch"
-        );
-        assert!(out.len() == rows, "memory_row_count_mismatch");
-        assert!(supply.ticks == 25_000, "memory_tick_count_mismatch");
-        // Hand values: (1/2)(2/3) and (1/2)(5/7), fully reduced.
-        assert!(out[0].mass == q(1, 3), "memory_first_mass_mismatch");
-        assert!(out[1].mass == q(5, 14), "memory_second_mass_mismatch");
-        drop(out);
-        let measurement = Self {
-            label,
-            baseline,
-            peak,
-            projection,
-        };
-        measurement.assert_bounds();
-        measurement
-    }
-    fn assert_bounds(&self) {
-        let Self {
-            baseline,
-            peak,
-            projection,
-            ..
-        } = self;
-        assert!(peak <= &(160 * MIB), "memory_ceiling_exceeded");
-        let increase = peak.saturating_sub(*baseline);
-        assert!(&increase <= projection, "memory_projection_exceeded");
-    }
-    fn report(&self) -> String {
-        format!(
-            "{MEMORY_REPORT_PREFIX}{} baseline={} peak={} projection={}",
-            self.label, self.baseline, self.peak, self.projection
-        )
-    }
-    fn parse(line: &str) -> Option<Self> {
-        // libtest prints "test <name> ... " before a --nocapture test's own
-        // stdout without a newline, so the report may share its line.
-        let start = line.find(MEMORY_REPORT_PREFIX)?;
-        let mut fields = line[start + MEMORY_REPORT_PREFIX.len()..].split(' ');
-        let label = match fields.next()? {
-            "unbounded" => "unbounded",
-            "capped" => "capped",
-            _ => return None,
-        };
-        let mut value = |key: &str| -> Option<usize> {
-            fields
-                .next()?
-                .strip_prefix(key)?
-                .strip_prefix('=')?
-                .parse()
-                .ok()
-        };
-        Some(Self {
-            label,
-            baseline: value("baseline")?,
-            peak: value("peak")?,
-            projection: value("projection")?,
-        })
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn assert_memory_child_output(output: &std::process::Output) {
-    assert!(output.status.success(), "memory_child_failed");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let measurements: Vec<_> = stdout.lines().filter_map(Measurement::parse).collect();
+fn assert_memory_bounds(a: &[Outcome], b: &[Outcome], caps: Pieces, rows: usize) {
+    let (_, _, product) = boundary_shape();
+    // The projection `convolve` admits for this exact shape: the capped
+    // variant with the measured call's caps, the final denominator bits
+    // (D_A = the prime product, D_B = lcm(3, 7) = 21) and excess bits of 1
+    // on both sides (every numerator has the bit length of its denominator).
+    let projection = convolve_capped_workspace_bytes(
+        [a.len(), b.len()],
+        25_000,
+        caps,
+        [product.bits(), 5],
+        [1, 1],
+    )
+    .unwrap();
+    let mut supply = fresh();
+    allocation::certified_reset_heap_peak();
+    allocation::certified_heap_limit(160 * MIB);
+    let baseline = allocation::certified_heap_live();
+    let out = supply.convolve(a, b, caps, 25_000).unwrap();
+    let peak = allocation::certified_heap_peak();
     assert!(
-        measurements.iter().map(|m| m.label).collect::<Vec<_>>() == ["unbounded", "capped"],
-        "memory_child_report_invalid"
+        !allocation::certified_allocation_denied(),
+        "memory_allocation_denied"
     );
-    for measurement in &measurements {
-        measurement.assert_bounds();
-        assert!(
-            measurement.peak > measurement.baseline,
-            "memory_peak_not_increased"
-        );
-    }
+    assert!(
+        supply.convolve_last_path == Some(ConvolvePath::Fast),
+        "memory_path_mismatch"
+    );
+    assert!(out.len() == rows, "memory_row_count_mismatch");
+    assert!(supply.ticks == 25_000, "memory_tick_count_mismatch");
+    // Hand values: (1/2)(2/3) and (1/2)(5/7), fully reduced.
+    assert!(out[0].mass == q(1, 3), "memory_first_mass_mismatch");
+    assert!(out[1].mass == q(5, 14), "memory_second_mass_mismatch");
+    assert_peak_bounds(baseline, peak, projection);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn assert_peak_bounds(baseline: usize, peak: usize, projection: usize) {
+    assert!(peak <= 160 * MIB, "memory_ceiling_exceeded");
+    assert!(peak > baseline, "memory_peak_not_increased");
+    assert!(peak - baseline <= projection, "memory_projection_exceeded");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn assert_memory_child_status(status: std::process::ExitStatus) {
+    assert!(status.success(), "memory_child_failed");
 }
 
 /// Peak memory is measured in an isolated child process so no other test
 /// thread shares the process-global allocator accounting. The parent re-invokes
 /// this test binary for exactly this test with one thread and an env flag; the
-/// child measures, asserts, and prints one report line per shape, which the
-/// parent privately captures, parses and asserts again without forwarding either
-/// stream. No minimum-of-N: one measurement per shape.
+/// child measures and asserts each shape without reporting raw counters.
+/// No minimum-of-N: one measurement per shape.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn peak_memory_for_unreduced_numerators_at_the_25000_row_boundary_stays_within_160_mib() {
@@ -977,13 +907,11 @@ fn peak_memory_for_unreduced_numerators_at_the_25000_row_boundary_stays_within_1
     if std::env::var_os(MEMORY_CHILD_ENV).is_some() {
         // 1. reset the peak (restores the 192 MiB limit); 2. then lower the
         // limit to 160 MiB; 3. record absolute baseline and peak separately.
-        let unbounded = Measurement::take("unbounded", &a, &b, ANY, 25_000);
-        println!("{}", unbounded.report());
+        assert_memory_bounds(&a, &b, ANY, 25_000);
         // One capped shape: blue collapses to 0..=99 so the capped projection
         // bounds rows by (99 + 1) * (2 + 1) * 1 = 300 rather than 25,000; the
         // result keeps 100 * 2 = 200 rows.
-        let capped = Measurement::take("capped", &a, &b, [99, 2, 0], 200);
-        println!("{}", capped.report());
+        assert_memory_bounds(&a, &b, [99, 2, 0], 200);
         return;
     }
     let output = std::process::Command::new(
@@ -998,7 +926,7 @@ fn peak_memory_for_unreduced_numerators_at_the_25000_row_boundary_stays_within_1
         .env(MEMORY_CHILD_ENV, "1")
         .output()
         .unwrap_or_else(|_| panic!("memory_child_launch_failed"));
-    assert_memory_child_output(&output);
+    assert_memory_child_status(output.status);
     // The boundary itself: 25,000 rows pass, 24,999 fail on the final pair with
     // the oracle's identity and position, and the full result equals the oracle.
     let got = differential(&a, &b, ANY, 24_999);
@@ -1136,57 +1064,21 @@ fn private_convolution_diagnostics_do_not_echo_captured_data() {
         let case = case
             .into_string()
             .unwrap_or_else(|_| panic!("privacy_fixture_case_invalid"));
-        if let Some(payload_case) = case.strip_prefix("memory-payload:") {
-            // Synthetic transport fixtures, never substitutes for allocator measurements.
-            let unbounded = Measurement {
-                label: "unbounded",
-                baseline: 7_340_032,
-                peak: 7_340_145,
-                projection: 113,
-            };
-            let capped = Measurement {
-                label: "capped",
-                ..unbounded
-            };
-            let mut first = unbounded;
-            match payload_case {
-                "memory-ceiling" => {
-                    first.peak = 160 * MIB + 1;
-                    first.projection = first.peak;
-                }
-                "memory-projection" => first.projection = 112,
-                "memory-no-increase" => first.peak = first.baseline,
-                _ => {}
-            }
-            match payload_case {
-                "memory-missing" => println!("{}", first.report()),
-                "memory-malformed" => println!(
-                    "{MEMORY_REPORT_PREFIX}unbounded baseline={PRIVATE_STDOUT_CANARY}"
-                ),
-                "memory-duplicate" => {
-                    println!("{}", first.report());
-                    println!("{}", first.report());
-                    println!("{}", capped.report());
-                }
-                "memory-order" => {
-                    println!("{}", capped.report());
-                    println!("{}", first.report());
-                }
-                _ => {
-                    println!("{}", first.report());
-                    println!("{}", capped.report());
-                }
-            }
+        if matches!(case.as_str(), "memory-child-success" | "memory-child-failure") {
             println!("{PRIVATE_STDOUT_CANARY}");
             eprintln!("{PRIVATE_STDERR_CANARY}");
-            if payload_case == "memory-child-exit" {
+            if case == "memory-child-failure" {
                 std::process::exit(1);
             }
             return;
         }
-        if case.starts_with("memory-") {
-            let output = private_diagnostic_output(&format!("memory-payload:{case}"));
-            assert_memory_child_output(&output);
+        if matches!(case.as_str(), "memory-valid" | "memory-child-exit") {
+            let child = if case == "memory-valid" {
+                "memory-child-success"
+            } else {
+                "memory-child-failure"
+            };
+            assert_memory_child_status(private_diagnostic_output(child).status);
             return;
         }
         let result = json!({
@@ -1197,6 +1089,9 @@ fn private_convolution_diagnostics_do_not_echo_captured_data() {
         let first = (result.clone(), 7_340_032, 7_340_032, 7_340_032);
         let mut second = first.clone();
         match case.as_str() {
+            "memory-ceiling" => assert_peak_bounds(7_340_032, 160 * MIB + 1, 160 * MIB),
+            "memory-projection" => assert_peak_bounds(7_340_032, 7_340_145, 112),
+            "memory-no-increase" => assert_peak_bounds(7_340_032, 7_340_032, 113),
             "waiting-status" => {
                 let mut bad = result;
                 bad["status"] = json!({"private": PRIVATE_STDERR_CANARY});
@@ -1248,10 +1143,6 @@ fn private_convolution_diagnostics_do_not_echo_captured_data() {
     for (case, category) in [
         ("memory-valid", None),
         ("memory-child-exit", Some("memory_child_failed")),
-        ("memory-missing", Some("memory_child_report_invalid")),
-        ("memory-malformed", Some("memory_child_report_invalid")),
-        ("memory-duplicate", Some("memory_child_report_invalid")),
-        ("memory-order", Some("memory_child_report_invalid")),
         ("memory-ceiling", Some("memory_ceiling_exceeded")),
         ("memory-projection", Some("memory_projection_exceeded")),
         ("memory-no-increase", Some("memory_peak_not_increased")),
@@ -1279,7 +1170,7 @@ fn private_convolution_diagnostics_do_not_echo_captured_data() {
             );
         }
         for private in [
-            MEMORY_REPORT_PREFIX,
+            "W2A_CONVOLVE_MEMORY ",
             PRIVATE_STDOUT_CANARY,
             PRIVATE_STDERR_CANARY,
             "7340032",
