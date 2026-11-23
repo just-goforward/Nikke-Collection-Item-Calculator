@@ -3,7 +3,7 @@ import {mkdirSync, readFileSync, readdirSync, writeFileSync, mkdtempSync, rmSync
 import {homedir,tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {account, zone, name, root, registry, client, requireThat, immutable, reserve, state, editor, recoveryGraph} from './incident-provider.mjs';
+import {account, zone, root, registry, client, requireThat, immutable, reserve, state, activeTokenId, recoveryGraph, probeRecoveryTarget, probeRecoveryGraph} from './incident-provider.mjs';
 import {repo, owner, gate, graphEnv, numeric, gh, api, pins, source, protectedEnv, localMain, verify, checkedProof, ownerClaim, approvalComment, verifyHistorical} from './incident-receipt.mjs';
 import {original, recoveryMode} from './incident-recovery-id.mjs';
 import {isDeepStrictEqual} from 'node:util';
@@ -53,52 +53,75 @@ export function bootstrapPolicy(details, tokenId, roles) {
   const p = details.policies?.[0];
   requireThat(details.id === tokenId && details.status === 'active' && details.policies?.length === 1 && p.effect === 'allow' && p.permission_groups?.length === 1 && roles.get(p.permission_groups[0].id) === 'Workers Scripts Write' && isDeepStrictEqual(p.resources,{[accountResource]:'*'}), 'owner bootstrap must be the single reviewed account-level Worker permission');
 }
-async function checkedToken(cf, reader, workerId, check=policy) {
-  const t = await cf(`${root}/tokens/verify`);
-  requireThat(t.status === 'active' && typeof t.id === 'string' && immutable.test(t.id), 'invalid account-owned credential');
-  // Group names come from this account's authenticated catalog, not the token detail's display name.
+async function permissionRoles(reader) {
+  // Group names come from the authenticated catalog, not the detail's display name.
   const groups = await reader(`${root}/tokens/permission_groups`);
   requireThat(Array.isArray(groups) && groups.every(g=>typeof g?.id === 'string' && g.id.length > 0 && typeof g.name === 'string'), 'invalid permission group catalog');
   const roles = new Map(groups.map(g=>[g.id,g.name]));
   requireThat(roles.size === groups.length,'ambiguous permission group catalog');
-  check(await reader(`${root}/tokens/${t.id}`), t.id, roles, workerId);
-  if (workerId) await editor(cf, workerId, t.id);
-  return t.id;
+  return roles;
+}
+async function checkedToken(cf, reader, workerId, check=policy) {
+  const id = await activeTokenId(cf);
+  const roles = await permissionRoles(reader);
+  check(await reader(`${root}/tokens/${id}`), id, roles, workerId);
+  return id;
 }
 async function checkedEditor(cf, reader, workerId, tag, notBefore) {
   const id = await checkedToken(cf,reader,workerId);
   await state(cf,workerId,tag,true,notBefore);
   return id;
 }
+async function enrolledGraphId(cf, expected) {
+  const id = await activeTokenId(cf);
+  requireThat(id === expected,'incorrect enrolled reader');
+  return id;
+}
 async function checkedRecoveryGraph(cf, expected) {
-  const t = await cf(`${root}/tokens/verify`);
-  requireThat(t.status === 'active' && immutable.test(expected) && t.id === expected,'incorrect enrolled reader');
+  await enrolledGraphId(cf,expected);
   return recoveryGraph(cf);
 }
 
 // Diagnostic only. No writable client, filesystem journal, receipt, or workflow run.
 export async function recoveryPreflight(editorToken, managementToken, graphToken, graphId, send=fetch) {
-  let stage = 'credentials', gets = 0;
-  const read = (role,token) => {
-    const get = client(token,send);
-    return path => {
-      // Only fixed labels reach stderr, never a URL, Worker/token ID, payload or provider message.
-      const leaf = path.split('?')[0].split('/').at(-1);
-      const label = ['verify','permission_groups','workers','subdomain','schedules','versions','deployments','previews','secrets','zones','routes','domains','projects'].includes(leaf)
-        ? leaf : role === 'management' ? 'token-policy' : leaf === original.workerId ? 'reserved-id' : path === `${registry}/${name}` ? 'reserved-name' : 'resource-detail';
-      stage = `${role}/${label}`;
-      gets++;
-      return get(path);
-    };
+  const target = ['reserved-id','reserved-name','subdomain','schedules','versions','deployments','secrets'];
+  const pending = labels=>Object.fromEntries(labels.map(label=>[label,'not-run']));
+  const matrix = {
+    editor:pending(['verify',...target]),
+    management:pending(['permission-groups','token-detail','exact-policy']),
+    graph:pending(['verify','database','projects','workers','zones','routes','domains','active-deployments','active-versions',...target,'previews']),
   };
-  try {
-    await checkedEditor(read('editor',editorToken),read('management',managementToken),original.workerId,original.tag,original.notBefore);
-    await checkedRecoveryGraph(read('graph',graphToken),graphId);
-    return {editorPolicyAndState:true,graphAndPreviews:true,gets};
-  } catch (e) {
-    const status = /^provider GET HTTP (\d{3}); no retry$/.exec(e?.message)?.[1];
-    throw Error(`Read-only recovery preflight failed at ${stage}${status ? ` (HTTP ${status})` : ''}; no approval or write.`);
+  let gets = 0;
+  const reader = token=>{
+    const get = client(token,send); // no POST capability
+    return path=>{ gets++; return get(path); };
+  };
+  const phases = row=>async(label,check)=>{
+    requireThat(Object.hasOwn(row,label),'unknown diagnostic phase');
+    try {
+      const result = await check();
+      if (row[label] === 'not-run') row[label] = 'ok';
+      return result;
+    } catch (e) {
+      // Aggregate fan-out under fixed keys; never replace the first failure
+      // with a later success, and never expose provider text, URLs or IDs.
+      const status = /^provider GET HTTP ([1-5]\d\d); no retry$/.exec(e?.message)?.[1];
+      if (['not-run','ok'].includes(row[label])) row[label] = status ? `http-${status}` :
+        e?.message === 'provider GET transport failure; no retry' ? 'transport' : 'invalid';
+    }
+  };
+  const editor = reader(editorToken), management = reader(managementToken), graph = reader(graphToken);
+  const e = phases(matrix.editor), m = phases(matrix.management), g = phases(matrix.graph);
+  const id = await e('verify',()=>activeTokenId(editor));
+  const roles = await m('permission-groups',()=>permissionRoles(management));
+  if (id) {
+    const detail = await m('token-detail',()=>management(`${root}/tokens/${id}`));
+    if (detail != null && roles) await m('exact-policy',()=>policy(detail,id,roles,original.workerId));
   }
+  if (matrix.management['exact-policy'] === 'ok') await probeRecoveryTarget(editor,e);
+  if (await g('verify',()=>enrolledGraphId(graph,graphId))) await probeRecoveryGraph(graph,g);
+  const passed = row=>Object.values(row).every(status=>status === 'ok');
+  return {editorPolicyAndState:passed(matrix.editor) && passed(matrix.management),graphAndPreviews:passed(matrix.graph),gets,matrix};
 }
 async function main([mode, run, ...extra]) {
   requireThat(!process.env.GITHUB_ACTIONS && !process.env.CI && !extra.length && ['enroll-graph','reserve','authorize','authorize-recovery','preflight-recovery'].includes(mode), 'local owner command required');
@@ -107,7 +130,9 @@ async function main([mode, run, ...extra]) {
     requireThat(run === undefined,'read-only preflight takes no arguments');
     verifyHistorical();
     const graphId = gh('variable','get','INCIDENT_GRAPH_TOKEN_ID','--env',graphEnv,'--repo',repo);
-    console.log(JSON.stringify(await recoveryPreflight(privateInput(0),privateInput(3),privateInput(4),graphId)));
+    const report = await recoveryPreflight(privateInput(0),privateInput(3),privateInput(4),graphId);
+    console.log(JSON.stringify(report));
+    if (!report.editorPolicyAndState || !report.graphAndPreviews) process.exitCode = 1;
     return;
   }
   const envId = protectedEnv(gate); protectedEnv(graphEnv);

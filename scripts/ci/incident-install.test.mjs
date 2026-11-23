@@ -20,7 +20,7 @@ function controls(change=initial) {
   const cf=(role)=>async(path,body)=>{
     calls.push({role,path,body});
     const at=change({role,path,body,worker,version}); if (Object.hasOwn(at,'value')) return at.value;
-    if(path===`${registry}?per_page=100`) return role==='editor'?[worker]:[...others,...(worker?[worker]:[])];
+    if(path===`${registry}?per_page=100`){assert.notEqual(role,'editor','Editor must never enumerate account Workers');return [...others,...(worker?[worker]:[])];}
     if(path===registry && body){assert.equal(role,'owner');assert.deepEqual(body,{name,subdomain:{enabled:false,previews_enabled:false},logpush:false,observability:{enabled:false},tags:[tag]});worker={...body,id,created_on:new Date(now+1).toISOString(),deployed_on:null,references:{workers:[],domains:[],dispatch_namespace_outbounds:[],durable_objects:[],queues:[]}};return worker;}
     if(path===`${registry}/${id}` || path===`${registry}/${name}`) return worker;
     if(path.endsWith('/subdomain')) return worker.subdomain;
@@ -67,10 +67,11 @@ test('graph refuses missing, partial, drifted, exposed or colliding inventory',a
   const t=controls(({path})=>path.endsWith('/previews?per_page=1')?{value:[{}]}:{});await assert.rejects(noPreviews(t.cf('graph'),id));
 });
 test('Editor readbacks independently fail closed before any upload',async()=>{
-  for(const fault of ['scope','token','uuid','tag','preview','cron','keys','queue','versions','deployments','digest']) {
+  for(const fault of ['target-denied','target-name','token','uuid','tag','preview','cron','keys','queue','versions','deployments','digest']) {
     const t=controls(({role,path,worker})=>{
       if(role!=='editor')return {};
-      if(fault==='scope' && path===`${registry}?per_page=100`)return {value:[worker,{name:'another'}]};
+      if(fault==='target-denied' && path===`${registry}/${id}`)throw Error('provider GET HTTP 403; no retry');
+      if(fault==='target-name' && path===`${registry}/${id}`)return {value:{...worker,name:'another'}};
       if(fault==='token' && path.endsWith('/tokens/verify'))return {value:{status:'active',id}};
       if(fault==='uuid' && path===`${registry}/${name}`)return {value:{...worker,id:tokenId}};
       if(fault==='tag' && path===`${registry}/${id}`)return {value:{...worker,tags:[]}};

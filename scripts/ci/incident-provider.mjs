@@ -105,65 +105,105 @@ export async function inventory(cf) {
   return rows;
 }
 export async function absent(cf) { requireThat(!(await inventory(cf)).some(w=>w.name === name), 'Worker already exists; do not adopt'); }
-export async function ingress(cf) {
-  const zones = list(await cf(`/zones?account.id=${account}&per_page=50`));
-  requireThat(zones.length === 1 && zones[0].id === zone && zones[0].account?.id === account, 'zone inventory differs from reviewed account');
-  const routes = list(await cf(`/zones/${zone}/workers/routes`));
-  requireThat(!routes.some(r => r.script === name), 'Worker route exists');
-  requireThat(!list(await cf(`${workers}/domains?service=${name}`)).length, 'Worker domain exists');
-  return routes;
-}
-export async function graph(cf, reservedId) {
-  const database = await cf(`${root}/d1/database/${db}`);
-  requireThat(database.uuid === db && database.name === name, 'incorrect incident database');
-  requireThat(!list(await cf(`${root}/pages/projects?per_page=1`)).length, 'Pages inventory changed');
-  const all = await inventory(cf), target = all.find(w=>w.name === name);
-  requireThat(reservedId ? target?.id === reservedId : !target, 'account inventory conflicts with phase');
-  const routes = await ingress(cf);
+const strict = (_phase, check) => check();
+// Only the read-only diagnostic collects failures. graph() always uses strict
+// execution: a failed check cannot produce a digest for a receipt.
+async function readTopology(cf, reservedId, run) {
+  await run('database',async()=>{
+    const database = await cf(`${root}/d1/database/${db}`);
+    requireThat(database.uuid === db && database.name === name, 'incorrect incident database');
+  });
+  await run('projects',async()=>requireThat(!list(await cf(`${root}/pages/projects?per_page=1`)).length, 'Pages inventory changed'));
+  const all = await run('workers',async()=>{
+    const rows = await inventory(cf), target = rows.find(w=>w.name === name);
+    requireThat(reservedId ? target?.id === reservedId : !target, 'account inventory conflicts with phase');
+    return rows;
+  });
+  await run('zones',async()=>{
+    const zones = list(await cf(`/zones?account.id=${account}&per_page=50`));
+    requireThat(zones.length === 1 && zones[0].id === zone && zones[0].account?.id === account, 'zone inventory differs from reviewed account');
+  });
+  const routes = await run('routes',async()=>{
+    const rows = list(await cf(`/zones/${zone}/workers/routes`));
+    requireThat(!rows.some(r=>r.script === name), 'Worker route exists');
+    return rows;
+  });
+  await run('domains',async()=>requireThat(!list(await cf(`${workers}/domains?service=${name}`)).length, 'Worker domain exists'));
   const snapshot = reservedId === original.workerId ? [] : null;
-  for (const w of all) {
-    if (w === target) continue;
-    const {deployments} = await cf(`${workers}/scripts/${w.name}/deployments?per_page=1`);
-    requireThat(list(deployments).length === 1 && list(deployments[0].versions).length > 0, 'active deployment missing');
-    if (snapshot) {
+  for (const w of all ?? []) {
+    if (w.name === name) continue;
+    const versions = await run('active-deployments',async()=>{
+      const {deployments} = await cf(`${workers}/scripts/${w.name}/deployments?per_page=1`);
+      requireThat(list(deployments).length === 1 && list(deployments[0].versions).length > 0, 'active deployment missing');
       const d = deployments[0];
-      requireThat(versionId.test(d.id) && d.versions.every(v=>Number.isFinite(v.percentage) && v.percentage > 0 && v.percentage <= 100),'unbound deployment identity or traffic');
-      snapshot.push(JSON.stringify([w.id,w.name,d.id,d.versions.map(v=>JSON.stringify([v.version_id,v.percentage])).sort()]));
-    }
-    for (const {version_id} of deployments[0].versions) {
-      requireThat(versionId.test(version_id), 'invalid active version ID');
+      requireThat(d.versions.every(v=>typeof v?.version_id === 'string' && versionId.test(v.version_id)), 'invalid active version ID');
+      if (snapshot) {
+        requireThat(versionId.test(d.id) && d.versions.every(v=>Number.isFinite(v.percentage) && v.percentage > 0 && v.percentage <= 100),'unbound deployment identity or traffic');
+        snapshot.push(JSON.stringify([w.id,w.name,d.id,d.versions.map(v=>JSON.stringify([v.version_id,v.percentage])).sort()]));
+      }
+      return d.versions;
+    });
+    for (const {version_id} of versions ?? []) await run('active-versions',async()=>{
       const v = await cf(`${registry}/${w.id}/versions/${version_id}`);
       requireThat(v.id === version_id && list(v.bindings).every(b=>typeof b?.type === 'string' && b.type.length > 0 &&
         (b.type !== 'ratelimit' || (typeof b.namespace_id === 'string' && /^(0|[1-9][0-9]*)$/.test(b.namespace_id) && b.namespace_id !== namespace))), 'namespace collision or unknown version');
-    }
+    });
   }
-  // The other graph dimensions are fixed by the predicates above. Bind the
-  // variable edges (including immutable versions, hence their bindings) across gates.
-  if (snapshot) return digest(JSON.stringify([target.id,target.name,snapshot.sort(),routes.map(r=>JSON.stringify([r.id,r.pattern,r.script])).sort()]));
+  return {snapshot,routes};
 }
-export async function state(cf, id, tag, empty, notBefore) {
-  requireThat(immutable.test(id), 'invalid immutable ID');
+export async function graph(cf, reservedId) {
+  const {snapshot,routes} = await readTopology(cf,reservedId,strict);
+  if (snapshot) return digest(JSON.stringify([reservedId,name,snapshot.sort(),routes.map(r=>JSON.stringify([r.id,r.pattern,r.script])).sort()]));
+}
+async function readState(cf, id, tag, empty, notBefore, run) {
+  requireThat(typeof id === 'string' && immutable.test(id), 'invalid immutable ID');
   const historical = id === original.workerId && tag === original.tag && notBefore === original.notBefore;
-  for (const key of [id,name]) {
+  for (const [phase,key] of [['reserved-id',id],['reserved-name',name]]) await run(phase,async()=>{
     const w = await cf(`${registry}/${key}`);
     privateWorker(w,id,tag,empty,notBefore);
     if (historical) {
       requireThat(w.created_on === original.createdOn && (!empty || w.updated_on === original.createdOn),'historical creation or unchanged reservation mismatch');
       requireThat(list(w.tail_consumers).length === 0,'historical tail consumers not proven empty');
     }
-  }
-  const sub = await cf(`${script}/subdomain`);
-  requireThat(sub.enabled === false && sub.previews_enabled === false, 'HTTP ingress not disabled');
-  const schedules = await cf(`${script}/schedules`);
-  requireThat(!list(schedules.schedules ?? schedules).length, 'schedule exists');
-  const versions = list(await cf(`${registry}/${id}/versions?per_page=100`));
-  const {deployments} = await cf(`${script}/deployments?per_page=100`);
-  requireThat(versions.length === (empty ? 0 : 1) && list(deployments).length === versions.length, 'unexpected version or deployment');
-  // A zero-length, complete UUID version inventory proves absence of version bindings
-  // (including secrets and aliases); a classic 404 alone proves nothing.
-  try { requireThat(!list(await cf(`${script}/secrets`)).length,'secret bindings exist'); }
-  catch (e) { if (!(historical && empty && e instanceof MissingClassicScript)) throw e; }
+  });
+  await run('subdomain',async()=>{
+    const sub = await cf(`${script}/subdomain`);
+    requireThat(sub.enabled === false && sub.previews_enabled === false, 'HTTP ingress not disabled');
+  });
+  await run('schedules',async()=>{
+    const schedules = await cf(`${script}/schedules`);
+    requireThat(!list(schedules.schedules ?? schedules).length, 'schedule exists');
+  });
+  const count = empty ? 0 : 1;
+  const versions = await run('versions',async()=>{
+    const rows = list(await cf(`${registry}/${id}/versions?per_page=100`));
+    requireThat(rows.length === count,'unexpected version count');
+    return rows;
+  });
+  const deployments = await run('deployments',async()=>{
+    const {deployments} = await cf(`${script}/deployments?per_page=100`);
+    requireThat(list(deployments).length === count,'unexpected deployment count');
+    return deployments;
+  });
+  // The narrowly recognized classic 404 is not proof by itself; all checks,
+  // including the complete, empty UUID version inventory, are mandatory.
+  await run('secrets',async()=>{
+    try { requireThat(!list(await cf(`${script}/secrets`)).length,'secret bindings exist'); }
+    catch (e) { if (!(historical && empty && e instanceof MissingClassicScript)) throw e; }
+  });
   return {versions, deployments};
+}
+export function state(cf, id, tag, empty, notBefore) {
+  return readState(cf,id,tag,empty,notBefore,strict);
+}
+// Read-only probes deliberately return neither a graph digest nor a receipt.
+export async function probeRecoveryTarget(cf, run) {
+  await readState(cf,original.workerId,original.tag,true,original.notBefore,run);
+}
+export async function probeRecoveryGraph(cf, run) {
+  await readTopology(cf,original.workerId,run);
+  await probeRecoveryTarget(cf,run);
+  await run('previews',()=>noPreviews(cf,original.workerId));
 }
 export async function noPreviews(cf, id) {
   requireThat(immutable.test(id) && !list(await cf(`${registry}/${id}/previews?per_page=1`)).length, 'Worker preview exists');
@@ -185,11 +225,10 @@ export async function reserve(cf, tag, notBefore, spend) {
   await state(cf, w.id, tag, true, notBefore);
   return w.id;
 }
-export async function editor(cf, id, tokenId) {
+export async function activeTokenId(cf) {
   const t = await cf(`${root}/tokens/verify`);
-  requireThat(t.status === 'active' && immutable.test(tokenId) && t.id === tokenId, 'not the owner-approved account token');
-  const scope = list(await cf(`${registry}?per_page=100`));
-  requireThat(scope.length === 1 && scope[0].id === id && scope[0].name === name, 'editor visible Worker scope is not the single reserved target');
+  requireThat(t.status === 'active' && typeof t.id === 'string' && immutable.test(t.id), 'invalid account-owned credential');
+  return t.id;
 }
 export function bindings(build) {
   return [{type:'d1',name:'INCIDENT_DB',id:db},{type:'ratelimit',name:'INGRESS',namespace_id:namespace,simple:{limit:60,period:60}},{type:'plain_text',name:'INCIDENT_BUILD',text:build},{type:'plain_text',name:'PUBLIC_INGRESS',text:'0'}];
@@ -197,9 +236,9 @@ export function bindings(build) {
 export async function install(cf, receipt, module, checkAuthority) {
   const {workerId:id, editorId, tag, build, moduleHash} = receipt;
   requireThat(digest(module) === moduleHash && module.length > 0 && module.length < 512*1024, 'module differs from reviewed bytes');
-  await editor(cf, id, editorId);
+  requireThat(await activeTokenId(cf) === editorId, 'not the owner-approved account token');
   await state(cf, id, tag, true, receipt.notBefore);
-  checkAuthority();
+  await checkAuthority();
   const v = await cf(`${registry}/${id}/versions?deploy=true`, {compatibility_date:'2026-08-14',main_module:'worker.js',bindings:bindings(build),modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:module.toString('base64')}]});
   requireThat(versionId.test(v.id), 'ambiguous version response; do not retry');
   await installed(cf, receipt, v.id);
