@@ -126,8 +126,13 @@ test('beta registry: observed wire shape proves a complete inventory, not just H
   const path=`${registry}?per_page=100`, fixture=controls(), rows=await fixture.cf('graph')(path);
   const info={page:1,per_page:100,count:20,total_count:20};
   const wire={result:rows,success:true,errors:null,messages:null,result_info:info};
-  const read=(delta={})=>client('synthetic',async()=>Response.json({...wire,...delta}));
-  const run=delta=>graph(p=>p===path?read(delta)(p):fixture.cf('graph')(p));
+  const run=delta=>graph(client('synthetic',async(url,{method})=>{
+    assert.equal(method,'GET');
+    const endpoint=url.slice('https://api.cloudflare.com/client/v4'.length);
+    if(endpoint===path)return Response.json({...wire,...delta});
+    const result=await fixture.cf('graph')(endpoint);
+    return Response.json({success:true,errors:[],messages:[],result});
+  }));
   await run({});await run({errors:[],messages:[]});
   for(const delta of [{success:false},{errors:[{code:1234}]},{errors:undefined},{messages:undefined},{messages:[]},{errors:{}},
     {result:null},{result:{}},{result_info:null},{result_info:undefined},
@@ -138,13 +143,17 @@ test('beta read variant is bounded by method, path, list completeness and resour
   const wire={success:true,errors:null,messages:null}, cf=(body,postPath)=>client('synthetic',async()=>Response.json({...wire,...body}),postPath);
   for(const [suffix,per_page] of [['versions?per_page=100',100],['previews?per_page=1',1]]) {
     const p=`${registry}/${id}/${suffix}`, result_info={page:1,per_page,count:0,total_count:0};
-    assert.deepEqual(await cf({result:[],result_info})(p),[]);
-    for(const extra of [{total_count:1},{page:2},{count:1}]) await assert.rejects(cf({result:[],result_info:{...result_info,...extra}})(p));
+    await assert.rejects(cf({result:[],result_info})(p));
+    const canonical={result:[],result_info,errors:[],messages:[]};
+    assert.deepEqual(await cf(canonical)(p),[]);
+    for(const extra of [{total_count:1},{page:2},{count:1}]) await assert.rejects(cf({...canonical,result_info:{...result_info,...extra}})(p));
   }
   for(const p of [`${registry}/${name}`,`${registry}/${id}`,`${registry}/${id}/versions/${vid}`,`${registry}/${id}/versions/${vid}?include=modules`]){
-    assert.deepEqual(await cf({result:{id}})(p),{id});
-    for(const result of [[],null,''])await assert.rejects(cf({result})(p));
-    await assert.rejects(cf({result:{id},result_info:{}})(p));
+    await assert.rejects(cf({result:{id}})(p));
+    const canonical={errors:[],messages:[],result:{id}};
+    assert.deepEqual(await cf(canonical)(p),{id});
+    for(const result of [[],null,''])await assert.rejects(cf({...canonical,result})(p));
+    await assert.rejects(cf({...canonical,result_info:{}})(p));
   }
   for(const p of [`${root}/tokens/verify`,`${registry}/${id}/versions/latest`,`${registry}?per_page=10`])await assert.rejects(cf({result:[]})(p));
   for(const p of [registry,`${registry}/${id}/versions?deploy=true`])await assert.rejects(cf({result:{id}},p)(p,{}));

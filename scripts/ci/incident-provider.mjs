@@ -11,8 +11,7 @@ export const immutable = /^[a-f0-9]{32}$/, versionId = /^[a-f0-9]{8}(?:-[a-f0-9]
 export const digest = bytes => hash('sha256', bytes);
 export function requireThat(ok, message) { if (!ok) throw Error(message); }
 const list = value => { requireThat(Array.isArray(value), 'missing provider list'); return value; };
-// The beta registry returns explicit null diagnostics on a successful read. Limit
-// that wire variant to the reviewed GET contracts; never infer success on a write.
+// Only the registry list has been observed to return explicit null diagnostics.
 const versionRead = new RegExp(`^/[0-9a-f]{32}/versions/${versionId.source.slice(1,-1)}(?:\\?include=modules)?$`);
 function betaRead(path) {
   if (!path.startsWith(registry)) return;
@@ -21,8 +20,8 @@ function betaRead(path) {
   if (/^\/[0-9a-f]{32}\/previews\?per_page=1$/.test(suffix)) return 1;
   if (suffix === `/${name}` || /^\/[0-9a-f]{32}$/.test(suffix) || versionRead.test(suffix)) return 0;
 }
-function decodeBetaRead(value, perPage) {
-  requireThat(value?.success === true && ((value.errors === null && value.messages === null) ||
+function decodeBetaRead(value, perPage, registryList) {
+  requireThat(value?.success === true && ((registryList && value.errors === null && value.messages === null) ||
     (Array.isArray(value.errors) && !value.errors.length && Array.isArray(value.messages))), 'provider result not unambiguously successful');
   if (perPage) {
     const rows = list(value.result), info = value.result_info;
@@ -47,7 +46,7 @@ export function client(token, send = fetch, postPath = null) {
     requireThat(response.ok, `provider ${method} HTTP ${response.status}; no retry`);
     let value; try { value = await response.json(); } catch { throw Error('ambiguous provider response; no retry'); }
     const beta = method === 'GET' ? betaRead(path) : undefined;
-    if (beta !== undefined) return decodeBetaRead(value, beta);
+    if (beta !== undefined) return decodeBetaRead(value, beta, path === `${registry}?per_page=100`);
     requireThat(value?.success === true && value.result != null && Array.isArray(value.errors) && !value.errors.length, 'provider result not unambiguously successful');
     if (value.result_info) {
       const {page, total_pages, total_count, count} = value.result_info;
