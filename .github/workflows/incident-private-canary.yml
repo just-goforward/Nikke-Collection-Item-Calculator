@@ -29,7 +29,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
-      - run: bash scripts/ci/setup-pnpm.sh && pnpm install --frozen-lockfile --ignore-scripts
+      - run: bash scripts/ci/setup-pnpm.sh
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify reviewed window and issue restricted permit
         env:
           INCIDENT_CANARY_END: ${{ inputs.end_epoch }}
