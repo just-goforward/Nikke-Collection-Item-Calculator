@@ -20,7 +20,7 @@ function controls(change=initial) {
   const cf=(role)=>async(path,body)=>{
     calls.push({role,path,body});
     const at=change({role,path,body,worker,version}); if (Object.hasOwn(at,'value')) return at.value;
-    if(path===`${registry}?per_page=100`) return role==='editor'?[worker]:[...others,...(worker?[worker]:[])];
+    if(path===`${registry}?per_page=100`){assert.notEqual(role,'editor','Editor must never enumerate account Workers');return [...others,...(worker?[worker]:[])];}
     if(path===registry && body){assert.equal(role,'owner');assert.deepEqual(body,{name,subdomain:{enabled:false,previews_enabled:false},logpush:false,observability:{enabled:false},tags:[tag]});worker={...body,id,created_on:new Date(now+1).toISOString(),deployed_on:null,references:{workers:[],domains:[],dispatch_namespace_outbounds:[],durable_objects:[],queues:[]}};return worker;}
     if(path===`${registry}/${id}` || path===`${registry}/${name}`) return worker;
     if(path.endsWith('/subdomain')) return worker.subdomain;
@@ -67,10 +67,11 @@ test('graph refuses missing, partial, drifted, exposed or colliding inventory',a
   const t=controls(({path})=>path.endsWith('/previews?per_page=1')?{value:[{}]}:{});await assert.rejects(noPreviews(t.cf('graph'),id));
 });
 test('Editor readbacks independently fail closed before any upload',async()=>{
-  for(const fault of ['scope','token','uuid','tag','preview','cron','keys','queue','versions','deployments','digest']) {
+  for(const fault of ['target-denied','target-name','token','uuid','tag','preview','cron','keys','queue','versions','deployments','digest']) {
     const t=controls(({role,path,worker})=>{
       if(role!=='editor')return {};
-      if(fault==='scope' && path===`${registry}?per_page=100`)return {value:[worker,{name:'another'}]};
+      if(fault==='target-denied' && path===`${registry}/${id}`)throw Error('provider GET HTTP 403; no retry');
+      if(fault==='target-name' && path===`${registry}/${id}`)return {value:{...worker,name:'another'}};
       if(fault==='token' && path.endsWith('/tokens/verify'))return {value:{status:'active',id}};
       if(fault==='uuid' && path===`${registry}/${name}`)return {value:{...worker,id:tokenId}};
       if(fault==='tag' && path===`${registry}/${id}`)return {value:{...worker,tags:[]}};
@@ -115,13 +116,21 @@ test('enrollment validates authenticated policy, not the token name or a success
   const scoped=(groups,resources)=>({effect:'allow',permission_groups:groups.map(id=>({id})),resources});
   const act=`com.cloudflare.api.account.${account}`, cz='com.cloudflare.api.account.zone.';
   const check=(policies,workerId)=>policy({id:tokenId,status:'active',policies},tokenId,roles,workerId);
-  const onlyWorker=scoped(['e'],{[act]:{[`com.cloudflare.api.account.worker.${id}`]:'*'}});
+  const worker=`com.cloudflare.edge.worker.script.${id}`, onlyWorker=scoped(['e'],{[act]:{[worker]:'*'}});
   const bootstrap={id:tokenId,status:'active',policies:[scoped(['a'],{[act]:'*'})]};
   bootstrapPolicy(bootstrap,tokenId,roles);
   for(const policies of [[],[onlyWorker],[...bootstrap.policies,onlyWorker],[scoped(['a','d'],{[act]:'*'})],[scoped(['a'],{'com.cloudflare.api.account.*':'*'})]])assert.throws(()=>bootstrapPolicy({...bootstrap,policies},tokenId,roles));
   check([onlyWorker],id);const graphRoles=[scoped(['r','p','d'],{[act]:'*'}),scoped(['z'],{[act]:{[cz+'*']:'*'}}),scoped(['s'],{[cz+zone]:'*'})]; check(graphRoles);
-  for (const other of [scoped(['a'],{[act]:'*'}),scoped(['e'],{[act]:'*'}),scoped(['e'],{[act]:{'*':'*'}}),scoped(['e'],{[act]:{[id]:'*',[tokenId]:'*'}})])assert.throws(()=>check([other],id));
-  assert.throws(()=>check([scoped(['e'],{[act]:{[`unexpected.${id}`]:'*'}})],id));
+  for (const resources of [
+    {[act]:'*'},{[act]:{'*':'*'}},{[act]:{[worker]:true}},{[act]:{[worker]:{'*':'*'}}},
+    {'com.cloudflare.api.account.*':{[worker]:'*'}},{[`com.cloudflare.api.account.${tokenId}`]:{[worker]:'*'}},
+    {[act]:{[`com.cloudflare.edge.worker.script.${name}`]:'*'}},{[act]:{'com.cloudflare.edge.worker.script.*':'*'}},
+    {[act]:{[`com.cloudflare.api.account.worker.${id}`]:'*'}},{[act]:{[worker]:'*',sibling:'*'}},{[act]:{[worker]:'*'},sibling:'*'},
+    {[act+'.'+worker]:'*'},{[act+'.com.cloudflare.edge.worker']:{['script.'+id]:'*'}},{[act]:{'com.cloudflare.edge.worker.script':{[id]:'*'}}},
+  ]) assert.throws(()=>check([scoped(['e'],resources)],id));
+  for(const policies of [[],[onlyWorker,onlyWorker],[onlyWorker,bootstrap.policies[0]],[{...onlyWorker,effect:'deny'}],
+    ...[['e','e'],['e','r'],['a'],[],['unknown']].map(gs=>[scoped(gs,onlyWorker.resources)])]) assert.throws(()=>check(policies,id));
+  for(const invalid of [null,'',name,'*',[id]]) assert.throws(()=>check([onlyWorker],invalid));
   assert.throws(()=>check([onlyWorker],tokenId));assert.throws(()=>check([...graphRoles,scoped(['a'],{[act]:'*'})]));assert.throws(()=>check(graphRoles.slice(1)));
 });
 test('graph replays sanitized live envelopes including historical deployment pages', async()=>{

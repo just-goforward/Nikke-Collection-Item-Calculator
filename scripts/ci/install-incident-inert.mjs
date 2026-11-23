@@ -2,7 +2,7 @@
 import {readFileSync, writeFileSync, appendFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
-import {client, root, registry, requireThat, immutable, graph, recoveryGraph, noPreviews, state, install, installed, digest} from './incident-provider.mjs';
+import {client, root, registry, requireThat, immutable, graph, recoveryGraph, noPreviews, state, install, verifyInstalledGraph, digest} from './incident-provider.mjs';
 import {api, gate, graphEnv, owner, ciPins, source, intent, approved, verify, verifyHistorical, recoveryIntent} from './incident-receipt.mjs';
 import {recoveryMode} from './incident-recovery-id.mjs';
 
@@ -58,11 +58,7 @@ if (mode === 'preflight') {
     });
     appendFileSync(env.GITHUB_OUTPUT,`version=${id}\n`);
   } else {
-    const cf = await graphReader();
-    const graphDigest = await graph(cf,receipt.workerId);
-    if (route === recoveryMode) requireThat(graphDigest === receipt.graphDigest,'account graph changed since reconciliation');
-    await noPreviews(cf,receipt.workerId);
-    await installed(cf,receipt,env.INCIDENT_VERSION);
+    await verifyInstalledGraph(await graphReader(),receipt,env.INCIDENT_VERSION,route);
     output('installed.json',{...receipt,phase:'private-installed',version:env.INCIDENT_VERSION});
   }
 } else throw Error('unknown installer phase');
