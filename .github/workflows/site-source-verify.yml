@@ -166,100 +166,32 @@ jobs:
           mkdir -p .artifacts
           node scripts/build-root-candidate.mjs "$RUNNER_TEMP/root-source"
           node --input-type=module -e 'import assert from "node:assert/strict";import fs from "node:fs";const p=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/root-source/root-assets.json"));assert.equal(p.status,"ISOLATED_LOCAL_ROOT_CANDIDATE");assert.equal(p.productionDeployable,false);assert.equal(p.conditionalJoint.enrolled,false)'
-          node --input-type=module <<'JS'
-          import { execFileSync } from 'node:child_process';
-          import { readFileSync } from 'node:fs';
-          import { createHash } from 'node:crypto';
-          import { SERVICE_H14_BUILD as built } from './src/serviceH14/generated/build.ts';
-          const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-          const committed = file => execFileSync('git', ['show', `HEAD:${file}`], { maxBuffer: 16 * 1024 * 1024 });
-          const source = 'src/serviceH14/generated/build.ts';
-          const text = committed(source).toString('utf8');
-          const expected = JSON.parse(text.slice(text.indexOf(' = {') + 3, text.lastIndexOf(' as const;')));
-          for (const field of ['codeHash', 'nativeSourceHash', 'exactWasmHash'])
-            console.log(field, expected[field], built[field]);
-          const actual = new Map(built.sourceManifest.map(row => [row.path, row.sha256]));
-          for (const row of expected.sourceManifest) {
-            if (actual.get(row.path) !== row.sha256) console.log('changed-input', row.path, row.sha256, actual.get(row.path) ?? 'absent');
-            actual.delete(row.path);
-          }
-          for (const [path, digest] of actual) {
-            // A generated Wasm name is public. Do not expose unexpected runner paths.
-            console.log('additional-input', /^public\/wasm\/service-fused-h14-[a-f0-9]{64}\.wasm$/.test(path) ? path : hash(path), digest);
-          }
-          for (const path of ['shared/generated/certifiedEngineBuild.ts', 'src/serviceH14/generated/native.json', source])
-            console.log('generated-file', path, hash(committed(path)), hash(readFileSync(path)));
-          if (expected.exactWasmHash !== built.exactWasmHash) {
-            // Compare section payloads without publishing binary contents or embedded strings.
-            const sections = digest => {
-              const wasm = readFileSync(`public/wasm/service-fused-h14-${digest}.wasm`);
-              const out = [];
-              for (let at = 8; at < wasm.length;) {
-                const id = wasm[at++];
-                let length = 0, shift = 0, byte;
-                do { byte = wasm[at++]; length += (byte & 127) * 2 ** shift; shift += 7; } while (byte & 128);
-                out.push([id, hash(wasm.subarray(at, at + length))]);
-                at += length;
-              }
-              return out;
-            };
-            for (const [label, digest] of [['committed', expected.exactWasmHash], ['rebuilt', built.exactWasmHash]])
-              console.log('wasm-sections', label, JSON.stringify(sections(digest)));
-          }
-          JS
-          node --input-type=module <<'COMPILER'
-          import { readFileSync, readdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
-          import { tmpdir } from 'node:os';
-          import { join, dirname } from 'node:path';
-          import { execFileSync } from 'node:child_process';
-          import { createHash } from 'node:crypto';
-          const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-          const run = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/root-source/root-assets.json`)).run;
-          const stage = readdirSync(run).find(p => p.startsWith('native-build.'));
-          const cmd = JSON.parse(readFileSync(join(run, stage, 'command.json')));
-          const {executable: cargo, env, cwd, args} = cmd, rustc = env.RUSTC;
-          const invoke = (exe, argv) => execFileSync(exe, argv, {env, cwd, encoding:'utf8'});
-          const version = invoke(rustc, ['-vV']);
-          const host = /^host: ([\w-]+)$/m.exec(version)[1];
-          const sysroot = invoke(rustc, ['--print','sysroot']).trim();
-          const lld = join(sysroot, 'lib/rustlib', host, 'bin/rust-lld');
-          for (const file of [rustc, cargo, lld]) console.log('compiler-file', file.split('/').pop(), hash(readFileSync(file)));
-          console.log('compiler-host', host, /^LLVM version: ([\d.]+)$/m.exec(version)[1]);
-          const rustlibs = join(sysroot, 'lib/rustlib/wasm32-unknown-unknown/lib');
-          console.log('target-sysroot', hash(readdirSync(rustlibs).sort().map(file => hash(readFileSync(join(rustlibs,file)))).join('\n')));
-          for (let path=cwd;;path=dirname(path)) {
-            for (const name of ['config','config.toml']) if (existsSync(join(path,'.cargo',name)))
-              console.log('ancestor-cargo-config',name,hash(readFileSync(join(path,'.cargo',name))));
-            if (path===dirname(path)) break;
-          }
-          for (const name of ['config','config.toml']) if (existsSync(join(env.CARGO_HOME,name)))
-            console.log('home-cargo-config',name,hash(readFileSync(join(env.CARGO_HOME,name))));
-          console.log('remap-flags', hash(env.CARGO_ENCODED_RUSTFLAGS.replaceAll(cwd,'<checkout>').replaceAll(env.CARGO_HOME,'<cargo>')));
-          const features = invoke(cargo,['tree','--offline','--locked','--manifest-path','rust/service-h14/Cargo.toml','--target','wasm32-unknown-unknown','-e','features','--format','{p} {f}']).replaceAll(cwd,'<checkout>');
-          console.log('feature-graph',hash(features));
-          const temp = mkdtempSync(join(tmpdir(),'root-repro-'));
-          try {
-            for (const [label,profile] of [['baseline',{}],['single-cgu', {CARGO_PROFILE_RELEASE_CODEGEN_UNITS:'1',CARGO_PROFILE_RELEASE_STRIP:'symbols'}]]) {
-              const target = join(temp,label);
-              const {spawnSync} = await import('node:child_process');
-              const child = spawnSync(cargo,[...args,'-vv'],{env:{...env,...profile,CARGO_TARGET_DIR:target},cwd,encoding:'utf8',maxBuffer:16*1024*1024,timeout:240000});
-              if (child.error || child.status !== 0) throw Error('compiler comparison failed: '+label);
-              const units=[];
-              for (const line of child.stderr.split('\n')) {
-                const name = / --crate-name (\w+)/.exec(line)?.[1], metadata = / -C metadata=([0-9a-f]+)/.exec(line)?.[1];
-                if (name && metadata) units.push([line.includes(' --target wasm32-unknown-unknown')?'target':'host',name,metadata]);
-              }
-              console.log('crate-identities',label,JSON.stringify(units.sort()));
-              const wasm = readFileSync(join(target,'wasm32-unknown-unknown/release/certified_wasm.wasm'));
-              console.log('isolated-wasm',label,hash(wasm));
-            }
-          } finally { rmSync(temp,{recursive:true,force:true}); }
-          COMPILER
           test -z "$(git status --porcelain --untracked-files=all)"
-      - name: Validate the single public WASM for PR 79 behavioral review
-        id: wasm_review
-        if: failure() && github.event_name == 'pull_request' && github.event.pull_request.number == 79
+
+  native-wasm-review:
+    name: Standalone public WASM comparison (PR 79 only)
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 79
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - run: bash scripts/ci/setup-pnpm.sh
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Compile public solver only (no Site build or release inputs)
         run: |
+          rustup toolchain install 1.99.1-x86_64-unknown-linux-gnu --profile minimal --target wasm32-unknown-unknown
+          cargo +1.99.1 fetch --locked --manifest-path rust/service-h14/Cargo.toml
+          mkdir -p .artifacts
+          export SERVICE_H14_RUN="$(mktemp -d "$PWD/.artifacts/service-h14-run.XXXXXXXX")"
+          node scripts/service-h14-native-build.ts > "$SERVICE_H14_RUN/native.json"
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
           import { readFileSync, lstatSync } from 'node:fs';
@@ -275,7 +207,6 @@ jobs:
           console.log('review-wasm', path, bytes.length, hash);
           JS
       - name: Retain only validated review WASM for one day
-        if: failure() && steps.wasm_review.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: review-wasm-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
