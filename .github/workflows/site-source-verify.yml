@@ -207,6 +207,54 @@ jobs:
               console.log('wasm-sections', label, JSON.stringify(sections(digest)));
           }
           JS
+          node --input-type=module <<'COMPILER'
+          import { readFileSync, readdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
+          import { tmpdir } from 'node:os';
+          import { join, dirname } from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+          const run = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/root-source/root-assets.json`)).run;
+          const stage = readdirSync(run).find(p => p.startsWith('native-build.'));
+          const cmd = JSON.parse(readFileSync(join(run, stage, 'command.json')));
+          const {executable: cargo, env, cwd, args} = cmd, rustc = env.RUSTC;
+          const invoke = (exe, argv) => execFileSync(exe, argv, {env, cwd, encoding:'utf8'});
+          const version = invoke(rustc, ['-vV']);
+          const host = /^host: ([\w-]+)$/m.exec(version)[1];
+          const sysroot = invoke(rustc, ['--print','sysroot']).trim();
+          const lld = join(sysroot, 'lib/rustlib', host, 'bin/rust-lld');
+          for (const file of [rustc, cargo, lld]) console.log('compiler-file', file.split('/').pop(), hash(readFileSync(file)));
+          console.log('compiler-host', host, /^LLVM version: ([\d.]+)$/m.exec(version)[1]);
+          const rustlibs = join(sysroot, 'lib/rustlib/wasm32-unknown-unknown/lib');
+          console.log('target-sysroot', hash(readdirSync(rustlibs).sort().map(file => hash(readFileSync(join(rustlibs,file)))).join('\n')));
+          for (let path=cwd;;path=dirname(path)) {
+            for (const name of ['config','config.toml']) if (existsSync(join(path,'.cargo',name)))
+              console.log('ancestor-cargo-config',name,hash(readFileSync(join(path,'.cargo',name))));
+            if (path===dirname(path)) break;
+          }
+          for (const name of ['config','config.toml']) if (existsSync(join(env.CARGO_HOME,name)))
+            console.log('home-cargo-config',name,hash(readFileSync(join(env.CARGO_HOME,name))));
+          console.log('remap-flags', hash(env.CARGO_ENCODED_RUSTFLAGS.replaceAll(cwd,'<checkout>').replaceAll(env.CARGO_HOME,'<cargo>')));
+          const features = invoke(cargo,['tree','--offline','--locked','--manifest-path','rust/service-h14/Cargo.toml','--target','wasm32-unknown-unknown','-e','features','--format','{p} {f}']).replaceAll(cwd,'<checkout>');
+          console.log('feature-graph',hash(features));
+          const temp = mkdtempSync(join(tmpdir(),'root-repro-'));
+          try {
+            for (const [label,profile] of [['baseline',{}],['single-cgu', {CARGO_PROFILE_RELEASE_CODEGEN_UNITS:'1',CARGO_PROFILE_RELEASE_STRIP:'symbols'}]]) {
+              const target = join(temp,label);
+              const {spawnSync} = await import('node:child_process');
+              const child = spawnSync(cargo,[...args,'-vv'],{env:{...env,...profile,CARGO_TARGET_DIR:target},cwd,encoding:'utf8',maxBuffer:16*1024*1024,timeout:240000});
+              if (child.error || child.status !== 0) throw Error('compiler comparison failed: '+label);
+              const units=[];
+              for (const line of child.stderr.split('\n')) {
+                const name = / --crate-name (\w+)/.exec(line)?.[1], metadata = / -C metadata=([0-9a-f]+)/.exec(line)?.[1];
+                if (name && metadata) units.push([line.includes(' --target wasm32-unknown-unknown')?'target':'host',name,metadata]);
+              }
+              console.log('crate-identities',label,JSON.stringify(units.sort()));
+              const wasm = readFileSync(join(target,'wasm32-unknown-unknown/release/certified_wasm.wasm'));
+              console.log('isolated-wasm',label,hash(wasm));
+            }
+          } finally { rmSync(temp,{recursive:true,force:true}); }
+          COMPILER
           test -z "$(git status --porcelain --untracked-files=all)"
 
   required-source:
