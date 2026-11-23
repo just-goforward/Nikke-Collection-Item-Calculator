@@ -9,11 +9,11 @@ export const failed = Object.freeze({version:'a888efe4-145f-42ca-8378-5660f46f3b
 export const target=`${registry}/${original.workerId}`, script=`${workers}/scripts/${name}`, schedule='*/5 * * * *';
 const secrets=['ADMIN_ID','BOT_TOKEN'];
 const byName=(a,b)=>a.name.localeCompare(b.name,'en');
-export function exactVersion(v,id,hash,secretNames,main) {
+export function exactVersion(v,id,hash,secretNames,main,nonsecret=bindings(main==='private-canary.js'?successorBuild:baseline.build)) {
   check(v.id===id && versionId.test(id) && v.main_module===main && v.compatibility_date==='2026-08-14' && same(v.compatibility_flags??[],[]) && v.usage_model==='standard' && same(v.urls??[],[]) && !['assets','containers','limits','placement','package_dependencies','exports','cache_options','migration_tag'].some(k=>v[k]!=null),'unexpected version runtime or preview');
   const m=v.modules;
   check(m?.length===1 && m[0].name===main && m[0].content_type==='application/javascript+module' && typeof m[0].content_base64==='string' && digest(Buffer.from(m[0].content_base64,'base64'))===hash,'module differs from approved bytes');
-  const expected=[...bindings(main==='private-canary.js'?successorBuild:baseline.build),...secretNames.map(name=>({type:'secret_text',name}))].sort(byName);
+  const expected=[...nonsecret,...secretNames.map(name=>({type:'secret_text',name}))].sort(byName);
   const actual=v.bindings.map(b=>{if(b.type==='d1' && Object.hasOwn(b,'database_id')) {check(b.database_id===db,'database aliases differ');const {database_id,...rest}=b;return rest;}return b;}).sort(byName);
   check(same(actual,expected),'unexpected bindings (including secret names/types)');
 }

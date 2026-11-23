@@ -88,6 +88,8 @@ jobs:
         run: node --test scripts/ci/incident-install.test.mjs scripts/ci/incident-recovery.test.mjs
       - name: Check private canary one-shot delivery and fail-closed activation
         run: node --test production-incidents/private-canary.test.mjs production-incidents/private-canary.workerd.test.mjs scripts/ci/incident-canary-control.test.mjs
+      - name: Verify post-successor inactive upload only (offline)
+        run: node --test scripts/ci/incident-owner-upload-only.test.mjs
 
       - name: Select the source profile from exact bytes, never a dispatch flag
         id: profile
