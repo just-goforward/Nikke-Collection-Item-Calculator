@@ -115,13 +115,21 @@ test('enrollment validates authenticated policy, not the token name or a success
   const scoped=(groups,resources)=>({effect:'allow',permission_groups:groups.map(id=>({id})),resources});
   const act=`com.cloudflare.api.account.${account}`, cz='com.cloudflare.api.account.zone.';
   const check=(policies,workerId)=>policy({id:tokenId,status:'active',policies},tokenId,roles,workerId);
-  const onlyWorker=scoped(['e'],{[act]:{[`com.cloudflare.api.account.worker.${id}`]:'*'}});
+  const worker=`com.cloudflare.edge.worker.script.${id}`, onlyWorker=scoped(['e'],{[act]:{[worker]:'*'}});
   const bootstrap={id:tokenId,status:'active',policies:[scoped(['a'],{[act]:'*'})]};
   bootstrapPolicy(bootstrap,tokenId,roles);
   for(const policies of [[],[onlyWorker],[...bootstrap.policies,onlyWorker],[scoped(['a','d'],{[act]:'*'})],[scoped(['a'],{'com.cloudflare.api.account.*':'*'})]])assert.throws(()=>bootstrapPolicy({...bootstrap,policies},tokenId,roles));
   check([onlyWorker],id);const graphRoles=[scoped(['r','p','d'],{[act]:'*'}),scoped(['z'],{[act]:{[cz+'*']:'*'}}),scoped(['s'],{[cz+zone]:'*'})]; check(graphRoles);
-  for (const other of [scoped(['a'],{[act]:'*'}),scoped(['e'],{[act]:'*'}),scoped(['e'],{[act]:{'*':'*'}}),scoped(['e'],{[act]:{[id]:'*',[tokenId]:'*'}})])assert.throws(()=>check([other],id));
-  assert.throws(()=>check([scoped(['e'],{[act]:{[`unexpected.${id}`]:'*'}})],id));
+  for (const resources of [
+    {[act]:'*'},{[act]:{'*':'*'}},{[act]:{[worker]:true}},{[act]:{[worker]:{'*':'*'}}},
+    {'com.cloudflare.api.account.*':{[worker]:'*'}},{[`com.cloudflare.api.account.${tokenId}`]:{[worker]:'*'}},
+    {[act]:{[`com.cloudflare.edge.worker.script.${name}`]:'*'}},{[act]:{'com.cloudflare.edge.worker.script.*':'*'}},
+    {[act]:{[`com.cloudflare.api.account.worker.${id}`]:'*'}},{[act]:{[worker]:'*',sibling:'*'}},{[act]:{[worker]:'*'},sibling:'*'},
+    {[act+'.'+worker]:'*'},{[act+'.com.cloudflare.edge.worker']:{['script.'+id]:'*'}},{[act]:{'com.cloudflare.edge.worker.script':{[id]:'*'}}},
+  ]) assert.throws(()=>check([scoped(['e'],resources)],id));
+  for(const policies of [[],[onlyWorker,onlyWorker],[onlyWorker,bootstrap.policies[0]],[{...onlyWorker,effect:'deny'}],
+    ...[['e','e'],['e','r'],['a'],[],['unknown']].map(gs=>[scoped(gs,onlyWorker.resources)])]) assert.throws(()=>check(policies,id));
+  for(const invalid of [null,'',name,'*',[id]]) assert.throws(()=>check([onlyWorker],invalid));
   assert.throws(()=>check([onlyWorker],tokenId));assert.throws(()=>check([...graphRoles,scoped(['a'],{[act]:'*'})]));assert.throws(()=>check(graphRoles.slice(1)));
 });
 test('graph replays sanitized live envelopes including historical deployment pages', async()=>{

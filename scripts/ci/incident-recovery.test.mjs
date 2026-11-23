@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {account,zone,db,name,root,registry,workers,digest,client,recoveryGraph,state,install,reserve} from './incident-provider.mjs';
+import {account,zone,db,name,root,registry,workers,digest,client,recoveryGraph,state,install,reserve,verifyInstalledGraph} from './incident-provider.mjs';
+import {recoveryPreflight} from './incident-owner.mjs';
 import {original,recoveryMode} from './incident-recovery-id.mjs';
 import {checkedProof,ownerClaim,recoveryIntent,intent,approved,approvalComment,owner,gate} from './incident-receipt.mjs';
 
@@ -9,7 +10,7 @@ const {workerId:id,tag,createdOn,notBefore} = original;
 const subject = readFileSync(`production-incidents/absent-${original.run}-1.json`), old = JSON.parse(subject);
 const {created,phase,...oldPins} = old, now = created + 86400000;
 const module = Buffer.from('inert test module'), pins = {...oldPins,run:'45199999999',main:'3'.repeat(40),moduleHash:digest(module)};
-const vid = '00000000-0000-4000-8000-000000000001', editorId = 'f'.repeat(32);
+const vid = '00000000-0000-4000-8000-000000000001', editorId = 'f'.repeat(32), graphId = 'e'.repeat(32);
 const missing = {success:false,result:null,errors:[{code:10007,message:'This Worker does not exist on your account.'}],messages:[]};
 const classic = `${workers}/scripts/${name}`, details = `${registry}/${id}`, byName = `${registry}/${name}`;
 const vv = `${details}/versions?per_page=100`, dd = `${classic}/deployments?per_page=100`, previews = `${details}/previews?per_page=1`, secrets = `${classic}/secrets`;
@@ -21,14 +22,21 @@ const makeReview = r => ({state:'approved',user:{id:owner},environments:[{id:7,n
 // Replay sanitized wire shapes, not a successful response substituted for the actual 404.
 function fixture(change=()=>undefined) {
   let version; const calls=[];
-  const reader=(role='graph')=>client('synthetic',async(url,opts)=>{
+  const send=async(url,opts)=>{
+    const role = new Map([['Bearer synthetic-editor','editor'],['Bearer synthetic-graph','graph'],['Bearer synthetic-management','management']]).get(opts.headers.authorization);
+    assert(role);
     const path = new URL(url).pathname.slice('/client/v4'.length)+new URL(url).search;
     calls.push([role,opts.method,path]);
     const w = {...baseline,...(version && {deployed_on:createdOn})};
     const others = Array.from({length:20},(_,i)=>({id:i.toString(16).padStart(32,'0'),name:`other-${i}`}));
     const rows = role === 'editor' ? [w] : [w,...others];
     let body, status=200;
-    if (path === `${root}/tokens/verify`) body=ok({id:editorId,status:'active'});
+    if (role === 'management') {
+      if (path === `${root}/tokens/permission_groups`) body=ok([{id:'editor-group',name:'Individual Workers Editor'}]);
+      else if (path === `${root}/tokens/${editorId}`) body=ok({id:editorId,status:'active',policies:[{effect:'allow',permission_groups:[{id:'editor-group'}],
+        resources:{[`com.cloudflare.api.account.${account}`]:{[`com.cloudflare.edge.worker.script.${id}`]:'*'}}}]});
+      else assert.fail('management token outside policy lookup');
+    } else if (path === `${root}/tokens/verify`) body=ok({id:role==='editor'?editorId:graphId,status:'active'});
     else if (path === `${registry}?per_page=100`) body=ok(rows,page(100,rows.length));
     else if (path === details || path === byName) body=ok(w);
     else if (path === `${root}/d1/database/${db}`) body=ok({name,uuid:db});
@@ -49,9 +57,47 @@ function fixture(change=()=>undefined) {
     else assert.fail('unexpected capability');
     if (path.startsWith(registry) && opts.method === 'GET') Object.assign(body,{errors:null,messages:null});
     const altered=change(path,body,role) ?? {}; return Response.json(altered.body??body,{status:altered.status??status});
-  },role === 'editor'?`${details}/versions?deploy=true`:null);
-  return {reader,calls};
+  };
+  const reader=(role='graph')=>client(`synthetic-${role}`,send,role==='editor'?`${details}/versions?deploy=true`:null);
+  return {reader,send,calls};
 }
+
+test('owner preflight exercises the real policy and editor state with separate GET-only credentials',async()=>{
+  const run=t=>recoveryPreflight('synthetic-editor','synthetic-management','synthetic-graph',graphId,t.send);
+  const t=fixture(), result=await run(t);
+  assert.deepEqual(result,{editorPolicyAndState:true,graphAndPreviews:true,gets:t.calls.length});
+  assert(t.calls.every(([,method])=>method==='GET'));
+  const paths=role=>t.calls.filter(c=>c[0]===role).map(c=>c[2]);
+  const verify=`${root}/tokens/verify`, policy=`${root}/tokens/${editorId}`, groups=`${root}/tokens/permission_groups`, visible=`${registry}?per_page=100`;
+  const editorPaths=[verify,verify,visible,details,byName,`${classic}/subdomain`,`${classic}/schedules`,vv,dd,secrets];
+  assert.deepEqual(paths('editor'),editorPaths);
+  assert.deepEqual(paths('management'),[groups,policy]);
+  assert.deepEqual(paths('graph').filter(p=>[verify,details,byName,secrets,previews].includes(p)),[verify,details,byName,secrets,previews]);
+  for(const [role,path,label] of [
+    ['management',groups,'permission_groups'],['management',policy,'token-policy'],['editor',verify,'verify'],['editor',visible,'workers'],
+    ['editor',details,'reserved-id'],['editor',byName,'reserved-name'],['editor',`${classic}/subdomain`,'subdomain'],['editor',`${classic}/schedules`,'schedules'],
+    ['editor',vv,'versions'],['editor',dd,'deployments'],['editor',secrets,'secrets'],['graph',previews,'previews'],
+  ]) {
+    const bad=fixture((p,b,r)=>p===path && r===role ? {status:403,body:{errors:[{message:'sensitive diagnostic'}]}} : undefined);
+    await assert.rejects(run(bad),e=>e.message===`Read-only recovery preflight failed at ${role}/${label} (HTTP 403); no approval or write.`);
+    assert.deepEqual(bad.calls.at(-1),[role,'GET',path]);
+  }
+  for(const [role,path,alter,label] of [
+    ['editor',verify,b=>({...b,result:{id:editorId,status:'disabled'}}),'verify'],
+    ['management',policy,b=>({...b,result:{...b.result,id:graphId}}),'token-policy'],
+    ['management',policy,b=>({...b,result:{...b.result,status:'disabled'}}),'token-policy'],
+    ['management',groups,b=>({...b,result:[...b.result,...b.result]}),'permission_groups'],
+    ['editor',visible,b=>({...b,result_info:page(100,1,2)}),'workers'],
+    ['editor',visible,b=>({...b,result:[{id:graphId,name}],result_info:page(100,1)}),'workers'],
+    ['editor',secrets,b=>({...b,errors:[{code:10007,message:'another 404'}]}),'secrets'],
+    ['graph',verify,b=>({...b,result:{id:editorId,status:'active'}}),'verify'],
+    ['graph',previews,b=>({...b,result:[{}],result_info:page(1,1)}),'previews'],
+  ]) {
+    const bad=fixture((p,b,r)=>p===path && r===role ? {body:alter(b)} : undefined);
+    await assert.rejects(run(bad),e=>e.message.startsWith(`Read-only recovery preflight failed at ${role}/${label}`));
+    assert(bad.calls.every(([,method])=>method==='GET'));
+  }
+});
 
 test('historical signed subject bytes and fresh signed-claim contract are separate',()=>{
   assert.equal(`incident-first-${digest(subject)}`,tag); assert.equal(created,notBefore);
@@ -69,7 +115,9 @@ test('historical signed subject bytes and fresh signed-claim contract are separa
 });
 
 test('fresh read-only preflight and independent gated install; never adopt on allocation',async()=>{
-  const t=fixture(), graphDigest=await recoveryGraph(t.reader());
+  let unexpectedPreview=false;
+  const t=fixture((p,b)=>unexpectedPreview && p===previews ? {body:{...b,result:[{}],result_info:page(1,1)}} : undefined);
+  const graphDigest=await recoveryGraph(t.reader());
   assert.match(graphDigest,/^[a-f0-9]{64}$/);assert(t.calls.every(([,method])=>method==='GET'));
   assert(t.calls.some(([,m,p])=>m==='GET'&&p===secrets));
   await assert.rejects(reserve(t.reader(),tag,created,()=>assert.fail('spent')),/already exists/);
@@ -78,6 +126,11 @@ test('fresh read-only preflight and independent gated install; never adopt on al
   await assert.rejects(install(t.reader('editor'),receipt,module,()=>recheck(now+3600000)),/expired/);
   assert(t.calls.every(([,m])=>m==='GET')); assert.equal(await install(t.reader('editor'),receipt,module,()=>recheck(now)),vid);
   assert.deepEqual(t.calls.filter(([,m])=>m!=='GET'),[['editor','POST',`${details}/versions?deploy=true`]]);
+  assert.equal(t.calls.filter(([r,,p])=>r==='editor' && p===previews).length,0);
+  await verifyInstalledGraph(t.reader(),receipt,vid,recoveryMode);
+  assert(t.calls.slice(t.calls.findIndex(([,m])=>m==='POST')+1).some(([r,m,p])=>r==='graph' && m==='GET' && p===previews));
+  unexpectedPreview=true;
+  await assert.rejects(verifyInstalledGraph(t.reader(),receipt,vid,recoveryMode),/preview exists/);
 });
 
 test('classic missing-script discriminator cannot certify a different identity, nonempty or incomplete graph',async()=>{

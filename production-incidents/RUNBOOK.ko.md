@@ -38,12 +38,30 @@
 
 **Secret 증거의 범위:** [Worker secret은 바인딩](https://developers.cloudflare.com/workers/configuration/secrets/)이고 [바인딩은 버전에 속한다](https://developers.cloudflare.com/changelog/post/2025-09-03-new-workers-api/). [Version URL alias도 버전을 업로드할 때 생성한다](https://developers.cloudflare.com/workers/configuration/previews/). 이 예약의 인증된 UUID 목록에 실제로 버전이 **0개**이고 preview·배포도 0개이므로, 이 Worker에 연결된 버전 secret·alias가 없음을 알 수 있다. 계정의 Secrets Store가 비었다는 뜻이 아니다. 이것과 독립적으로 classic `/secrets`의 양성 목록은 거부한다. 이 정확한 미배포 예약에만 관찰된 `404/10007`의 정확한 오류 형태를 허용한다. 404 자체나 GET audit의 200만으로 빈 상태를 증명하지 않는다. 다른 API/ID/오류/배포 후에는 적용하지 않는다.
 
+**설치 전, 기존 자격만으로 하는 소유자 로컬 검사.** 검토한 깨끗한 checkout 루트에서 `.nvmrc`의 Node와 기존 소유자 `gh` 세션을 사용한다. 아래 셸 변수는 **값이 아니라 0600 비공개 파일 경로**다. 토큰을 입력 인수·환경 변수·로그에 넣지 않는다. 새 토큰 발급, secret 등록, gate 승인, run ID는 필요하지 않다.
+
+```sh
+set +x
+node scripts/ci/incident-owner.mjs preflight-recovery \
+  < "$editor_file" 3< "$policy_reader_file" 4< "$reader_file"
+```
+
+|주체|반드시 이 자격으로 읽는 것|
+|---|---|
+|FD 0: 기존 계정 소유 Editor|active token ID, 완전한 Worker 목록에 정확한 ID·이름 한 쌍, ID·이름 상세와 역사적 태그·시각·privacy·참조, subdomain·cron·버전·배포·classic secret 이름. 이 결과를 graph reader로 대신하지 않는다.|
+|FD 3: 기존 정책 reader|같은 계정의 permission-group 카탈로그와 **FD 0에서 검증한 token ID**의 active 정책. 단 하나의 allow·단 하나의 `Individual Workers Editor`, 리소스는 `{"com.cloudflare.api.account.<계정>":{"com.cloudflare.edge.worker.script.<불변 ID>":"*"}}`와 구조까지 같아야 한다. `*`는 정확한 ID 아래의 값일 뿐 Worker 선택자가 아니다.|
+|FD 4: 이미 등록된 graph reader|보호 환경의 비밀 아닌 token ID와 대조. 전체 계정 그래프·예약 상태 및 **해당 UUID preview 목록 전체가 비었음**을 독립 검증한다. Editor 또는 쓰기 자격으로 대체하지 않는다.|
+
+[List Workers](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/methods/list/)는 `Individual Workers Editor`를 명시하지만 정확히 한 행 반환까지 보장하지 않는다. 그것은 이 절차가 실제 응답에 요구하는 조건이며 정책 증명은 아니다. [Get Worker](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/methods/get/)로 ID와 이름을 모두 확인하더라도 불완전·거부된 목록을 통과로 간주하지 않는다. 반대로 Cloudflare [OpenAPI](https://github.com/cloudflare/api-schemas)의 `GET /accounts/{account_id}/workers/workers/{worker_id}/previews`는 `Workers Tail Read`, `Workers Scripts Write`, `Workers Scripts Read`를 열거하고 개별 Editor는 열거하지 않는다. 따라서 preview **플래그**는 Editor도 검증하되 preview **전체 목록**은 이미 등록된 `Workers Scripts Read`로 검증한다.
+
+성공 출력은 `editorPolicyAndState`, `graphAndPreviews`, GET 수뿐이다. 실패 시 주체·검사 단계와 가능한 HTTP 상태만 공유하고 중단한다. 이 명령은 GET 전용이며 시도 표시, 승인, 영수증, secret, 배포를 만들지 않는다. 기존 복구 run `45158456449`의 서명(만료 `2026-11-23T11:44:23.737Z`)을 연장하거나 재사용하지 않는다. 병합 뒤에는 새 보호 SHA·새 run attempt 1·새 서명과 별도 승인이 필요하다.
+
 **소유자의 순서와 결정점:**
 
 1. 소스 PR을 독립 검토한다. 운영 승인 전에, 검토한 checkout 루트에서 기존에 등록한 graph reader만 사용하여 `set +x` 상태로 `INCIDENT_GRAPH_TOKEN_ID="$reader_id" node scripts/ci/incident-graph-preflight.mjs reconcile-45149576123 < "$reader_file"`을 실행한다. `$reader_id`는 비밀이 아닌 ID이고, helper는 보호 환경 변수와 대조한다. `gh`에는 서명과 변수의 읽기 권한만 필요하다. 성공하면 지문과 GET 횟수만 출력한다. 로컬 토큰을 가져오거나 읽어 주도록 타인에게 요청하지 않는다. 이 검사로 승인·증명서·마커·배포가 생기지 않는다.
 2. **읽기 전용 대조를 별도로 선택한 경우에만:** 검토본을 병합하고 새 보호 main의 source 검증과 독립 재생성한 inert 모듈 핀을 확인한다. 원 실행은 승인하지 말고 종료될 때까지 기다린다. 공용 concurrency 그룹을 점유한다면 취소 여부도 소유자가 별도로 정한다. 기존 reader를 재등록하지 않는다. 보호 변수 `INCIDENT_REVIEWED_MAIN`은 새 전체 SHA, `INCIDENT_MODULE_SHA256`은 원래와 동일한 검토 번들 해시여야 한다. 기본 브랜치의 새 dispatch: `gh workflow run incident-inert-install.yml --ref main -f source_sha="$(git rev-parse HEAD)" -f reservation=reconcile-45149576123`. **새 ID / attempt 1 / 새 SHA / 복구 모드**를 확인하고 `cloudflare-site-production`의 그래프 읽기만 승인한다. 서명된 `preflight.json`이 없거나 검사가 어긋나면 여기서 중단한다. 이 단계에는 Editor나 생성 권한이 없다.
 3. **해당 inert 모듈 설치까지 별도로 동의했을 때만:** `incident-private-install` owner gate에서 웹 버튼을 누르지 않는다. 이 UUID 한 개에만 `Individual Workers Editor`를 준비한다. 새 깨끗한 main checkout에서 `node scripts/ci/incident-owner.mjs authorize-recovery "$NEW_RUN_ID" < "$editor_file" 3< "$policy_reader_file" 4< "$reader_file"`을 한 번 사용한다. FD 3은 기존 정책 reader, FD 4는 기존 graph reader다. 원 `attempt`와 원 서명, 새 서명, 살아 있는 전체 그래프 지문, Editor 정책·대상·빈 상태를 대조한다. 이 명령은 **새** run에 1회 승인 시도를 기록하고 Editor를 전용 GitHub 환경에 등록한 뒤 그 실행의 gate를 승인한다. 단순 조회가 아니다. 별도 새 승인 없이는 실행하지 않는다.
-4. 이후 새 run의 환경 승인이 표시될 때마다 같은 SHA·run·단계인지 확인한다. `reserved`가 전체 그래프를 재대조하고 서명한 뒤에만 `install`이 UUID에 inert 버전 하나를 배포한다. `verify`에서 실제 모듈, 바인딩, 100% 단일 배포, 비공개 상태와 전체 그래프를 다시 확인한다. 성공 전후 모두 Discord 키 등록·DM·cron·route·Site 공개 전환은 이 절차 밖이다.
+4. 이후 새 run의 환경 승인이 표시될 때마다 같은 SHA·run·단계인지 확인한다. 직전 `reserved` job은 등록된 graph reader로 전체 그래프·같은 UUID의 빈 상태·preview 0개를 다시 검증해야 `reserved.json`을 서명한다. `install`은 이 서명·소유자 승인·유효 시한을 대조하고, **별도** Editor로 ID·가시성·빈 상태를 다시 확인한 뒤 그 UUID에만 inert 버전 하나를 배포한다. `verify`는 다시 graph reader로 같은 UUID의 preview 0개, 전체 그래프, 실제 모듈·바인딩·100% 단일 배포·비공개 상태를 확인해야 설치 완료를 서명한다. 단계 사이에 변경될 수 있으므로 변경 창은 끝까지 유지한다. 성공 전후 모두 Discord 키 등록·DM·cron·route·Site 공개 전환은 이 절차 밖이다.
 
 **중단 또는 대안:** 출처·privacy·secret·페이지 완전성·서명·권한 중 하나라도 독립 확인할 수 없거나, 만료·부분 성공·응답 유실이면 그대로 보존한다. 마커 편집·범위 확대·재시도·자동 삭제는 하지 않는다. 소유자는 (a) 빈 상태 유지 또는 (b) 먼저 읽기로 정확한 대상과 삭제 영향을 확인한 뒤 **별도 명시 동의**로 그 빈 ID만 삭제하고, 부재를 새로 증명해 기본 신규 생성 절차를 검토할 수 있다. 삭제와 재생성은 이번 복구가 아니며 새 UUID에서 classic secret 목록이 여전히 404라면 기본 경로 역시 중단한다.
 

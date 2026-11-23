@@ -1,6 +1,6 @@
 import {hash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
-import {original} from './incident-recovery-id.mjs';
+import {original, recoveryMode} from './incident-recovery-id.mjs';
 
 export const account = '15be33fd20ea78eb3d60b719be831148';
 export const zone = '2ed78e90cd4834066e079282aea4acb2';
@@ -161,7 +161,6 @@ export async function state(cf, id, tag, empty, notBefore) {
   requireThat(versions.length === (empty ? 0 : 1) && list(deployments).length === versions.length, 'unexpected version or deployment');
   // A zero-length, complete UUID version inventory proves absence of version bindings
   // (including secrets and aliases); a classic 404 alone proves nothing.
-  if (historical && empty) await noPreviews(cf,id);
   try { requireThat(!list(await cf(`${script}/secrets`)).length,'secret bindings exist'); }
   catch (e) { if (!(historical && empty && e instanceof MissingClassicScript)) throw e; }
   return {versions, deployments};
@@ -172,6 +171,9 @@ export async function noPreviews(cf, id) {
 export async function recoveryGraph(cf) {
   const graphDigest = await graph(cf,original.workerId);
   await state(cf,original.workerId,original.tag,true,original.notBefore);
+  // Preview enumeration belongs to the registered graph reader (preflight and
+  // reserved before install; verify checks again afterwards), not the UUID Editor.
+  await noPreviews(cf,original.workerId);
   return graphDigest;
 }
 // Only the owner CLI calls this capability. It cannot upload code or repair privacy after creation.
@@ -211,4 +213,11 @@ export async function installed(cf, {workerId:id, tag, build, moduleHash, notBef
   const expected = bindings(build);
   requireThat(list(live.bindings).length === expected.length && expected.every(e=>live.bindings.some(b=>b.name === e.name && b.type === e.type && Object.entries(e).every(([k,v])=>k === 'simple' ? b.simple?.period === v.period && b.simple?.limit === v.limit : b[k] === v))), 'installed bindings differ');
   requireThat(list(deployments[0].versions).length === 1 && deployments[0].versions[0].version_id === vid && deployments[0].versions[0].percentage === 100, 'unexpected traffic split');
+}
+// The protected graph job, not the Editor upload job, certifies final installation.
+export async function verifyInstalledGraph(cf,receipt,vid,route) {
+  const graphDigest = await graph(cf,receipt.workerId);
+  if (route === recoveryMode) requireThat(graphDigest === receipt.graphDigest,'account graph changed since reconciliation');
+  await noPreviews(cf,receipt.workerId);
+  await installed(cf,receipt,vid);
 }
