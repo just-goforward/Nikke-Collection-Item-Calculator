@@ -11,6 +11,7 @@ const module=Buffer.from('export default {}'), now=Date.now()-30000;
 const pins={schema:1,repo,workflow,ref:'refs/heads/main',main:'1'.repeat(40),run:'401',attempt:1,account,name,zone,db,namespace,build:'2'.repeat(64),moduleHash:digest(module)};
 const absent=intent(pins,now), tag=checkIntent(pins,absent), receipt=claim(pins,tag,id,tokenId,now);
 const review={state:'approved',user:{id:owner},environments:[{id:7,name:gate}],comment:approvalComment(receipt)};
+const authorize = () => assert.deepEqual(approved(pins,'allocate',absent,[review],7),receipt);
 const initial=()=>({});
 function controls(change=initial) {
   const others=Array.from({length:20},(_,i)=>({id:i.toString(16).padStart(32,'0'),name:`fixed-${i}`}));
@@ -38,7 +39,7 @@ function controls(change=initial) {
     assert.fail('unexpected endpoint or credential');
   };
   let spent=false;
-  return {calls, cf, reserve:()=>reserve(cf('owner'),tag,now,()=>{assert(!spent,'spent');spent=true;}), install:()=>install(cf('editor'),receipt,module)};
+  return {calls, cf, reserve:()=>reserve(cf('owner'),tag,now,()=>{assert(!spent,'spent');spent=true;}), install:()=>install(cf('editor'),receipt,module,authorize)};
 }
 test('fixed lifecycle: no keys, account create with BOTH privacy flags, then exactly one UUID Editor POST',async()=>{
   const t=controls();await graph(t.cf('graph'));assert.equal(await t.reserve(),id);
@@ -81,7 +82,7 @@ test('Editor readbacks independently fail closed before any upload',async()=>{
       if(fault==='deployments' && path.endsWith('/deployments?per_page=100'))return {value:{deployments:[{}]}};
       return {};
     });
-    await t.reserve();await assert.rejects(install(t.cf('editor'),receipt,fault==='digest'?Buffer.from('different'):module));assert(!t.calls.some(c=>c.path.includes('deploy=true')));
+    await t.reserve();await assert.rejects(install(t.cf('editor'),receipt,fault==='digest'?Buffer.from('different'):module,authorize));assert(!t.calls.some(c=>c.path.includes('deploy=true')));
   }
 });
 test('post-write timeout and wrong live module, binding, secret or traffic never report success or retry',async()=>{
@@ -98,11 +99,11 @@ test('post-write timeout and wrong live module, binding, secret or traffic never
   }
 });
 test('fresh protected receipts bind all fields, phase, owner approval, run and attempt',()=>{
-  assert.deepEqual(approved(pins,tag,[review],7,now),receipt);
+  authorize();
   for(const k of Object.keys(absent))assert.throws(()=>checkIntent(pins,{...absent,[k]:'wrong'}));
   assert.throws(()=>checkIntent(pins,absent,now+3600000));assert.throws(()=>checkIntent(pins,absent,now-1));
-  for(const k of Object.keys(receipt))assert.throws(()=>approved(pins,tag,[{...review,comment:approvalComment({...receipt,[k]:'wrong'})}],7,now));
-  for(const rows of [[],[review,review],[{...review,state:'rejected'}],[{...review,user:{id:2}}],[{...review,environments:[{id:8,name:gate}]}]])assert.throws(()=>approved(pins,tag,rows,7,now));
+  for(const k of Object.keys(receipt))assert.throws(()=>approved(pins,'allocate',absent,[{...review,comment:approvalComment({...receipt,[k]:'wrong'})}],7));
+  for(const rows of [[],[review,review],[{...review,state:'rejected'}],[{...review,user:{id:2}}],[{...review,environments:[{id:8,name:gate}]}]])assert.throws(()=>approved(pins,'allocate',absent,rows,7));
   assert.throws(()=>ciPins({}));
   const cert = {runInvocationURI:`https://github.com/${repo}/actions/runs/401/attempts/1`,buildTrigger:'workflow_dispatch',sourceRepositoryIdentifier:'1229775730',sourceRepositoryOwnerIdentifier:String(owner)};
   const signed = c=>[{verificationResult:{signature:{certificate:c}}}];
@@ -120,6 +121,7 @@ test('enrollment validates authenticated policy, not the token name or a success
   for(const policies of [[],[onlyWorker],[...bootstrap.policies,onlyWorker],[scoped(['a','d'],{[act]:'*'})],[scoped(['a'],{'com.cloudflare.api.account.*':'*'})]])assert.throws(()=>bootstrapPolicy({...bootstrap,policies},tokenId,roles));
   check([onlyWorker],id);const graphRoles=[scoped(['r','p','d'],{[act]:'*'}),scoped(['z'],{[act]:{[cz+'*']:'*'}}),scoped(['s'],{[cz+zone]:'*'})]; check(graphRoles);
   for (const other of [scoped(['a'],{[act]:'*'}),scoped(['e'],{[act]:'*'}),scoped(['e'],{[act]:{'*':'*'}}),scoped(['e'],{[act]:{[id]:'*',[tokenId]:'*'}})])assert.throws(()=>check([other],id));
+  assert.throws(()=>check([scoped(['e'],{[act]:{[`unexpected.${id}`]:'*'}})],id));
   assert.throws(()=>check([onlyWorker],tokenId));assert.throws(()=>check([...graphRoles,scoped(['a'],{[act]:'*'})]));assert.throws(()=>check(graphRoles.slice(1)));
 });
 test('graph replays sanitized live envelopes including historical deployment pages', async()=>{

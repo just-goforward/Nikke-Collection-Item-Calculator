@@ -1,10 +1,12 @@
 import {execFileSync} from 'node:child_process';
-import {mkdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync} from 'node:fs';
+import {mkdirSync, readFileSync, readdirSync, writeFileSync, mkdtempSync, rmSync} from 'node:fs';
 import {homedir,tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {account, zone, root, registry, client, requireThat, immutable, reserve, state, editor} from './incident-provider.mjs';
-import {repo, owner, gate, graphEnv, numeric, gh, api, pins, source, protectedEnv, localMain, verify, checkIntent, claim, approvalComment} from './incident-receipt.mjs';
+import {account, zone, root, registry, client, requireThat, immutable, reserve, state, editor, recoveryGraph} from './incident-provider.mjs';
+import {repo, owner, gate, graphEnv, numeric, gh, api, pins, source, protectedEnv, localMain, verify, checkedProof, ownerClaim, approvalComment, verifyHistorical} from './incident-receipt.mjs';
+import {original, recoveryMode} from './incident-recovery-id.mjs';
+import {isDeepStrictEqual} from 'node:util';
 
 const writeOnce = (path, value)=>writeFileSync(path,JSON.stringify(value),{flag:'wx',mode:0o600,flush:true});
 function privateInput(fd) {
@@ -34,7 +36,7 @@ export function policy(details, tokenId, roles, workerId) {
     for (const g of p.permission_groups) {
       const role = roles.get(g.id); requireThat(role,'unapproved token permission'); granted.add(role);
       if (workerId) {
-        requireThat(role === 'Individual Workers Editor' && immutable.test(workerId) && !path.includes('*') && path.at(-1) === workerId && key.startsWith('com.cloudflare.api.account.') && path.filter(x=>immutable.test(x)).every(x=>x === account || x === workerId), 'Editor not restricted to the reserved immutable Worker');
+        requireThat(role === 'Individual Workers Editor' && immutable.test(workerId) && key === `com.cloudflare.api.account.${account}.com.cloudflare.api.account.worker.${workerId}`, 'Editor not restricted to the reserved immutable Worker');
       } else if (['Zone Read','Zone Zone Read','Workers Routes Read'].includes(role)) {
         const zones = `com.cloudflare.api.account.${account}.com.cloudflare.api.account.zone.`;
         requireThat(role === 'Workers Routes Read' ? [zones + zone,`com.cloudflare.api.account.zone.${zone}`].includes(key) : key === zones + '*', 'zone discovery must cover the account; route read must be limited to the reviewed zone');
@@ -61,7 +63,7 @@ async function checkedToken(token, workerId, check=policy) {
   return t.id;
 }
 async function main([mode, run, ...extra]) {
-  requireThat(!process.env.GITHUB_ACTIONS && !process.env.CI && !extra.length && ['enroll-graph','reserve','authorize'].includes(mode), 'local owner command required');
+  requireThat(!process.env.GITHUB_ACTIONS && !process.env.CI && !extra.length && ['enroll-graph','reserve','authorize','authorize-recovery'].includes(mode), 'local owner command required');
   requireThat(JSON.parse(gh('api','user')).id === owner, 'authenticated sole owner required');
   const envId = protectedEnv(gate); protectedEnv(graphEnv);
   const pin = key=>gh('variable','get',key,'--env',graphEnv,'--repo',repo);
@@ -85,24 +87,39 @@ async function main([mode, run, ...extra]) {
   const dir = join(homedir(),'.incident-private-install',run), tmp = mkdtempSync(join(tmpdir(),'incident-intent-'));
   mkdirSync(dir,{recursive:true,mode:0o700});
   try {
-    gh('run','download',run,'--repo',repo,'--name',`incident-absent-${run}-1`,'--dir',tmp);
-    const receipt = verify(join(tmp,'absent.json'),p), tag = checkIntent(p,receipt);
+    const route = mode === 'authorize-recovery' ? recoveryMode : 'allocate';
+    gh('run','download',run,'--repo',repo,'--name',`incident-preflight-${run}-1`,'--dir',tmp);
+    const receipt = verify(join(tmp,'preflight.json'),p), {tag,notBefore} = checkedProof(p,route,receipt);
+    const current = () => { source(p); pending(); checkedProof(p,route,receipt); };
     if (mode === 'reserve') {
       const token = privateInput(0), cf = client(token,fetch,registry);
       await checkedToken(token,undefined,bootstrapPolicy);
-      const id = await reserve(cf,tag,receipt.created,()=>{source(p); pending(); checkIntent(p,receipt); writeOnce(join(dir,'attempt'),{tag});});
+      const id = await reserve(cf,tag,notBefore,()=>{current(); writeOnce(join(dir,'attempt'),{tag});});
       writeOnce(join(dir,'created'),{workerId:id,tag});
       console.log(`Private empty Worker ID: ${id}. Enroll only Individual Workers Editor for this ID.`);
     } else {
-      const created = JSON.parse(readFileSync(join(dir,'created'),'utf8'));
-      requireThat(created.tag === tag && immutable.test(created.workerId),'no matching completed local reservation');
-      const token = privateInput(0), editorId = await checkedToken(token,created.workerId);
-      await state(client(token),created.workerId,tag,true,receipt.created);
-      const r = claim(p,tag,created.workerId,editorId,receipt.created);
-      setSecret('CF_INCIDENT_WORKER_EDITOR',gate,token);
-      source(p); pending(); checkIntent(p,receipt);
-      // Native GitHub review, scoped to the exact pending deployment/run. Never an operator-authored proof file.
+      let workerId;
+      if (route === recoveryMode) {
+        verifyHistorical(p);
+        const old = join(homedir(),'.incident-private-install',original.run);
+        requireThat(isDeepStrictEqual(readdirSync(old),['attempt']) &&
+          isDeepStrictEqual(JSON.parse(readFileSync(join(old,'attempt'),'utf8')),{tag}), 'historical attempt journal differs; do not edit it');
+        const reader = client(privateInput(4)), t = await reader(`${root}/tokens/verify`);
+        requireThat(t.status === 'active' && immutable.test(t.id) && t.id === pin('INCIDENT_GRAPH_TOKEN_ID'),'incorrect enrolled reader');
+        requireThat(await recoveryGraph(reader) === receipt.graphDigest,'live graph differs from signed recovery preflight');
+        workerId = original.workerId;
+      } else {
+        const created = JSON.parse(readFileSync(join(dir,'created'),'utf8'));
+        requireThat(created.tag === tag && immutable.test(created.workerId),'no matching completed local reservation');
+        workerId = created.workerId;
+      }
+      const token = privateInput(0), editorId = await checkedToken(token,workerId);
+      await state(client(token),workerId,tag,true,notBefore);
+      const r = ownerClaim(p,route,receipt,workerId,editorId);
+      current();
       writeOnce(join(dir,'approval-attempt'),{tag});
+      setSecret('CF_INCIDENT_WORKER_EDITOR',gate,token);
+      current();
       gh('api','--method','POST',`repos/${repo}/actions/runs/${run}/pending_deployments`,'-F',`environment_ids[]=${envId}`,'-f','state=approved','-f',`comment=${approvalComment(r)}`);
     }
   } finally { rmSync(tmp,{recursive:true,force:true}); }
