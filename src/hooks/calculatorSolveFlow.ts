@@ -1,9 +1,11 @@
+import { adaptiveShell, rootCandidate } from "../lib/rootCandidate";
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef } from "react";
 import { message, useI18n } from "../i18n/locale";
 import type { LocalizedMessage } from "../i18n/messages.ko";
 import { ignoreExpectedError } from "../lib/errorHandling";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import { SUPPLY_UNAVAILABLE_MESSAGE } from "../lib/supplyForecastRuntime";
+import { PreviewSourceError } from "../lib/previewSourceError";
 import type { SolverInput } from "../types";
 import type { DetailView, LoadingView, RecommendationAction, ResultView } from "../ui-types";
 import { makeSolverDiagnosticEvent, makeSolverRecoveryEvent } from "./calculatorDiagnostics";
@@ -23,8 +25,8 @@ import type { ConvertApplyResult, OutcomeApplyResult } from "./outcomeFlowTypes"
 import { SolverRecoveryFailure } from "./solverRecovery";
 import { WorkerTaskCancelled } from "./solverWorkerClient";
 import { SERVICE_CERTIFIED_SOLVER } from "../lib/serviceCertified";
-import { withoutRecommendedWait } from "./serviceCertifiedPresentation";
-import { ServiceCertifiedCancelled, type ServiceCertifiedSolveOutcome } from "./serviceCertifiedTypes";
+import { previewStopMessage, withoutRecommendedWait } from "./serviceCertifiedPresentation";
+import { physicalParentHash, PreviewCalculationError, PreviewSolverResourceError, ServiceCertifiedCancelled, type ServiceCertifiedSolveOutcome } from "./serviceCertifiedTypes";
 import { observeDecision, type DecisionLifecycle } from "../analytics/decisionLifecycle";
 import { isOutcomeReportPending, retainPendingOutcomeSettlement, withAcceptedOutcomeCapture } from "../analytics/acceptedOutcome";
 
@@ -34,6 +36,8 @@ type SolveFlowOptions = {
   lifecycle?: DecisionLifecycle;
   observerOwner?: unknown;
   checkForecastBoundary?: () => boolean;
+  onManualCalculationAccepted?: () => void;
+  setRetainedReplacement?: (retained: boolean, problem?: LocalizedMessage) => void;
   applyConvert: () => ConvertApplyResult | null;
   applyOutcome: (outcome: "success" | "fail") => OutcomeApplyResult;
   collectInput: () => SolverInput;
@@ -53,10 +57,14 @@ type SolveFlowOptions = {
   solveBestAvailable: (
     input: SolverInput,
     onCurrent?: (result: SolverResult) => void,
+    parentInputHash?: string,
   ) => Promise<SolveOutcome | ServiceCertifiedSolveOutcome>;
 };
 
 type SolveAndRenderOptions = {
+  parentInputHash?: string;
+  userCalculate?: true;
+  onAccepted?: () => void;
   failureContext?: "outcome" | "conversion";
   loadingText?: LocalizedMessage;
   previousAction?: RecommendationAction | null;
@@ -147,6 +155,29 @@ export function solveFailurePresentation(
   error: unknown,
   failureContext?: SolveAndRenderOptions["failureContext"],
 ) {
+  if (adaptiveShell && (error instanceof PreviewSolverResourceError ||
+      (error instanceof Error && error.message === "certified_total_deadline")))
+    return { reason: failureContext === "outcome" ? "follow_up_outcome_failure" as const : failureContext === "conversion" ? "follow_up_conversion_failure" as const : "solver_capacity_failure" as const,
+      message: previewStopMessage(error instanceof PreviewSolverResourceError ? error.interruption : "deadline", !!failureContext) };
+  if (adaptiveShell && error instanceof Error) {
+    const source = error instanceof PreviewSourceError ? error : error.message === 'forecast_unavailable' && failureContext
+      ? new PreviewSourceError('admission','missing') : null;
+    const reason = failureContext === "outcome" ? "follow_up_outcome_failure" as const :
+      failureContext === "conversion" ? "follow_up_conversion_failure" as const : "solver_failure" as const;
+    if (source) {
+      const kind = source.reason === 'network' || source.reason === 'timeout' ? 'Read' :
+        source.reason === 'expired' || source.reason === 'changed' ? 'Renew' :
+        source.reason === 'clock' ? 'Clock' : source.reason === 'missing' ? 'Missing' : 'Invalid';
+      return { reason, message: message(`result.previewSource${kind}${failureContext ? 'After' : ''}`, {code:`${failureContext ?? 'initial'}:${source.message}`}) };
+    }
+    if (error instanceof PreviewCalculationError) {
+      const kind = error.kind === 'worker' ? 'Worker' : 'Binding';
+      return { reason, message: message(`result.preview${kind}${failureContext ? 'After' : ''}`, {code:`${failureContext ?? 'initial'}:${error.kind}:${error.stage}`}) };
+    }
+  }
+  if (!failureContext && adaptiveShell &&
+      error instanceof Error && error.message === "forecast_unavailable")
+    return { reason: "solver_failure" as const, message: message("result.previewForecastUnavailable") };
   if (!failureContext && error instanceof Error && error.message === SUPPLY_UNAVAILABLE_MESSAGE) {
     return { reason: "solver_failure" as const, message: message("staging.supplyUnavailable") };
   }
@@ -237,6 +268,7 @@ type ExecuteSolveOptions = Pick<
   SolveFlowOptions,
   | "lifecycle"
   | "checkForecastBoundary"
+  | "setRetainedReplacement"
   | "getCurrentViews"
   | "inputRevisionRef"
   | "latestResultRef"
@@ -272,21 +304,33 @@ export async function executeSolveAndRender(
     options.loadingText ?? DEFAULT_LOADING_TEXT,
   );
   const previous = context.getCurrentViews();
-  const previousViews = { ...previous, detail: withoutRecommendedWait(previous.detail) };
+  const prior = context.latestResultRef.current;
+  const physical = rootCandidate && options.userCalculate && previous.result.type === "recommendation" &&
+    prior?.input && prior.certified?.action && physicalParentHash(prior.certified) &&
+    previous.result.kit === prior.certified.action.kit && previous.result.count === prior.certified.action.run.count &&
+    inputKey(prior.input) === inputKey(input) ? prior : null;
+  const retain = !rootCandidate && adaptiveShell && options.userCalculate && !!previous.detail.previewEvidence;
+  const previousViews = retain ? previous : { ...previous, detail: withoutRecommendedWait(previous.detail) };
   context.setCalculateBusy(true);
-  context.setResultView(LOADING_RESULT);
-  context.setDetailView(previousViews.detail.type === "metrics" ? previousViews.detail : LOADING_DETAIL);
+  // Never display or apply a consumed adaptive decision to the next state.
+  if (adaptiveShell) context.latestResultRef.current = null;
+  context.setRetainedReplacement?.(!!retain);
+  if (!retain) {
+    context.setResultView(LOADING_RESULT);
+    context.setDetailView(!rootCandidate && previousViews.detail.type === "metrics" ? previousViews.detail : LOADING_DETAIL);
+  }
   let completedResult: SolverResult | null = null;
   let failureViews: { detail: DetailView; result: ResultView } | null = null;
   let restorePreviousViews = false;
   let skipUiCleanup = false;
   let intendedResult = true;
   try {
+    options.onAccepted?.();
     context.prepareForSolve();
     const outcome = await context.solveBestAvailable(input, (checkpoint) => {
-      if (owns() && context.inputRevisionRef.current === inputRevision)
-        context.renderResult(checkpoint, options.previousAction);
-    });
+      if (!retain && owns() && context.inputRevisionRef.current === inputRevision)
+        context.renderResult(checkpoint);
+    }, options.parentInputHash);
     if (!owns() || context.inputRevisionRef.current !== inputRevision) {
       restorePreviousViews = !SERVICE_CERTIFIED_SOLVER;
       intendedResult = false;
@@ -308,6 +352,15 @@ export async function executeSolveAndRender(
         inputRevision,
       });
       failureViews = failure.views ?? null;
+      if (rootCandidate && failureViews?.result.type === "error" && (options.userCalculate || options.failureContext)) {
+        const reason = error instanceof PreviewSourceError || (error instanceof Error && error.message === "forecast_unavailable")
+          ? "source" : error instanceof PreviewCalculationError ? error.kind :
+          error instanceof PreviewSolverResourceError || (error instanceof Error && error.message === "certified_total_deadline")
+            ? "capacity" : "other";
+        void import("../incidentTransport").then(({reportRecalculationFailure}) =>
+          reportRecalculationFailure(reason, options.failureContext ?? "manual")).catch(() => {});
+        failureViews = {result:{...failureViews.result, message:message("result.recalculationError")}, detail:EMPTY_DETAIL};
+      }
       restorePreviousViews = failure.restorePreviousViews;
       skipUiCleanup = failure.skipUiCleanup;
       intendedResult = failure.result;
@@ -319,8 +372,30 @@ export async function executeSolveAndRender(
       const forecastCurrent = context.checkForecastBoundary?.() !== false;
       if (SERVICE_CERTIFIED_SOLVER && context.inputRevisionRef.current !== inputRevision) {
         // A reset/account switch during the minimum loading delay owns the new views.
+      } else if (physical?.certified && failureViews?.result.type === "error") {
+        context.latestResultRef.current = {...physical, certified:{...physical.certified, retainedPhysical:true}};
+        context.setResultView(previous.result);
+        context.setDetailView(EMPTY_DETAIL);
+        context.setRetainedReplacement?.(true, failureViews.result.message);
+      } else if (retain && failureViews) {
+        // The old receipt is display-only, not a fallback answer to the failed request.
+        context.latestResultRef.current = null;
+        const problem = failureViews.result.type === "error" ? failureViews.result.message : previewStopMessage(undefined, !!options.failureContext);
+        context.setRetainedReplacement?.(true, problem);
+        completedResult = null;
+      } else if (completedResult?.certified && !forecastCurrent) {
+        context.latestResultRef.current = null;
+        context.setResultView(EMPTY_RESULT);
+        context.setDetailView(EMPTY_DETAIL);
+        intendedResult = false;
       } else if (completedResult) {
-        context.renderResult(completedResult, options.previousAction);
+        if (adaptiveShell && (options.userCalculate || options.failureContext === "outcome") &&
+            completedResult.certified?.final && completedResult.certified.output.adaptive) {
+          completedResult = { ...completedResult, certified: { ...completedResult.certified, userRequestedDecision: true } };
+        }
+        if (completedResult.certified?.interruption && options.failureContext) completedResult.certified.followUp = true;
+        context.renderResult(completedResult, adaptiveShell ? null : options.previousAction);
+        context.setRetainedReplacement?.(false);
       } else if (failureViews) {
         context.setResultView(failureViews.result);
         context.setDetailView(failureViews.detail);
@@ -399,18 +474,20 @@ export function consumePendingStockCorrection({
 type ManualCalculationOptions = Pick<
   SolveFlowOptions,
   | "collectInput"
+  | "onManualCalculationAccepted"
   | "pendingStatsEventRef"
   | "queueStatsEvent"
   | "setManualStockEditRequired"
   | "setPendingStatsEvent"
 > & {
   isBusy: () => boolean;
-  solveAndRenderInput: (input: SolverInput) => Promise<boolean>;
+  solveAndRenderInput: (input: SolverInput, options: SolveAndRenderOptions) => Promise<boolean>;
 };
 
 function useManualCalculation({
   collectInput,
   isBusy,
+  onManualCalculationAccepted,
   pendingStatsEventRef,
   queueStatsEvent,
   setManualStockEditRequired,
@@ -428,10 +505,14 @@ function useManualCalculation({
       setPendingStatsEvent,
     });
     if (!correctionReady) return false;
-    return solveAndRenderInput(input);
+    return solveAndRenderInput(input, {
+      userCalculate: true,
+      ...(onManualCalculationAccepted ? { onAccepted: onManualCalculationAccepted } : {}),
+    });
   }, [
     collectInput,
     isBusy,
+    onManualCalculationAccepted,
     pendingStatsEventRef,
     queueStatsEvent,
     setManualStockEditRequired,
@@ -444,6 +525,8 @@ export function useSolveFlow({
   lifecycle,
   observerOwner,
   checkForecastBoundary,
+  onManualCalculationAccepted,
+  setRetainedReplacement,
   applyConvert,
   applyOutcome,
   collectInput,
@@ -491,6 +574,7 @@ export function useSolveFlow({
         {
           ...(lifecycle ? { lifecycle } : {}),
           ...(checkForecastBoundary ? { checkForecastBoundary } : {}),
+          ...(setRetainedReplacement ? {setRetainedReplacement} : {}),
           busyRef,
           unmountedRef,
           executionRef,
@@ -513,6 +597,7 @@ export function useSolveFlow({
     [
       lifecycle,
       checkForecastBoundary,
+      setRetainedReplacement,
       getCurrentViews,
       latestResultRef,
       inputRevisionRef,
@@ -531,6 +616,7 @@ export function useSolveFlow({
   const runCalculation = useManualCalculation({
     collectInput,
     isBusy,
+    ...(onManualCalculationAccepted ? { onManualCalculationAccepted } : {}),
     pendingStatsEventRef,
     queueStatsEvent,
     setManualStockEditRequired,
@@ -541,6 +627,8 @@ export function useSolveFlow({
   const applyOutcomeAndMaybeCalculate = useCallback(
     async (outcome: "success" | "fail") => {
       if (busyRef.current || !ownsRenderedAction()) return null;
+      const parent = adaptiveShell ? latestResultRef.current?.certified : undefined;
+      const parentInputHash = parent?.retainedPhysical ? undefined : physicalParentHash(parent);
       let prepared: unknown;
       let legacySettlement: StatsSubmissionEvent | undefined;
       const capture = observerOwner !== undefined && lifecycle?.prepareOutcome
@@ -563,10 +651,10 @@ export function useSolveFlow({
       }
       const next = calculationAfterOutcome(applied);
       if (!next) return applied;
-      const started = await solveAndRenderInput(next.calculation.nextInput, next.options);
+      const started = await solveAndRenderInput(next.calculation.nextInput, { ...next.options, ...(parentInputHash ? { parentInputHash } : {}) });
       return started ? applied : null;
     },
-    [applyOutcome, solveAndRenderInput, lifecycle, observerOwner, ownsRenderedAction],
+    [latestResultRef, applyOutcome, solveAndRenderInput, lifecycle, observerOwner, ownsRenderedAction],
   );
 
   const applyConvertAndCalculate = useCallback(async () => {
@@ -576,9 +664,11 @@ export function useSolveFlow({
     if (applied.needsStockEdit) return applied;
     const started = await solveAndRenderInput(applied.nextInput, {
       failureContext: "conversion",
+      ...(adaptiveShell
+        ? { previousAction: { kit: "convert" as const, count: 1 } } : {}),
     });
     return started ? applied : null;
   }, [applyConvert, solveAndRenderInput, ownsRenderedAction]);
 
-  return { applyConvertAndCalculate, applyOutcomeAndMaybeCalculate, runCalculation, captureCalculationOwnership };
+  return { solveAndRenderInput, applyConvertAndCalculate, applyOutcomeAndMaybeCalculate, runCalculation, captureCalculationOwnership };
 }

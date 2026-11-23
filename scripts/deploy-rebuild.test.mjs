@@ -1,7 +1,33 @@
-import { test } from "node:test";
+import { after, before, mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { tmpdir } from "node:os";
+import { join, relative, resolve, sep } from "node:path";
 import { deploy } from "./deploy-site.ts";
+
+// Wrapper-mechanics fixture only: these tests fake the artifact validator, and the
+// real validator never accepts this profile (it requires deploymentApproved=false).
+// The NONDEPLOYABLE FUSED rejection is covered in production-off-artifact.test.mjs.
+// deploy() always validates, authorizes and uploads the checkout's dist, so only
+// reads below dist are redirected to the fixture; dist itself is never written.
+const DIST = resolve(import.meta.dirname, "../dist");
+const uploadFixture = fs.mkdtempSync(join(tmpdir(), "site-upload-wrapper-"));
+fs.mkdirSync(join(uploadFixture, ".vite"));
+fs.writeFileSync(join(uploadFixture, ".vite/local-operational-profile.json"), JSON.stringify({ deploymentApproved: true }));
+before(() => {
+  const original = fs.readFileSync;
+  mock.method(fs, "readFileSync", (path, ...rest) => {
+    const absolute = typeof path === "string" ? resolve(path) : "";
+    return original(absolute.startsWith(DIST + sep) ? join(uploadFixture, relative(DIST, absolute)) : path, ...rest);
+  });
+  syncBuiltinESMExports();
+});
+after(() => {
+  mock.restoreAll();
+  syncBuiltinESMExports();
+  fs.rmSync(uploadFixture, { recursive: true, force: true });
+});
 
 const sha = "a".repeat(40);
 const productionWorkers = {
@@ -48,6 +74,7 @@ test("sealed online promotion publishes only the verified fixed entry without re
   assert.deepEqual(upload.slice(-3), [resolve(parent.SITE_RELEASE_DIR, "worker/worker.js"),
     "--no-bundle", "--no-experimental-auto-create"]);
   assert.equal(upload[upload.indexOf("--config") + 1], "site-worker/production.wrangler.toml");
+  assert.equal(upload[upload.indexOf("--assets") + 1], DIST);
   for (const options of [{ rejectSeal: true }, { dirtyAfterSeal: true },
     { changes: { SITE_RELEASE_MANIFEST_SHA256: "" } }, { changes: { GITHUB_RUN_ID: "" } },
     { changes: { SITE_DEPLOY_HOSTNAME: "other.example" } },
@@ -84,7 +111,7 @@ test("explicit online Site promotion validates production trust before uploading
       }
       assert.equal(command, process.execPath);
       assert.deepEqual(args.slice(0, 2), ["--input-type=module", "-e"]);
-      assert.deepEqual(args.slice(-3), [resolve(root, "dist"), "production", sha]);
+      assert.deepEqual(args.slice(-3), [DIST, "production", sha]);
       // This executable CLI payload is the process boundary: an online dispatch
       // must request the candidate trust check, not the bundled or OFF checker.
       assert.match(args[2], /await assertProductionSiteCandidateProfile\(process\.argv\[1\],process\.argv\[3\]\)/);
@@ -108,6 +135,8 @@ test("explicit online Site promotion validates production trust before uploading
   ]);
   assert.equal(upload.options.env.CLOUDFLARE_ACCOUNT_ID, account);
   assert.equal(upload.options.env.CLOUDFLARE_API_TOKEN, "synthetic");
+  // The upload names the same artifact the validator and authorization checked.
+  assert.equal(upload.args[upload.args.indexOf("--assets") + 1], DIST);
 
   for (const options of [
     { args: ["production-online", "bad-sha"] },
@@ -165,10 +194,12 @@ for (const kind of ["site", "stats"]) for (const target of ["production", "stagi
     assert.equal(last.options.env.CLOUDFLARE_ACCOUNT_ID, account);
     if (kind === "stats") {
       assert.equal(last.args[last.args.indexOf("--var") + 1], `DEPLOYMENT_SHA:${sha}`);
+      assert.equal(last.args.includes("--assets"), false);
     } else {
       const artifactCheck = calls.find(call => call.args.includes("--input-type=module"));
-      assert.deepEqual(artifactCheck.args.slice(-2), [target, sha]);
+      assert.deepEqual(artifactCheck.args.slice(-3), [DIST, target, sha]);
       assert.equal(artifactCheck.options.env.GITHUB_SHA, sha);
+      assert.equal(last.args[last.args.indexOf("--assets") + 1], DIST);
     }
     assert.throws(() => deploy(kind, [`rebuild-${target}`, sha], {...parent, [`${prefix}_DEPLOY_ACCOUNT_ID`]: "wrong"}, execute));
     assert.throws(() => deploy(kind, [`rebuild-${target}`, sha], parent,

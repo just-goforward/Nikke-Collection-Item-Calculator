@@ -63,6 +63,10 @@ export interface CertifiedOptions {
   onEvidenceBudget?: (budget: CertifiedEvidenceBudget) => void;
   /** Monotonic deadline, including the time already spent in the worker queue and initialization. */
   deadlineAt?: number;
+  /** Original final deadline; opt-in source requests reserve 300ms for delivery. */
+  finalDeadlineAt?: number;
+  /** Service validates R0 before choosing 20s. Existing exact callers keep 15s. */
+  requestDurationMs?: 15000 | 20000;
   /** Lower test/work admission limits may be selected; neither may exceed the production ceilings. */
   maxMemoEntries?: number;
   maxSupportPoints?: number;

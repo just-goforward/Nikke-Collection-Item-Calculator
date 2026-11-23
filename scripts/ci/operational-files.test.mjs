@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, mkdir, link, rm } from 'node:fs/promises';
+import { realpath, mkdtemp, writeFile, mkdir, link, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -10,7 +10,7 @@ import { Supervisor } from './operational-supervisor.mjs';
 import { sealedCommand } from './operational-policy.mjs';
 
 test('detects actual raw source mutation before and after execution', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'operational-source-'));
+  const root = await mkdtemp(join(await realpath(tmpdir()), 'operational-source-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, 'source'), 'approved');
   const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -36,7 +36,7 @@ test('supervisor binds stage IDs and cleans namespace after cancellation', async
       remove: async () => { calls.push('remove'); }, absent: async () => { calls.push('absent'); return true; }
     } });
   const controller = new AbortController(); controller.abort();
-  const command = sealedCommand('S06', { node: process.execPath, npmCli: join(tmpdir(), 'npm-cli.js'),
+  const command = sealedCommand('S06', { node: process.execPath, pnpmBinary: join(tmpdir(), 'pnpm'),
     root: tmpdir(), platform: process.platform });
   assert.equal(await supervisor.stage(command, {
     signal: controller.signal
@@ -46,7 +46,7 @@ test('supervisor binds stage IDs and cleans namespace after cancellation', async
   await assert.rejects(supervisor.stage({ ...command }, {}), /ADMISSION_BLOCKED/);
 });
 test('source accounting excludes only root Git metadata and approved generated directories', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'operational-walk-'));
+  const root = await mkdtemp(join(await realpath(tmpdir()), 'operational-walk-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, 'source'), 'x');
   await mkdir(join(root, '.git'));
@@ -64,7 +64,7 @@ test('source accounting excludes only root Git metadata and approved generated d
   await assert.rejects(verifySource(root, bytes, digest, { generated: true }), /SOURCE_MUTATION/);
 });
 test('fixed report reader refuses hard-linked output', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'operational-link-'));
+  const root = await mkdtemp(join(await realpath(tmpdir()), 'operational-link-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, 'original'), '{}');
   await link(join(root, 'original'), join(root, 'numerical-boundary.json'));

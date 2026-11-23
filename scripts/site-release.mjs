@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, posix, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parsePnpmLock, packageForVirtualStorePath } from "./pnpm-lock.mjs";
 
 const config = "site-worker/production.wrangler.toml";
 // This narrow prebuilt adapter admits only the reviewed, build-hook-free config.
@@ -13,7 +14,7 @@ const required = ["dist/.vite/manifest.json", "dist/.vite/site-production.json",
   "worker/worker.js", "worker/meta.json", `source/${config}`];
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 function safe(path) {
-  if (!/^[A-Za-z0-9_.@/-]+$/.test(path) || path.split("/").some(p => !p || p === "." || p === ".."))
+  if (!/^[A-Za-z0-9_.@/+-]+$/.test(path) || path.split("/").some(p => !p || p === "." || p === ".."))
     throw new Error("Unsafe release path");
   return path;
 }
@@ -70,7 +71,7 @@ export function workerProvenance(root, directory, recorded) {
     return result && result !== ".." && !result.startsWith("../") && !paths.isAbsolute(result)
       ? safe(result) : null;
   }
-  // Wrangler 4.156.1 resolveEntryWithMain sets projectRoot to the user
+  // Wrangler 4.166.0 resolveEntryWithMain sets projectRoot to the user
   // config directory; bundleWorker uses it as esbuild absWorkingDir.
   function canonical(raw) {
     const file = paths.resolve(checkout, "site-worker", raw);
@@ -88,7 +89,7 @@ export function workerProvenance(root, directory, recorded) {
   if (inputs.length > 1000) throw new Error("Worker dependency count exceeded");
   const dependencies = new Set(inputs.map(canonical));
   if (!dependencies.has("site-worker/src/worker.ts")) throw new Error("Missing Worker entry input");
-  const lock = JSON.parse(readFileSync(join(root, "package-lock.json")));
+  const lock = parsePnpmLock(readFileSync(join(root, "pnpm-lock.yaml")));
   const currentModules = realpathSync(join(root, "node_modules"));
   const currentCheckout = realpathSync(root);
   for (const identity of dependencies) {
@@ -98,13 +99,18 @@ export function workerProvenance(root, directory, recorded) {
     const local = relative(base, file);
     if (!local || local === ".." || local.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(local))
       throw new Error("Dependency realpath escapes approved root");
-    if (!dependency) continue;
-    const key = Object.keys(lock.packages ?? {}).filter(key =>
-      key.startsWith("node_modules/") && identity.startsWith(key + "/"))
-      .sort((a, b) => b.length - a.length)[0];
-    const installed = key && JSON.parse(readFileSync(join(root, key, "package.json")));
-    if (!key || lock.packages[key].link || !lock.packages[key].integrity ||
-        installed.version !== lock.packages[key].version)
+    if (!dependency) {
+      if (file !== resolve(currentCheckout, identity)) throw new Error("Source realpath differs from metadata identity");
+      continue;
+    }
+    const record = packageForVirtualStorePath(lock, identity, { maxLength: paths === win32 ? 60 : 120 });
+    const key = record.packagePath;
+    const packageRoot = resolve(currentModules, key.slice("node_modules/".length));
+    const installed = JSON.parse(readFileSync(join(packageRoot, "package.json")));
+    if (realpathSync(packageRoot) !== packageRoot ||
+        file !== resolve(currentModules, identity.slice("node_modules/".length)) ||
+        realpathSync(join(packageRoot, "package.json")) !== join(packageRoot, "package.json") ||
+        installed.name !== record.name || installed.version !== record.version)
       throw new Error("Installed dependency lacks matching lock provenance");
     const packageIdentity = `${key}/package.json`;
     if (identity !== packageIdentity) dependencies.add(packageIdentity);
@@ -123,7 +129,7 @@ export function verifyRelease(root, directory, sha, digest, run, attempt, restor
   if (!/^[a-f0-9]{40}$/.test(sha ?? "") || !/^[0-9]+$/.test(run ?? "") ||
       !/^[0-9]+$/.test(attempt ?? "") || manifest.version !== 1 ||
       manifest.sha !== sha || manifest.run !== run || manifest.attempt !== attempt ||
-      manifest.wrangler !== "4.156.1")
+      manifest.wrangler !== "4.166.0")
     throw new Error("Release identity mismatch");
   const files = inventory(directory);
   delete files["manifest.json"];
@@ -140,7 +146,7 @@ export function verifyRelease(root, directory, sha, digest, run, attempt, restor
   const provenance = workerProvenance(root, directory, manifest.provenance);
   if (JSON.stringify(provenance) !== JSON.stringify(manifest.provenance))
     throw new Error("Canonical Worker provenance mismatch");
-  for (const path of [config, "package-lock.json", ...provenance.dependencies])
+  for (const path of [config, "pnpm-lock.yaml", "pnpm-workspace.yaml", ...provenance.dependencies])
     if (!files[`source/${path}`]) throw new Error("Missing release source dependency");
   for (const path of Object.keys(inventory(join(root, "site-worker/src"))))
     if (!files[`source/site-worker/src/${path}`]) throw new Error("Missing Worker source");
@@ -169,7 +175,7 @@ export function seal(root, directory, sha, env, execute = execFileSync) {
   inventory(directory);
   inventory(join(root, "dist"));
   const provenance = workerProvenance(root, directory);
-  const paths = [config, "package-lock.json", ...provenance.dependencies,
+  const paths = [config, "pnpm-lock.yaml", "pnpm-workspace.yaml", ...provenance.dependencies,
     ...execute("git", ["ls-files", "-z", "site-worker/src"], { cwd: root }).toString().split("\0").filter(Boolean)];
   if (paths.length > 2000) throw new Error("Release source count exceeded");
   let sourceBytes = 0;
@@ -186,7 +192,7 @@ export function seal(root, directory, sha, env, execute = execFileSync) {
   cpSync(join(root, "dist"), join(directory, "dist"), { recursive: true, dereference: false });
   const files = inventory(directory);
   const bytes = JSON.stringify({ version: 1, sha, run: env.GITHUB_RUN_ID,
-    attempt: env.GITHUB_RUN_ATTEMPT, wrangler: "4.156.1", files, provenance });
+    attempt: env.GITHUB_RUN_ATTEMPT, wrangler: "4.166.0", files, provenance });
   writeFileSync(join(directory, "manifest.json"), bytes, { flag: "wx" });
   const digest = hash(bytes);
   verifyRelease(root, directory, sha, digest, env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT);

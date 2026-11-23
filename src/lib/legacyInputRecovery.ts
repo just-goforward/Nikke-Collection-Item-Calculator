@@ -1,3 +1,4 @@
+import { legacyRecoveryKey } from "./legacyRecoveryKey";
 import { MAX_STOCK_PIECES, REQUIRED_EXP } from "../../shared/game";
 import type { AppLocale } from "../i18n/locale";
 import type { CollectionState, Stock } from "../types";
@@ -10,7 +11,6 @@ export const LEGACY_PENDING_RECOVERY_NOTICE: LegacyRecoveryNotice = {
   ja: "未確定の入力は復元しません。ゲームの現在の等級・段階・在庫を確認し入力してください。",
 };
 type RecoveryStorage = Pick<Storage, "getItem" | "removeItem">;
-const KEY = "nikke:legacy-reload-input:v1";
 const REVISION = "legacy-input-v1";
 const TTL_MS = 5 * 60_000;
 
@@ -60,8 +60,8 @@ export function consumeLegacyInputRecovery(
   now = Date.now(),
 ): LegacyRecoveryInput | "pending" | null {
   try {
-    const raw = storage.getItem(KEY);
-    storage.removeItem(KEY);
+    const raw = storage.getItem(legacyRecoveryKey);
+    storage.removeItem(legacyRecoveryKey);
     if (!raw || raw.length > 2048) return null;
     const value: unknown = JSON.parse(raw);
     if (!record(value) || !exactKeys(value, ["schema", "revision", "savedAt", "url", "input"]))

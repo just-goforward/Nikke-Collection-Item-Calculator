@@ -9,7 +9,12 @@ The web interface loads Pretendard 1.3.9, Pretendard Std, and Pretendard JP from
 Pretendard is licensed under the SIL Open Font License 1.1.
 
 - Project: <https://github.com/orioncactus/pretendard>
-- License: <https://github.com/orioncactus/pretendard/blob/main/LICENSE>
+- License: <https://github.com/orioncactus/pretendard/blob/v1.3.9/LICENSE>
+
+The `/preview/` package self-hosts the unmodified variable dynamic-subset stylesheets and
+WOFF2 files from the `pretendard`, `pretendard-std`, and `pretendard-jp` npm releases
+at version 1.3.9. Each locale's original copyright and OFL text is included alongside its
+stylesheet at `/preview/fonts/pretendard-1.3.9/{ko,en,ja}/LICENSE.txt`.
 
 The font names and font files are not relicensed under the GNU AGPL.
 

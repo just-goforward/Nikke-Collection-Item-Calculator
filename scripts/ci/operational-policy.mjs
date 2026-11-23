@@ -1,9 +1,15 @@
 import { createHash } from 'node:crypto';
 import { commandFor } from './run-checked-command.mjs';
+import { PNPM_VERSION } from '../pnpm-lock.mjs';
 
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 export const HEX = /^[a-f0-9]{64}$/;
-export const NPM_SRI = 'sha512-bKCmFRVT/BB+YPEYbZwQ1XUI3N5t4xKSpU1MxOjo7z3iWzKBJ0ZXRC1xFdEN+TC7N5TdywaBzf2dMXGJq/e2PQ==';
+export { PNPM_VERSION };
+export const PNPM_SRI = 'sha512-8eufCjHXspKbNS/kh8q4Q0gqJoOuvC4Q5pgos6XS8By/nAMtP+jf8F1Cw9er840kfAX+PJ/ts+A9qnLE91rvXQ==';
+export const PNPM_URL = 'https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.21.0.tgz';
+export const PNPM_BINARY = '/work/pnpm/package/pnpm';
+export const reviewedBackendPath = path => /^scripts\/ci\/operational-.*\.mjs$/.test(path) ||
+  ['scripts/pnpm-lock.mjs', 'scripts/ci/run-checked-command.mjs'].includes(path);
 export const fail = (code = 'ADMISSION_BLOCKED') => { throw new Error(code); };
 export const safePath = value => typeof value === 'string' && value.length > 0 &&
   !/[\\\0:\r\n]/.test(value) && !value.startsWith('/') &&
@@ -31,16 +37,31 @@ export function cleanEnvironment(sha, { install = false } = {}) {
   if (!/^[a-f0-9]{40}$/.test(sha)) fail();
   const temporary = install ? '/tmp' : '/home/node/results/tmp';
   return {
-    PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/node',
+    PATH: '/work/pnpm/package:/usr/local/bin:/usr/bin:/bin', HOME: '/home/node',
     TMPDIR: temporary, TMP: temporary, TEMP: temporary,
     LANG: 'C.UTF-8', TZ: 'UTC', CI: 'true', GITHUB_SHA: sha,
     EXPECTED_CANDIDATE_SHA: sha, R65_EXPECTED_SHA: sha,
-    R65_NPM_CLI: '/work/npm/package/bin/npm-cli.js',
+    R65_PNPM_BINARY: PNPM_BINARY,
     OPERATIONAL_PRIVATE_RESULTS_DIR: '/home/node/results',
     PLAYWRIGHT_BROWSERS_PATH: '/work/browsers', PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
     DO_NOT_TRACK: '1', WRANGLER_SEND_METRICS: 'false',
     WRANGLER_SEND_ERROR_REPORTS: 'false', CLOUDFLARE_CF_FETCH_ENABLED: 'false',
-    npm_config_cache: '/work/cache', npm_config_offline: 'true',
+    PNPM_HOME: '/work/pnpm/package', XDG_CONFIG_HOME: '/home/node/config',
+    XDG_CACHE_HOME: '/work/store/cache', XDG_STATE_HOME: '/home/node/state',
+    PNPM_CONFIG_STORE_DIR: '/work/store', PNPM_CONFIG_CACHE_DIR: '/work/store/cache',
+    PNPM_CONFIG_OFFLINE: 'true', PNPM_CONFIG_IGNORE_SCRIPTS: 'true',
+    PNPM_CONFIG_IGNORE_PNPMFILE: 'true', PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: 'error',
+    PNPM_CONFIG_PM_ON_FAIL: 'error',
+    PNPM_CONFIG_RUNTIME_ON_FAIL: 'error',
+    PNPM_CONFIG_PACKAGE_IMPORT_METHOD: 'copy', PNPM_CONFIG_NODE_LINKER: 'isolated',
+    PNPM_CONFIG_VIRTUAL_STORE_TYPE: 'project',
+    PNPM_CONFIG_VIRTUAL_STORE_DIR: 'node_modules/.pnpm',
+    PNPM_CONFIG_VIRTUAL_STORE_DIR_MAX_LENGTH: '120',
+    PNPM_CONFIG_SIDE_EFFECTS_CACHE: 'false', PNPM_CONFIG_UPDATE_NOTIFIER: 'false',
+    PNPM_CONFIG_TRUST_LOCKFILE: 'false',
+    PNPM_CONFIG_NPMRC_AUTH_FILE: '/dev/null',
+    PNPM_CONFIG_CHILD_CONCURRENCY: '1', PNPM_CONFIG_NETWORK_CONCURRENCY: '1',
+    npm_config_cache: '/work/store/npm-fallback', npm_config_offline: 'true',
     npm_config_ignore_scripts: 'true', npm_config_audit: 'false',
     npm_config_fund: 'false', npm_config_update_notifier: 'false',
     npm_config_userconfig: '/dev/null', npm_config_globalconfig: '/dev/null',
@@ -54,8 +75,8 @@ const commands = Object.freeze({
     'scripts/build-production-service.test.mjs', 'scripts/smoke-site-production.test.mjs',
     'scripts/locale-storage-boundary.test.mjs', 'e2e/operational-console-flood.test.mjs',
     'e2e/operational-type-config.test.mjs']],
-  S08: ['npm', ['run', 'build:site-production']],
-  S09: ['npm', ['run', 'check:site-production']],
+  S08: ['pnpm', ['run', 'build:site-production']],
+  S09: ['pnpm', ['run', 'check:site-production']],
   S10: ['node', ['--test', '--test-reporter=./scripts/ci/operational-node-reporter.mjs',
     'src/certifiedRuntime/nodeRuntime.test.mjs']],
   S11: ['node', ['node_modules/vitest/vitest.mjs', 'run', '--config',

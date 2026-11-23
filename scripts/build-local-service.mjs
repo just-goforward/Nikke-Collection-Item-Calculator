@@ -4,7 +4,7 @@ import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 export function serviceEnvironment(parent) {
   const env = Object.fromEntries(["PATH", "HOME", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "TMPDIR"].filter(k => parent[k] !== undefined).map(k => [k, parent[k]]));
-  return { ...env, VITE_SERVICE_CERTIFIED_SOLVER: "true", VITE_FORECAST_RUNTIME: "bundled", VITE_FORECAST_PUBLIC_KEY_ID: "", VITE_FORECAST_PUBLIC_KEY_BASE64: "" };
+  return { ...env, VITE_SERVICE_CERTIFIED_SOLVER: "true", VITE_FORECAST_RUNTIME: "bundled", VITE_FORECAST_PUBLIC_KEY_ID: "", VITE_FORECAST_PUBLIC_KEY_BASE64: "", VITE_FORECAST_TIMED_V1_PUBLIC_KEY_ID: "", VITE_FORECAST_TIMED_V1_PUBLIC_KEY_BASE64: "" };
 }
 export function serviceCommands(outdir) {
   return [
@@ -31,7 +31,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     writeFileSync(join(evidence, `${i}.stdout`), result.stdout ?? "");
     writeFileSync(join(evidence, `${i}.stderr`), result.stderr ?? "");
     commands.push({ command: [process.execPath, ...args], cwd: root, exit: result.status, signal: result.signal, error: result.error?.code ?? null });
-    writeFileSync(join(evidence, "execution.json"), JSON.stringify({ profile: "local-shared-service-bundled", env: { VITE_SERVICE_CERTIFIED_SOLVER: "true", VITE_FORECAST_RUNTIME: "bundled", VITE_FORECAST_PUBLIC_KEY_ID: "", VITE_FORECAST_PUBLIC_KEY_BASE64: "" }, outdir, commands }, null, 2));
+    writeFileSync(join(evidence, "execution.json"), JSON.stringify({ profile: "local-shared-service-bundled", env: { VITE_SERVICE_CERTIFIED_SOLVER: "true", VITE_FORECAST_RUNTIME: "bundled", VITE_FORECAST_PUBLIC_KEY_ID: "", VITE_FORECAST_PUBLIC_KEY_BASE64: "", VITE_FORECAST_TIMED_V1_PUBLIC_KEY_ID: "", VITE_FORECAST_TIMED_V1_PUBLIC_KEY_BASE64: "" }, outdir, commands }, null, 2));
     if (result.error || result.status !== 0) throw new Error(`Local profile step ${i} failed; preserve ${evidence}; no retries`);
   }
   console.log(JSON.stringify({ outdir, evidence, profile: "local-shared-service-bundled" }));

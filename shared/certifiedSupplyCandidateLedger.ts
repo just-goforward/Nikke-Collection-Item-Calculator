@@ -74,7 +74,7 @@ function assertGrantLedger(
   for (const grant of grants) {
     if (ids.has(grant.id)) throw new Error("forecast_grant_duplicate");
     ids.add(grant.id);
-    const at = dateStart(grant.grantGameDate);
+    const at = grant.scheduledAt === undefined ? dateStart(grant.grantGameDate) : timestamp(grant.scheduledAt);
     if (at < timestamp(snapshot.coverage.from) || at >= timestamp(snapshot.coverage.until))
       continue;
     const event = snapshot.events.find((entry) => entry.id === grant.id);
@@ -94,6 +94,7 @@ function assertGrantMatch(
     event.kind !== "grant" ||
     event.gameDate !== grant.grantGameDate ||
     timestamp(event.at) !== at ||
+    (event.grantTiming === "scheduled-v1") !== (grant.scheduledAt !== undefined) ||
     (event.expiresAt === undefined) !== (grant.claimUntil === undefined) ||
     (grant.claimUntil !== undefined &&
       timestamp(event.expiresAt as string) !== timestamp(grant.claimUntil)) ||

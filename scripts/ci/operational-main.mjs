@@ -2,7 +2,8 @@ import { mkdtemp, mkdir, writeFile, readlink, lstat } from 'node:fs/promises';
 import { dirname, resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { admit, parseGitIdentity, assertOperationalExecutionAllowed } from './operational-admission.mjs';
-import { sha256, HEX, fail, STAGES, SUITE_STAGES } from './operational-policy.mjs';
+import { sha256, HEX, fail, STAGES, SUITE_STAGES, reviewedBackendPath } from './operational-policy.mjs';
+import { parsePnpmLock } from '../pnpm-lock.mjs';
 import { readTrustedFile } from './operational-files.mjs';
 import { download, validateProvision, validateProvisionInputDirectory } from './operational-provision.mjs';
 import { CaptureLedger, publicResult } from './operational-results.mjs';
@@ -109,13 +110,13 @@ export async function runOperational({ env = process.env, fetchImpl = fetch, out
           sha256(await readAbsolute('/usr/bin/docker', 256 * 1024 * 1024)) !== a.dockerDigest) fail();
       // Only bounded control-code/lock metadata is read on the host. Complete
       // source payload verification/copy runs inside the producer's cgroup.
-      for (const file of a.source.files.filter(file => /^scripts\/ci\/operational-.*\.mjs$/.test(file.path))) {
+      for (const file of a.source.files.filter(file => reviewedBackendPath(file.path))) {
         if (file.size > 1024 * 1024 ||
             sha256(await readTrustedFile(checkout, file.path, file.size)) !== file.sha256) fail();
       }
-      const lockBytes = await readTrustedFile(checkout, 'package-lock.json', 8 * 1024 * 1024);
+      const lockBytes = await readTrustedFile(checkout, 'pnpm-lock.yaml', 8 * 1024 * 1024);
       if (sha256(lockBytes) !== a.lockDigest) fail();
-      validateProvision(a, JSON.parse(lockBytes));
+      validateProvision(a, parsePnpmLock(lockBytes));
       await validateProvisionInputDirectory(a, provisionRoot, checkout);
     });
     await record('S02', async signal => {

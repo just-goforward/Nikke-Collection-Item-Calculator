@@ -1,4 +1,5 @@
 node_modules/
+.pnpm-store/
 .wrangler/
 .wrangler-dry-run-*/
 .dev.vars*

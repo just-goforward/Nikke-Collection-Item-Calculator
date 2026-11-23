@@ -4,8 +4,11 @@ import { join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readTrustedFile, verifySource } from './operational-files.mjs';
 import { cleanEnvironment, sha256, fail, validateBrowserConfig, sealedCommand,
-  assertSealed, SUITE_STAGES } from './operational-policy.mjs';
-import { validateProvision, artifactName } from './operational-provision.mjs';
+  assertSealed, SUITE_STAGES, PNPM_BINARY, PNPM_VERSION } from './operational-policy.mjs';
+import { validateProvision, artifactName, verifyArtifact, verifyPnpmPackage, lifecycleRecords,
+  validateLifecycleReceipt, validateLifecyclePackage, pnpmStoreAddArguments,
+  pnpmInstallArguments, registryMetadataEntries } from './operational-provision.mjs';
+import { parsePnpmLock } from '../pnpm-lock.mjs';
 import { extractTgz, tgzEntries, zipEntries, writeEntries } from './operational-archives.mjs';
 import { verifyStorage, verifyWorkspace, PRIVATE_ROOT, FRAMEWORK_TMP, PRODUCER_UID } from './operational-storage.mjs';
 import { validateApproval, assertOperationalExecutionAllowed } from './operational-admission.mjs';
@@ -36,8 +39,8 @@ async function copySource(a) {
   }
   await verifySource(source, manifest, sha256(manifest));
 }
-async function runChild(executable, args, env) {
-  const child = spawn(executable, args, { cwd: source, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+async function runChild(executable, args, env, cwd = source) {
+  const child = spawn(executable, args, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
   let failure, checking;
   const kill = () => {
@@ -59,37 +62,49 @@ async function runChild(executable, args, env) {
   if (failure) fail(failure);
 }
 async function install(a) {
-  const lockBytes = await readTrustedFile(source, 'package-lock.json', 8 * 1024 * 1024);
+  const lockBytes = await readTrustedFile(source, 'pnpm-lock.yaml', 8 * 1024 * 1024);
   if (sha256(lockBytes) !== a.lockDigest) fail();
-  const lock = JSON.parse(lockBytes);
+  const lock = parsePnpmLock(lockBytes);
   validateProvision(a, lock);
   await verifyStorage(a);
-  const npm = a.provision.artifacts.find(item => item.kind === 'npm');
-  const npmBytes = await readTrustedFile('/provision', artifactName(npm), npm.size);
-  if (sha256(npmBytes) !== npm.sha256) fail();
-  await extractTgz(npmBytes, '/work/npm', npm.unpackedBytes);
-  const npmCli = '/work/npm/package/bin/npm-cli.js';
-  if (sha256(await readTrustedFile('/work/npm', 'package/bin/npm-cli.js', 1024 * 1024)) !== a.npmCliDigest) fail();
+  const pnpm = a.provision.artifacts.find(item => item.kind === 'pnpm');
+  const pnpmBytes = await readTrustedFile('/provision', artifactName(pnpm), pnpm.size);
+  verifyArtifact(pnpmBytes, pnpm);
+  await extractTgz(pnpmBytes, '/work/pnpm', pnpm.unpackedBytes);
+  if (sha256(await readTrustedFile('/work/pnpm', 'package/pnpm', 64 * 1024 * 1024)) !== a.pnpmBinaryDigest) fail();
   const env = cleanEnvironment(a.candidateSha, { install: true });
   // The outer S05 capture owns the streams and aggregate deadline, including
-  // package-cache population and every explicitly approved lifecycle.
-  const execute = args => runChild(process.execPath, args, env);
-  if (JSON.parse(await readTrustedFile('/work/npm', 'package/package.json', 1024 * 1024)).version !== '12.2.1') fail();
-  for (const artifact of a.provision.artifacts.filter(item => item.kind === 'package')) {
+  // store population and every explicitly approved lifecycle.
+  verifyPnpmPackage(JSON.parse(await readTrustedFile('/work/pnpm', 'package/package.json', 1024 * 1024)));
+  for (const artifact of a.provision.artifacts.filter(item => item.kind === 'registry-metadata')) {
     const bytes = await readTrustedFile('/provision', artifactName(artifact), artifact.size);
-    if (sha256(bytes) !== artifact.sha256) fail();
-    tgzEntries(bytes, artifact.unpackedBytes);
-    await execute([npmCli, 'cache', 'add', `/provision/${artifactName(artifact)}`, '--offline', '--ignore-scripts']);
+    await writeEntries(registryMetadataEntries(bytes, artifact, lock), '/work/store/cache');
   }
-  await execute([npmCli, 'ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund']);
+  const tarballs = [`/provision/${artifactName(pnpm)}`];
+  for (const artifact of a.provision.artifacts.filter(item => ['package', 'manager-package'].includes(item.kind))) {
+    const bytes = await readTrustedFile('/provision', artifactName(artifact), artifact.size);
+    verifyArtifact(bytes, artifact);
+    const entries = tgzEntries(bytes, artifact.unpackedBytes);
+    const pkg = JSON.parse(entries.find(entry => entry.path === 'package/package.json')?.bytes ?? 'null');
+    const record = (artifact.kind === 'manager-package' ? lock.manager : lock).packages[artifact.packageId];
+    if (pkg?.name !== record.name || pkg.version !== record.version) fail();
+    tarballs.push(`/provision/${artifactName(artifact)}`);
+  }
+  await runChild(PNPM_BINARY, pnpmStoreAddArguments(tarballs), env);
+  await runChild(PNPM_BINARY, pnpmInstallArguments(), env);
   await verifyWorkspace(a);
-  for (const item of a.provision.lifecycles) {
-    const bytes = await readTrustedFile(source, `${item.packagePath}/${item.script}`, 1024 * 1024);
+  const lifecycles = lifecycleRecords(a, lock);
+  for (const item of lifecycles) {
+    const bytes = await readTrustedFile(source, `${item.packagePath}/install.js`, 1024 * 1024);
     const pkg = JSON.parse(await readTrustedFile(source, `${item.packagePath}/package.json`, 1024 * 1024));
-    if (sha256(bytes) !== item.scriptDigest || pkg.version !== item.version ||
-        !['node install.js', 'node ./install.js'].includes(pkg.scripts?.postinstall)) fail();
-    await execute([`${item.packagePath}/${item.script}`]);
+    validateLifecyclePackage(item, lock.packages[item.packageId], bytes, pkg);
+    await runChild(process.execPath, [join(source, item.packagePath, 'install.js')], env,
+      join(source, item.packagePath));
   }
+  const receipt = { schemaVersion: 2, pnpm: PNPM_VERSION, lockDigest: a.lockDigest,
+    provisionDigest: a.provisionDigest, lifecycles };
+  validateLifecycleReceipt(a, lock, receipt);
+  await writeFile('/work/lifecycle-receipt.json', JSON.stringify(receipt), { flag: 'wx', mode: 0o600 });
   for (const item of a.provision.artifacts.filter(item => item.kind === 'browser')) {
     const bytes = await readTrustedFile('/provision', artifactName(item), item.size);
     if (sha256(bytes) !== item.sha256) fail();
@@ -119,14 +134,14 @@ export async function runContainer() {
   // reads before the host's producer-reap gate releases the collector.
   if (mode === 'hold') return hold();
   const { a } = await loadApproval();
-  if (process.version !== 'v26.13.0' ||
+  if (process.version !== 'v26.13.1' ||
       sha256(await readTrustedFile('/usr/local/bin', 'node', 256 * 1024 * 1024)) !== a.nodeDigest) fail();
   if (mode === 'keep') return hold();
   if (mode === 'source') {
     await verifyStorage(a);
     await mkdir(PRIVATE_ROOT, { mode: 0o700 });
     await mkdir(FRAMEWORK_TMP, { mode: 0o700 });
-    await mkdir('/work/cache', { mode: 0o700 });
+    await mkdir('/work/store', { mode: 0o700 });
     return copySource(a);
   }
   if (mode === 'install') return install(a);
@@ -134,7 +149,11 @@ export async function runContainer() {
     const id = process.argv[3];
     const env = { ...cleanEnvironment(a.candidateSha), OPERATIONAL_NODE_SUITE: SUITE_STAGES[id] ?? '',
       OPERATIONAL_NODE_INVENTORY_DIGEST: a.nodeInventoryDigest };
-    const command = sealedCommand(id, { node: process.execPath, npmCli: env.R65_NPM_CLI,
+    const lock = parsePnpmLock(await readTrustedFile(source, 'pnpm-lock.yaml', 8 * 1024 * 1024));
+    if (lock.digest !== a.lockDigest) fail();
+    validateLifecycleReceipt(a, lock,
+      JSON.parse(await readTrustedFile('/work', 'lifecycle-receipt.json', 1024 * 1024)));
+    const command = sealedCommand(id, { node: process.execPath, pnpmBinary: env.R65_PNPM_BINARY,
       root: source, platform: 'linux' });
     assertSealed(command);
     return runChild(command.executable, command.args, env);

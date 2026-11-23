@@ -117,7 +117,7 @@ export async function readRustWasmLicenses(): Promise<RustWasmLicenseManifest> {
     await readFile(RUST_WASM_LICENSE_MANIFEST, "utf8"),
   ) as RustWasmLicenseManifest;
   if (!Array.isArray(manifest.crates) || manifest.crates.length === 0) {
-    throw new Error("Rust WASM license manifest is empty; run npm run generate:rust-wasm-licenses");
+    throw new Error("Rust WASM license manifest is empty; run pnpm run generate:rust-wasm-licenses");
   }
   for (const crate of manifest.crates) {
     if (!crate.texts?.length || crate.texts.some((entry) => !entry.text.trim())) {
@@ -137,7 +137,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     await writeFile(RUST_WASM_LICENSE_MANIFEST, expected);
   } else if ((await readFile(RUST_WASM_LICENSE_MANIFEST, "utf8")) !== expected) {
     throw new Error(
-      "shared/legal/rust-wasm-licenses.json is stale; run npm run generate:rust-wasm-licenses",
+      "shared/legal/rust-wasm-licenses.json is stale; run pnpm run generate:rust-wasm-licenses",
     );
   }
 }
