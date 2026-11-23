@@ -122,6 +122,45 @@ test('enrollment validates authenticated policy, not the token name or a success
   for (const other of [scoped(['a'],{[act]:'*'}),scoped(['e'],{[act]:'*'}),scoped(['e'],{[act]:{'*':'*'}}),scoped(['e'],{[act]:{[id]:'*',[tokenId]:'*'}})])assert.throws(()=>check([other],id));
   assert.throws(()=>check([onlyWorker],tokenId));assert.throws(()=>check([...graphRoles,scoped(['a'],{[act]:'*'})]));assert.throws(()=>check(graphRoles.slice(1)));
 });
+test('beta registry: observed wire shape proves a complete inventory, not just HTTP success', async()=>{
+  const path=`${registry}?per_page=100`, fixture=controls(), rows=await fixture.cf('graph')(path);
+  const info={page:1,per_page:100,count:20,total_count:20};
+  const wire={result:rows,success:true,errors:null,messages:null,result_info:info};
+  const run=delta=>graph(client('synthetic',async(url,{method})=>{
+    assert.equal(method,'GET');
+    const endpoint=url.slice('https://api.cloudflare.com/client/v4'.length);
+    if(endpoint===path)return Response.json({...wire,...delta});
+    const result=await fixture.cf('graph')(endpoint);
+    return Response.json({success:true,errors:[],messages:[],result});
+  }));
+  await run({});await run({errors:[],messages:[]});
+  for(const delta of [{success:false},{errors:[{code:1234}]},{errors:undefined},{messages:undefined},{messages:[]},{errors:{}},
+    {result:null},{result:{}},{result_info:null},{result_info:undefined},
+    ...[{page:2},{per_page:10},{count:19},{total_count:21},{total_count:undefined},{total_pages:2},{total_pages:null}].map(v=>({result_info:{...info,...v}})),
+    ...[{id:rows[1].id},{name:rows[1].name},{name:undefined},{name:null},{id:'wrong'}].map(v=>({result:[{...rows[0],...v},...rows.slice(1)]}))]) await assert.rejects(run(delta));
+});
+test('beta read variant is bounded by method, path, list completeness and resource shape',async()=>{
+  const wire={success:true,errors:null,messages:null}, cf=(body,postPath)=>client('synthetic',async()=>Response.json({...wire,...body}),postPath);
+  for(const [suffix,per_page] of [['versions?per_page=100',100],['previews?per_page=1',1]]) {
+    const p=`${registry}/${id}/${suffix}`, result_info={page:1,per_page,count:0,total_count:0};
+    await assert.rejects(cf({result:[],result_info})(p));
+    const canonical={result:[],result_info,errors:[],messages:[]};
+    assert.deepEqual(await cf(canonical)(p),[]);
+    for(const extra of [{total_count:1},{page:2},{count:1}]) await assert.rejects(cf({...canonical,result_info:{...result_info,...extra}})(p));
+  }
+  for(const p of [`${registry}/${name}`,`${registry}/${id}`,`${registry}/${id}/versions/${vid}`,`${registry}/${id}/versions/${vid}?include=modules`]){
+    await assert.rejects(cf({result:{id}})(p));
+    const canonical={errors:[],messages:[],result:{id}};
+    assert.deepEqual(await cf(canonical)(p),{id});
+    for(const result of [[],null,''])await assert.rejects(cf({...canonical,result})(p));
+    await assert.rejects(cf({...canonical,result_info:{}})(p));
+  }
+  for(const p of [`${root}/tokens/verify`,`${registry}/${id}/versions/latest`,`${registry}?per_page=10`])await assert.rejects(cf({result:[]})(p));
+  for(const p of [registry,`${registry}/${id}/versions?deploy=true`])await assert.rejects(cf({result:{id}},p)(p,{}));
+  for(const v of [{id,bindings:[]},{id:vid},{id:vid,bindings:[{}]},{id:vid,bindings:[{type:'ratelimit'}]},{id:vid,bindings:[{type:'ratelimit',namespace_id:namespace}]}]){
+    await assert.rejects(graph(controls(({path})=>path.endsWith(`/versions/${vid}`)?{value:v}:{}).cf('graph')));
+  }
+});
 test('fixed transport never logs bodies or keys, follows redirects or retries',async()=>{
   assert.throws(()=>client(''));let n=0;
   const cf=client('synthetic-not-a-key',async(url,opts)=>{n++;assert.equal(opts.redirect,'error');assert.equal(new URL(url).origin,'https://api.cloudflare.com');return new Response('sensitive error',{status:403});});

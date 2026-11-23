@@ -11,6 +11,29 @@ export const immutable = /^[a-f0-9]{32}$/, versionId = /^[a-f0-9]{8}(?:-[a-f0-9]
 export const digest = bytes => hash('sha256', bytes);
 export function requireThat(ok, message) { if (!ok) throw Error(message); }
 const list = value => { requireThat(Array.isArray(value), 'missing provider list'); return value; };
+// Only the registry list has been observed to return explicit null diagnostics.
+const versionRead = new RegExp(`^/[0-9a-f]{32}/versions/${versionId.source.slice(1,-1)}(?:\\?include=modules)?$`);
+function betaRead(path) {
+  if (!path.startsWith(registry)) return;
+  const suffix = path.slice(registry.length);
+  if (suffix === '?per_page=100' || /^\/[0-9a-f]{32}\/versions\?per_page=100$/.test(suffix)) return 100;
+  if (/^\/[0-9a-f]{32}\/previews\?per_page=1$/.test(suffix)) return 1;
+  if (suffix === `/${name}` || /^\/[0-9a-f]{32}$/.test(suffix) || versionRead.test(suffix)) return 0;
+}
+function decodeBetaRead(value, perPage, registryList) {
+  requireThat(value?.success === true && ((registryList && value.errors === null && value.messages === null) ||
+    (Array.isArray(value.errors) && !value.errors.length && Array.isArray(value.messages))), 'provider result not unambiguously successful');
+  if (perPage) {
+    const rows = list(value.result), info = value.result_info;
+    requireThat(info?.page === 1 && info.per_page === perPage && rows.length <= perPage &&
+      info.count === rows.length && info.total_count === rows.length &&
+      (!Object.hasOwn(info,'total_pages') || info.total_pages === 1 || (rows.length === 0 && info.total_pages === 0)), 'incomplete provider inventory');
+  } else {
+    requireThat(value.result !== null && typeof value.result === 'object' && !Array.isArray(value.result) &&
+      !Object.hasOwn(value,'result_info'), 'invalid provider detail');
+  }
+  return value.result;
+}
 export function client(token, send = fetch, postPath = null) {
   requireThat(typeof token === 'string' && token.length > 0 && !/\s/.test(token), 'credential missing or malformed');
   return async (path, data) => {
@@ -22,6 +45,8 @@ export function client(token, send = fetch, postPath = null) {
     catch { throw Error(`provider ${method} transport failure; no retry`); }
     requireThat(response.ok, `provider ${method} HTTP ${response.status}; no retry`);
     let value; try { value = await response.json(); } catch { throw Error('ambiguous provider response; no retry'); }
+    const beta = method === 'GET' ? betaRead(path) : undefined;
+    if (beta !== undefined) return decodeBetaRead(value, beta, path === `${registry}?per_page=100`);
     requireThat(value?.success === true && value.result != null && Array.isArray(value.errors) && !value.errors.length, 'provider result not unambiguously successful');
     if (value.result_info) {
       const {page, total_pages, total_count, count} = value.result_info;
@@ -41,7 +66,7 @@ export function privateWorker(w, id, tag, empty, notBefore) {
 }
 export async function inventory(cf) {
   const rows = list(await cf(`${registry}?per_page=100`));
-  requireThat(rows.length >= 20 && rows.length < 100 && rows.every(w => immutable.test(w.id) && /^[a-zA-Z0-9_-]+$/.test(w.name)) && new Set(rows.map(w=>w.id)).size === rows.length && new Set(rows.map(w=>w.name)).size === rows.length, 'account Worker inventory incomplete or ambiguous');
+  requireThat(rows.length >= 20 && rows.length < 100 && rows.every(w => typeof w?.id === 'string' && immutable.test(w.id) && typeof w.name === 'string' && /^[a-zA-Z0-9_-]+$/.test(w.name)) && new Set(rows.map(w=>w.id)).size === rows.length && new Set(rows.map(w=>w.name)).size === rows.length, 'account Worker inventory incomplete or ambiguous');
   return rows;
 }
 export async function absent(cf) { requireThat(!(await inventory(cf)).some(w=>w.name === name), 'Worker already exists; do not adopt'); }
@@ -66,7 +91,8 @@ export async function graph(cf, reservedId) {
     for (const {version_id} of deployments[0].versions) {
       requireThat(versionId.test(version_id), 'invalid active version ID');
       const v = await cf(`${registry}/${w.id}/versions/${version_id}`);
-      requireThat(v.id === version_id && !list(v.bindings).some(b=>b.type === 'ratelimit' && String(b.namespace_id) === namespace), 'namespace collision or unknown version');
+      requireThat(v.id === version_id && list(v.bindings).every(b=>typeof b?.type === 'string' && b.type.length > 0 &&
+        (b.type !== 'ratelimit' || (typeof b.namespace_id === 'string' && /^(0|[1-9][0-9]*)$/.test(b.namespace_id) && b.namespace_id !== namespace))), 'namespace collision or unknown version');
     }
   }
 }
