@@ -1,11 +1,11 @@
 import test, {after, before} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {checkedMain, executeUpload} from './incident-owner-upload-only.mjs';
+import {checkedCheckout, checkedMain, executeUpload} from './incident-owner-upload-only.mjs';
 import {baseline, failed, script, target} from './incident-canary-control.mjs';
 import {account, bindings, client, db, digest, name, namespace, registry, root, zone} from './incident-provider.mjs';
 import {original} from './incident-recovery-id.mjs';
@@ -35,6 +35,48 @@ before(() => {
   }
 });
 after(() => rmSync(tmp,{recursive:true,force:true}));
+
+test('credential cleanup preserves standard descriptors for a later synchronous spawn',()=>{
+  const helper = new URL('./incident-owner-upload-only.mjs',import.meta.url).href;
+  const probe = `
+    import assert from 'node:assert/strict';
+    import {execFileSync} from 'node:child_process';
+    import {fstatSync, readSync} from 'node:fs';
+    import {privateInput} from ${JSON.stringify(helper)};
+    const stdin = fstatSync(0);
+    assert.equal(privateInput(3),'dummy_policy');
+    assert.throws(()=>fstatSync(3),{code:'EBADF'});
+    assert.throws(()=>privateInput(4),/invalid credential descriptor/);
+    assert.throws(()=>fstatSync(4),{code:'EBADF'});
+    if (process.argv[1] === 'invalid') assert.throws(()=>privateInput(0),/invalid credential descriptor/);
+    else assert.equal(privateInput(0),'dummy_editor');
+    const remaining = fstatSync(0);
+    assert.deepEqual([remaining.dev,remaining.ino],[stdin.dev,stdin.ino]);
+    assert.equal(readSync(0,Buffer.alloc(1),0,1,null),0);
+    fstatSync(1);
+    fstatSync(2);
+    const output = execFileSync(process.execPath,['--eval','process.stdout.write("spawned")'],{
+      encoding:'utf8',env:{},stdio:['ignore','pipe','pipe'],timeout:10000
+    });
+    assert.equal(output,'spawned');
+    process.stdout.write(output);
+  `;
+  for (const stdin of ['valid','invalid']) {
+    const inputs = [];
+    try {
+      for (const [i,text] of [stdin==='valid'?'dummy_editor\n':'!invalid\n','dummy_policy\n','!invalid\n'].entries()) {
+        const file = join(tmp,`fd-${stdin}-${i}`);
+        writeFileSync(file,text,{flag:'wx',mode:0o600});
+        inputs.push(openSync(file,'r'));
+      }
+      assert.equal(execFileSync(process.execPath,['--input-type=module','--eval',probe,stdin],{
+        encoding:'utf8',env:{},stdio:[inputs[0],'pipe','pipe',inputs[1],inputs[2]],timeout:15000
+      }),'spawned');
+    } finally {
+      for (const fd of inputs) closeSync(fd);
+    }
+  }
+});
 
 function fixture(fault) {
   const dir = mkdtempSync(join(tmp,'state-')), marker = join(dir,`${original.workerId}.json`);
@@ -137,6 +179,28 @@ for (const fault of ['lost ACK','no visible result','invalid ACK','old ID','lost
 test('two concurrent invocations sharing the owner journal cannot issue two POSTs',async()=>{
   const f=fixture();const outcomes=await Promise.allSettled([f.run(),f.run()]);
   assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);assert.equal(f.writes(),1);
+});
+
+test('source repair checkout requires the exact first parent, clean tree and complete three-file diff',()=>{
+  const parent = 'c5166082294a10fcee82b32eef62e3bf86a9ba1e';
+  const files = ['production-incidents/RUNBOOK.ko.md','scripts/ci/incident-owner-upload-only.mjs',
+    'scripts/ci/incident-owner-upload-only.test.mjs'];
+  for (const fault of ['none','historical parent','dirty','untracked','missing file','extra file']) {
+    const git = (...args) => {
+      if (args[0] === 'rev-parse') {
+        assert.deepEqual(args,['rev-parse','HEAD^']);
+        return fault==='historical parent'?'3677b9bd19669172b82afea497b996234cc19c2d':parent;
+      }
+      if (args[0] === 'status') {
+        assert.deepEqual(args,['status','--porcelain','--untracked-files=normal']);
+        return fault==='dirty'?` M ${files[0]}`:fault==='untracked'?'?? other-file':'';
+      }
+      assert.deepEqual(args,['diff','--name-only',parent,'HEAD']);
+      return (fault==='missing file'?files.slice(1):fault==='extra file'?[...files,'.github/workflows/site-source-verify.yml']:files).join('\n');
+    };
+    if (fault==='none') checkedCheckout(git);
+    else assert.throws(()=>checkedCheckout(git),/^Error: unreviewed checkout$/,fault);
+  }
 });
 
 test('only the merged signed protected head with its successful push workflow and offline step is eligible',()=>{

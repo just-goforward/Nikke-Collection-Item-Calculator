@@ -133,6 +133,8 @@ WHERE i.fingerprint='operator-private-canary' AND i.build=?
 
 **소스 PR 검토·병합 및 병합 SHA의 보호 `main` push CI가 성공하기 전에는 실행하지 않는다.** PR 측 CI만으로는 부족하다. 이 절차는 소유자 장치에서만 실행하며 워크플로 실행·환경 승인·변수/secret 변경이 필요 없다. 공개용 버전을 만드는 것과 공개하는 것은 다르다. 허용하는 쓰기는 고정 UUID의 `POST …/versions?deploy=false` 한 번뿐이다. 배포, preview URL, route, cron, D1 쿼리, DM, Site 변경은 없다.
 
+FD 수명 수정은 `c5166082294a10fcee82b32eef62e3bf86a9ba1e`를 첫 부모로 둔 보호 `main`의 소스 병합만 허용한다. 깨끗한 checkout에서 이 런북과 helper·오프라인 테스트, 세 파일만 달라야 한다. 이 기준은 과거 successor 서명이나 공개 번들의 소스 핀을 대체하지 않는다.
+
 |확인할 근거|증명하는 것 / 증명하지 않는 것|
 |---|---|
 |GitHub-hosted attempt 1의 서명 검증|설치 `45171435589`의 `installed.json`은 inert 바이트·버전·폐기한 Editor를, `45197180403`의 `permit.json`은 선행 run `45184118767` 및 고정 successor 바이트를 결속한다. 과거 서명은 이번 쓰기 승인이나 공개 모듈의 서명이 아니다.|
@@ -164,6 +166,8 @@ printf '%s  %s\n' 924bc0aa4ddb4c37351b4551c2d55696c5d0c50e14bef355d605a4af4109ed
 ```
 
 그 후에만 기존 `gh` 소유자 세션과 아래 FD를 사용한다. 셸 변수에는 소유자만 읽을 수 있는 **파일 경로**만 지정한다. 이 도구는 자격을 발급·교체·추출하지 않는다. FD 0은 정확한 Worker UUID만의 계정 소유 `Individual Workers Editor`(발급→만료 24시간 이하, 승인 창 종료까지 유효, 설치 Editor 금지), FD 3은 이 계정의 `Account API Tokens Read` 정책 reader, FD 4는 `cloudflare-site-production`에 등록된 graph reader다. 정책 조회/graph 자격은 GET에만, Editor는 자체 ID·단일 Worker 상태 GET과 단 한 번의 POST에만 쓰인다. Editor 자체는 provider 차원에서 upload-only가 아니므로 다른 도구에 전달하지 않는다.
+
+helper는 정상 FD 0 입력을 EOF까지 읽되 동기 자식 프로세스가 사용하는 표준 FD를 닫지 않는다. 동기 Git/`gh` 호출은 이 입력을 자식에게 전달하지 않으며, 별도 리더 FD 3·4는 내용을 읽은 뒤 닫는다.
 
 ```sh
 until_epoch=$(($(date +%s)+1800))

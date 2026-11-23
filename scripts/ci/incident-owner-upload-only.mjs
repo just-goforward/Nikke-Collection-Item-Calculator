@@ -13,6 +13,7 @@ import {baseline, control, exactVersion, failed, privateGraph, script, target} f
 import {successorBuild} from '../../production-incidents/sealed-successor.ts';
 
 const source = '3677b9bd19669172b82afea497b996234cc19c2d';
+const reviewedParent = 'c5166082294a10fcee82b32eef62e3bf86a9ba1e';
 const checkout = fileURLToPath(new URL('../../', import.meta.url));
 const versionList = `${target}/versions?per_page=100`;
 const uploadPath = `${target}/versions?deploy=false`;
@@ -39,7 +40,7 @@ function windowOpen(until) {
   check(Number.isSafeInteger(until) && now < until * 1000 && until * 1000 <= now + 3600000, 'outside upload window');
 }
 
-function privateInput(fd) {
+export function privateInput(fd) {
   const s = fstatSync(fd);
   check(s.isFIFO() || (s.isFile() && s.uid === process.getuid() && (s.mode & 0o077) === 0), 'not a private file or pipe');
   const buf = Buffer.alloc(513);
@@ -53,7 +54,11 @@ function privateInput(fd) {
     const token = buf.subarray(0, n).toString('ascii').trim();
     check(n < buf.length && /^[A-Za-z0-9_-]+$/.test(token), 'invalid credential descriptor');
     return token;
-  } finally { buf.fill(0); closeSync(fd); }
+  } finally {
+    buf.fill(0);
+    // Standard streams belong to the process, not to credential cleanup.
+    if (fd > 2) closeSync(fd);
+  }
 }
 
 function burnAttempt(dir, intent) {
@@ -116,14 +121,18 @@ export function checkedMain(head,query) {
     j.steps.some(s => s.name === 'Verify post-successor inactive upload only (offline)' && s.conclusion === 'success')), 'offline upload checks did not pass');
 }
 
+export function checkedCheckout(git) {
+  // This source-only repair has its own exact parent; the public bundle and
+  // historical receipt below still use the earlier source pin.
+  const files = ['scripts/ci/incident-owner-upload-only.mjs','scripts/ci/incident-owner-upload-only.test.mjs',
+    'production-incidents/RUNBOOK.ko.md'];
+  check(git('rev-parse','HEAD^') === reviewedParent && !git('status','--porcelain','--untracked-files=normal') &&
+    same(git('diff','--name-only',reviewedParent,'HEAD').split('\n').sort(),files.sort()), 'unreviewed checkout');
+}
+
 function provenance() {
   const git = (...args) => execFileSync('git',args,{cwd:checkout,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
-  // The public bundle is pinned to its historical source. Require that the
-  // merged PR added only the reviewed upload guard, coverage, docs and CI step.
-  const files = ['scripts/ci/incident-owner-upload-only.mjs','scripts/ci/incident-owner-upload-only.test.mjs',
-    'scripts/ci/incident-canary-control.mjs','production-incidents/RUNBOOK.ko.md','.github/workflows/site-source-verify.yml'];
-  check(git('rev-parse','HEAD^') === source && !git('status','--porcelain','--untracked-files=normal') &&
-    same(git('diff','--name-only',source,'HEAD').split('\n').sort(),files.sort()), 'unreviewed checkout');
+  checkedCheckout(git);
   check(JSON.parse(gh('api','user')).id === owner, 'not the local owner');
   const head = git('rev-parse','HEAD');
   const requireSource = () => checkedMain(head,api);
