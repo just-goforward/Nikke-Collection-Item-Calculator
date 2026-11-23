@@ -672,7 +672,8 @@ export function AppLayout({
       result={
         <>
           {history?.problem && <div role="status" data-testid="preview-replacement-error" className="rounded-card border border-yellow-kit bg-outcome p-3 text-sm text-outcome-text">
-            {text(history.problem)}
+            {rootCandidate && <strong>{t("result.recalculationError")}</strong>}
+            <div>{text(history.problem)}</div>
             {rootCandidate && calculator.resultView.type === "recommendation" && <p>{t("result.previousRecommendationAfterFailure")}</p>}
           </div>}
           <ResultPanel

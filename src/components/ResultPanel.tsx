@@ -303,6 +303,7 @@ function ResultViewContent({
     return (
       <div className={classes.resultContent}>
         <div className={`${classes.error} ${classes.errorContent}`} role="alert">
+          {view.recalculationFailure && <strong>{t("result.recalculationError")}</strong>}
           <span>{text(view.message)}</span>
           {followUpFailure ? (
             <button className={classes.retryButton} type="button" onClick={onRetryCalculation}>

@@ -359,7 +359,11 @@ export async function executeSolveAndRender(
             ? "capacity" : "other";
         void import("../incidentTransport").then(({reportRecalculationFailure}) =>
           reportRecalculationFailure(reason, options.failureContext ?? "manual")).catch(() => {});
-        failureViews = {result:{...failureViews.result, message:message("result.recalculationError")}, detail:EMPTY_DETAIL};
+        const replacement = !!options.failureContext || previous.result.type === "error" ||
+          (prior?.input && inputKey(prior.input) === inputKey(input));
+        if (replacement) failureViews = {
+          result: {...failureViews.result, recalculationFailure: true}, detail: EMPTY_DETAIL,
+        };
       }
       restorePreviousViews = failure.restorePreviousViews;
       skipUiCleanup = failure.skipUiCleanup;

@@ -41,6 +41,7 @@ export type ResultView =
   | { type: "callout"; reason: "final_target" | "converted" | "certified_preserve" | "adaptive_no_first_kit"; message: LocalizedMessage }
   | {
       type: "error";
+      recalculationFailure?: true;
       reason:
         | "no_action"
         | "solver_failure"

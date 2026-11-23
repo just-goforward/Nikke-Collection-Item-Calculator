@@ -3,7 +3,7 @@ export const SERVICE_H14_BUILD = {
   "schemaVersion": 1,
   "policy": "adaptive-next-batch-balanced-v1",
   "profileId": "service-fused-h14-v1",
-  "codeHash": "9c20026c5bba3f6ee236fe173d175dab08729ae5a7516c87143a685c2064d459",
+  "codeHash": "a80d81981866dacf6014f4e917a95f7056013932655d925f6e2cf6d780496169",
   "nativeSourceHash": "fb016d2cf54a340396300866bc249be4c102d6ad386a0aee0808a265a489f713",
   "exactWasmHash": "aa0768ad9e0cfd67f0b34289053fdd5f37c5846bd1ed85559629a831752b41b5",
   "sourceManifest": [
@@ -761,7 +761,7 @@ export const SERVICE_H14_BUILD = {
     },
     {
       "path": "src/AppLayout.tsx",
-      "sha256": "646e2dc2da60e1e9142546f368516effd7f17922057c7575c28eb010fdf7077b"
+      "sha256": "bb858c35b5fe3b01aaaef18434aa209126b03bd241624214bf1db85a496de903"
     },
     {
       "path": "src/RootCandidateApp.tsx",
@@ -977,7 +977,7 @@ export const SERVICE_H14_BUILD = {
     },
     {
       "path": "src/components/ResultPanel.tsx",
-      "sha256": "6bebba36f2f358c1e4f5500e4388114aea0ad135d2e99124b52584507a113fb7"
+      "sha256": "2e714d0be4bb2ce19a2ca704c1de96a0d36be73a34f0c6d9387a20a3d4310471"
     },
     {
       "path": "src/components/StatePanel.tsx",
@@ -1089,7 +1089,7 @@ export const SERVICE_H14_BUILD = {
     },
     {
       "path": "src/hooks/calculatorSolveFlow.ts",
-      "sha256": "928f4abd75cfce5040c01dc5e5c997b88f2c33279dd38e5e3cb48b78a5ecd5f2"
+      "sha256": "fe0a6c55b2a3e6c8b64d669900fc90e14293d5103b6bac63d11381fe1ac624be"
     },
     {
       "path": "src/hooks/calculatorStaleResult.ts",
