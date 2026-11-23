@@ -3,9 +3,9 @@ export const SERVICE_H14_BUILD = {
   "schemaVersion": 1,
   "policy": "adaptive-next-batch-balanced-v1",
   "profileId": "service-fused-h14-v1",
-  "codeHash": "0c928b09dbb90e0fd430dee08c7a60b7241f0987fa023b58a674a15551bc7282",
+  "codeHash": "d3fab41a90525df0c22b0a38541423d9bb23b8f33f7b47738811cea74bd3b701",
   "nativeSourceHash": "d53899b40ec00ca49ac9eec0af46c149c0f0380eaabbea3e08c7ce20c18064b0",
-  "exactWasmHash": "aa0768ad9e0cfd67f0b34289053fdd5f37c5846bd1ed85559629a831752b41b5",
+  "exactWasmHash": "7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5",
   "sourceManifest": [
     {
       "path": "forecast-collector/fixtures/official-solo-history/1950871.json",
@@ -248,8 +248,8 @@ export const SERVICE_H14_BUILD = {
       "sha256": "4392c1e92f2946bdb6bbd85520a5d46abd5a086b725041c94a0b5e11aeaa5413"
     },
     {
-      "path": "public/wasm/service-fused-h14-aa0768ad9e0cfd67f0b34289053fdd5f37c5846bd1ed85559629a831752b41b5.wasm",
-      "sha256": "aa0768ad9e0cfd67f0b34289053fdd5f37c5846bd1ed85559629a831752b41b5"
+      "path": "public/wasm/service-fused-h14-7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5.wasm",
+      "sha256": "7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5"
     },
     {
       "path": "rust/certified/Cargo.lock",
@@ -1453,7 +1453,7 @@ export const SERVICE_H14_BUILD = {
     },
     {
       "path": "src/serviceH14/generated/native.json",
-      "sha256": "fa46a7e163e15ad143682c88c8628f7a28c60579115ee4d238f8da887985ba62"
+      "sha256": "76a09bf679d3b2c0b75a020c65e61d671a0597a06c4c89ada40f1f6b985d574a"
     },
     {
       "path": "src/serviceH14/generated/portableTollPin.ts",

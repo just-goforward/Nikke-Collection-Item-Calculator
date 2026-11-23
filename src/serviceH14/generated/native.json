@@ -167,9 +167,9 @@
     }
   ],
   "wasm": {
-    "sha256": "aa0768ad9e0cfd67f0b34289053fdd5f37c5846bd1ed85559629a831752b41b5",
-    "byteLength": 1431783,
-    "assetPath": "/wasm/service-fused-h14-aa0768ad9e0cfd67f0b34289053fdd5f37c5846bd1ed85559629a831752b41b5.wasm"
+    "sha256": "7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5",
+    "byteLength": 1431869,
+    "assetPath": "/wasm/service-fused-h14-7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5.wasm"
   },
   "toolchain": {
     "rust": "1.99.1",

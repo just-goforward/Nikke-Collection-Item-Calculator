@@ -181,8 +181,7 @@ jobs:
         run: node --test scripts/ci/v14-worker.test.mjs scripts/ci/prepare-root-pair.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs
       - name: Provision locked build inputs before the offline native build
         run: |
-          rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
-          cargo +1.99.1 fetch --locked --manifest-path rust/service-h14/Cargo.toml
+          bash scripts/ci/setup-root-rust.sh
           node node_modules/@playwright/test/cli.js install --with-deps chromium
       - name: Build private comparison, run tab canary, build and check BOTH public seals
         run: node scripts/ci/prepare-root-pair.mjs

@@ -10,7 +10,7 @@
   "domain": "nikke.production.conditional-joint-supply.v2",
   "publicKeyBase64": "A9ajW+J5oXMagY26aC1DdYfslX2pYY3xn6F516yFXqc=",
   "enrollmentEvidenceSha256": "75b1d8ddd3dad6e9f3157cb0104789c9b1fb9eaea6bd96f6e0cbdf31a6c1f515",
-  "nativeWasmSha256": "aa0768ad9e0cfd67f0b34289053fdd5f37c5846bd1ed85559629a831752b41b5",
+  "nativeWasmSha256": "7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5",
   "nativeSourceHash": "d53899b40ec00ca49ac9eec0af46c149c0f0380eaabbea3e08c7ce20c18064b0",
-  "serviceCodeHash": "0c928b09dbb90e0fd430dee08c7a60b7241f0987fa023b58a674a15551bc7282"
+  "serviceCodeHash": "d3fab41a90525df0c22b0a38541423d9bb23b8f33f7b47738811cea74bd3b701"
 }
