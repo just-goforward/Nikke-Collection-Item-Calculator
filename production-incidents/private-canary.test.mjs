@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import canary from './private-canary.ts';
+globalThis.INCIDENT_OUTBOUND_REDIRECT='manual'; // compiled by config.mjs in the workerd test
 
 for(const scenario of ['sent','ambiguous','crashed-after-claim','rate-limited','expired','early','invalid-secret','foreign-row']) test(scenario,async t=>{
   const db=new DatabaseSync(':memory:');t.after(()=>db.close());db.exec(readFileSync(new URL('schema.sql',import.meta.url),'utf8'));

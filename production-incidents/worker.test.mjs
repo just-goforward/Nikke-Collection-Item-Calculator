@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import worker from './worker.ts';
+globalThis.INCIDENT_OUTBOUND_REDIRECT='manual'; // public sender build definition
 const origin='https://nikkecollection.com';
 function fixture(){
   const db=new DatabaseSync(':memory:'); db.exec(readFileSync(new URL('schema.sql',import.meta.url),'utf8'));

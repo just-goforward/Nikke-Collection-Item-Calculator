@@ -1,6 +1,7 @@
 import { readBoundedJson } from '../shared/boundedHttp.ts';
 import { incidentOrigin, incidentPath, reasons, stages } from '../shared/recalculationIncident.ts';
 
+declare const INCIDENT_OUTBOUND_REDIRECT: 'manual'|'error'; // fixed by the reviewed phase, not a binding
 type Env = { INCIDENT_DB: D1Database; INGRESS: RateLimit; INCIDENT_BUILD: string; PUBLIC_INGRESS: string; ADMIN_ID: string; BOT_TOKEN: string };
 type Row = { day:number; build:string; reason:string; stage:string; attempts:number };
 const epoch = () => Math.floor(Date.now()/1000);
@@ -33,7 +34,9 @@ async function notify(e:Env,row:Row) {
   let posted=false;
   try {
     if(!snow(e.ADMIN_ID)||!e.BOT_TOKEN || row.build!==e.INCIDENT_BUILD || !(row.reason==='canary'&&row.stage==='private'||reasons.some(x=>x===row.reason)&&stages.some(x=>x===row.stage))) return await set('blocked');
-    const call=(path:string,body:object)=>fetch('https://discord.com/api/v10'+path,{method:'POST',redirect:'error',headers:{authorization:'Bot '+e.BOT_TOKEN,'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(8000)});
+    // workerd accepts "manual" and "follow", not "error". Never forward the
+    // bot authorization or POST body to a Location; a 3xx is handled as non-OK.
+    const call=(path:string,body:object)=>fetch('https://discord.com/api/v10'+path,{method:'POST',redirect:INCIDENT_OUTBOUND_REDIRECT,headers:{authorization:'Bot '+e.BOT_TOKEN,'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(8000)});
     const channel=await call('/users/@me/channels',{recipient_id:e.ADMIN_ID});
     if(!channel.ok) return await (channel.status===429||channel.status>=500?retry():set('blocked'));
     const dm=await readBoundedJson(channel,16384,'dm') as {type?:number;id?:string;recipients?:{id:string;bot?:boolean}[]};

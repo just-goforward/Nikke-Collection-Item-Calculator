@@ -107,4 +107,22 @@ node scripts/ci/incident-owner.mjs preflight-recovery \
 
 `sent` 및 관리자의 실제 DM 수신을 둘 다 확인한 뒤에만 `public` 정확 경로를 승인·등록한다. canary 실패/미확인은 서비스 준비 완료가 아니다. 운영자 canary는 브라우저에서 만들 수 없다. 승인 경로에서 전달할 증적은 phase, codeHash, UTC, 상태, 관리자 수신 확인뿐이다. `claimed`가 오래되면 `uncertain`으로 격리한다. `uncertain`은 실제 발송됐을 수 있으므로 자동/수동 재큐하지 않는다. `blocked`는 secret/수신권한/빌드 및 API 거절을 비공개로 조사한다.
 
+`blocked / attempts=1`만으로 토큰·수신 설정 오류를 단정하지 않는다. 관리자는 이미 사용 중인 Discord 클라이언트의 **예정된 봇** DM함과 메시지 요청에서 해당 UTC 창의 도착 여부만 확인한다. 토큰 표시·재설정, 시험 메시지, 화면 캡처·ID·본문 제출은 필요 없다. 기존 run/행은 종료 상태로 보존한다.
+`ADMIN_ID` 출처도 미확인이면 관리자가 등록 당시 선택한 항목이 **본인 프로필의 사용자 ID**였는지만 비공개로 확인한다. 채널·서버·봇 애플리케이션 ID와는 다르다. 기존 등록 출처가 없으면 미확인으로 남기며 값을 꺼내거나 교체하지 않는다.
+
+별도로 승인된 전용 D1 primary **읽기만** 가능한 경우 다음 고정 SELECT에 검토된 원래 서비스 빌드를 바인딩한다. 기존 설치/복구 helper를 이 목적으로 실행하지 않는다. 원시 시각·ID·자격·응답 본문은 반환하지 않는다.
+
+```sql
+SELECT CASE WHEN count(*)<>1 THEN 'unclassified'
+            WHEN max(n.next)=0 THEN 'direct_block'
+            WHEN max(n.next-i.seen)>=3600 THEN 'sealed_retry'
+            ELSE 'unclassified' END AS branch
+FROM incidents i JOIN notifications n ON n.day=i.seen/86400 AND n.build=i.build
+  AND n.reason=i.reason AND n.stage=i.stage
+WHERE i.fingerprint='operator-private-canary' AND i.build=?
+  AND i.reason='canary' AND i.stage='private' AND n.state='blocked' AND n.attempts=1;
+```
+
+`direct_block`은 발송기의 즉시 거절(입력, 채널 응답의 수신자 검증, 재시도 대상이 아닌 HTTP 거절 등), `sealed_retry`는 재시도 예약을 1회 canary가 종결한 경우다. 후자는 채널 단계 예외·응답 읽기/JSON 오류·429/5xx와 메시지 단계의 명시적 429를 구분하지 못한다. `unclassified`도 재실행 사유가 아니다. 이 결과는 HTTP 상태나 DM 수신 증명이 아니다.
+
 브라우저는 인증 없이 호출하므로 이 신호는 사용자 신원이나 진짜 장애의 증명이 아니다. Origin은 인증이 아니다. 전역 일일 신규 240건, 위치별 분당 60요청, 빌드·이유·단계당 UTC 하루 1통, cron당 1통이다. 과부하 시 429로 누락될 수 있다. 난수 시도 ID의 SHA-256만 저장한다. 사용자 ID/IP, URL, 입력, 예외문, stack은 저장하지 않는다. 5분 cron에서 사건은 30일, UTC 날짜별 발송 기록은 30~31일 후 삭제한다(중단 시 재개 후 삭제). Cloudflare 계정의 로그 수집·push 및 D1 백업 보존 정책은 별도 확인한다. 롤백 시 경로를 먼저 철회한다. 장기 비활성화 시 보존 기간 종료 후 전용 DB 폐기까지 담당자를 지정한다.
