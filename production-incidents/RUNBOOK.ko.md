@@ -1,8 +1,26 @@
 # 재계산 장애 전용 Worker
 
-최초 설치는 독립 검토한 보호 `main`의 `.github/workflows/incident-inert-install.yml`만 실행한다. `cloudflare-site-production` 환경의 `INCIDENT_REVIEWED_MAIN`은 최종 전체 SHA, `INCIDENT_MODULE_SHA256`은 그 SHA에서 동결된 패키지로 별도 검증한 Worker 모듈의 SHA-256이다. `CF_INCIDENT_INSTALL_TOKEN`은 환경 secret에만 등록한다. 검토하지 않은 workflow 출력의 해시를 그대로 승인하지 않는다. 환경 승인 전에는 자격 증명 없이 테스트와 번들만 만든다.
+## 최초 설치: 소유자 1회 예약 → 해당 Worker Editor 배포
 
-설치는 `collection-kit-production-incidents` 전용 D1 ID와 rate namespace `419204`를 확인한다. 기존 Worker별 활성 binding·배포와 라우팅 정보만 읽어 충돌을 검사하고 다른 Worker를 수정하지 않는다. 이름을 신규 예약하고 검토된 모듈 1개만 설치한다. workers.dev, preview URL, route, cron, 수집 로그, 공개 ingress는 비활성이다. 실패·응답 유실 후 이미 예약된 이름에 덮어쓰거나 같은 실행을 재시도하지 않는다. 운영자가 실제 단계와 버전을 확인한다. 이 작업은 D1 쓰기나 secret 등록을 하지 않는다. `schema.sql`은 별도 승인으로 빈 전용 D1에만 적용한다.
+**검토·병합한 새 보호 `main`의 source 검증이 성공하기 전에는 실행하지 않는다.** 이전 설치 workflow를 호출하지 않는다. 현재 GitHub 소유자 권한은 Cloudflare 생성 권한의 증명이 아니다. 기존 collector-stop/uploader, OAuth 연결, Site 발행기 자격은 재사용하지 않는다. 비밀값·토큰·키 파일·응답 본문을 채팅, 명령 인수, 로그, 이슈, Actions 입력에 넣지 않는다.
+
+1. 새 SHA의 깨끗한 checkout에서 `.nvmrc` / 고정 pnpm / frozen lock / `--ignore-scripts`로 workflow `prepare`와 동일한 `inert` dry-run 번들을 독립 생성한다. `cloudflare-site-production` **환경 변수** `INCIDENT_REVIEWED_MAIN`과 `INCIDENT_MODULE_SHA256`에 검토한 전체 SHA와 `worker.js` SHA-256을 지정한다. 읽기 환경은 기존 `cloudflare-site-production`, 새 승인·Editor 환경은 `incident-private-install`이다. **둘 다** 배포 브랜치는 `main` 하나, required reviewer는 본인 하나, 단독 소유자의 self review 허용, admin bypass 불허다. 전용 변경 창 동안 계정의 Worker·route·domain·권한·namespace와 `main`을 다른 경로로 변경하지 않는다. 이 검사는 여러 API의 원자적 트랜잭션이 아니다.
+2. 아래 권한을 Cloudflare 대시보드에서 구분한다. 현재 소유자가 어떤 토큰·권한을 실제로 보유했는지는 확인되지 않았다. `node scripts/ci/incident-owner.mjs enroll-graph`가 **계정 소유 읽기 토큰**(stdin)의 ID와 실제 정책을 확인한 후에만 보호 환경에 `CF_INCIDENT_GRAPH_READ`와 ID를 등록한다. 정책 조회용 자격은 별도 로컬 FD 3으로만 준다. 권한·리소스 형식이 확인되지 않으면 중단한다.
+3. `gh workflow run incident-inert-install.yml --ref main -f source_sha="$(git rev-parse HEAD)"`. 그래프 읽기 단계를 승인한다. 담당 환경이 `incident-private-install`로 바뀌어 대기하면 **웹에서 그 첫 gate를 승인하지 말고** `node scripts/ci/incident-owner.mjs reserve RUN_ID`에 로컬 생성 자격을 stdin으로 공급한다. 이 명령만 비공개 이름 신규 예약을 수행한다. 보호 실행/시도 1·현재 main·검토 모듈·GitHub 서명된 부재 증명(60분)·현재 이름 부재를 확인한다. 반환·재조회한 불변 ID를 기록할 뿐 버전이나 트래픽은 생성하지 않는다.
+4. 출력된 **그 ID 하나에만** 계정 소유 `Individual Workers Editor`를 지정한다. `node scripts/ci/incident-owner.mjs authorize RUN_ID`에 Editor를 stdin, 정책 조회 자격을 FD 3으로 준다. helper가 정책·token ID·단일 대상 가시성과 실제 빈 상태를 재확인하고, Editor만 전용 환경 secret에 넣은 뒤 같은 실행의 승인 API에 예약 결과를 연결한다. 수동 JSON/UUID 복사, 다른 기존 Worker 인수, 안 보이는 권한을 계정 편집자로 대체하는 방법은 없다. 이후 같은 run에서 추가 환경 승인이 요구되면 **같은 SHA·run**인지 확인하고 승인한다. 읽기 job이 비공개 예약 영수증을 GitHub OIDC로 서명한 뒤 Editor job만 UUID에 첫 버전을 설치한다. 서명된 `incident-installed-RUN_ID-1`과 최종 읽기 검증 성공이 완료 조건이다. 로컬 영수증은 `~/.incident-private-install/RUN_ID/`에 보존한다.
+
+토큰은 소유자 장치의 secret manager나 접근 제한 파일에서 파이프로 공급한다. 예: `node scripts/ci/incident-owner.mjs authorize "$RUN_ID" < "$editor_file" 3< "$policy_reader_file"` (변수는 **값이 아니라 비공개 파일 경로**). 세 명령 모두 FD 3으로 정책 조회 자격을 받는다. 셸 추적·CLI debug를 끄고, 토큰 발급·회수는 대시보드 소유자 경계에 둔다.
+
+|경계|필요 권한과 제한|
+|---|---|
+|소유자 장치, 신규 예약 한 번|helper는 계정 소유 토큰의 실제 정책이 이 계정의 `Workers Scripts Write` 하나인 경우만 허용한다. **계정 수준 권한이며 provider가 create-only로 제한한 토큰이 아니다.** helper만 고정 계정/이름의 `POST /workers/workers` 하나를 허용한다. GitHub에 보관 금지. 실제 소유 여부는 미확인이다.|
+|소유자 장치, 정책 조회|해당 계정의 `Account API Tokens Read`로 permission groups와 해당 token ID의 정책을 조회한다. 이 자격은 GitHub에 등록하지 않는다. 설치·토큰 생성·관리 쓰기 권한을 대신 요청하지 않는다.|
+|보호된 그래프 reader|계정 `Workers Scripts Read`(모든 활성 binding·preview·custom domain), `Pages Read`, `D1 Read`, 이 계정의 전체 zone 목록을 볼 `Zone Read`, 검토한 zone 하나의 `Workers Routes Read`. 새 zone/Pages, 불명확한 페이지, 읽기 거부는 중단이다. 개별 Worker Editor는 이 계정 그래프를 증명할 수 없다.|
+|보호된 Editor|해당 UUID 하나에 `Individual Workers Editor`만. 생성·타 Worker·D1 직접 접근·route 쓰기·계정 Admin 없음. 인증 실패 시 범위 확대 금지.|
+
+[Create Worker](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/methods/create/) 요청 자체에 `subdomain.enabled=false`와 `previews_enabled=false`를 함께 보낸다. 먼저 공개로 만들고 나중에 닫는 경로는 없다. 제공자가 이를 무시하거나 빈 Worker의 상태·비노출을 증명하지 못하면, 이미 빈 예약이 생겼을 수 있으므로 **설치하지 않고 조사**한다. 버전·배포·secret 이름·cron·route·custom domain·preview·다른 리소스의 참조와 `419204` 충돌을 점검한다. 배포 뒤에도 핀된 모듈/바인딩·배포 버전 하나·비공개 상태를 다시 읽는다. [Workers 역할과 scope](https://developers.cloudflare.com/workers/authorization/workers/).
+
+409·403·timeout·응답 유실·부분 성공·만료·승인 불일치는 다른 자격으로 재시도하거나 PUT/삭제하지 않는다. 원래 run과 로컬 시도 표시를 보존하고 소유자가 읽기만으로 대조한다. 성공/중단 후 사용한 단기 자격을 회수하고 전용 환경 secret을 정리한다(공용 secret은 건드리지 않는다). 이 절차는 D1 쓰기·키 등록·Discord canary·공개 전환을 승인하지 않는다. `schema.sql`은 별도 승인으로 빈 전용 D1에만 적용한다.
 
 관리자가 기존 승인 계정의 Discord snowflake를 `ADMIN_ID`, 소유한 봇 토큰을 `BOT_TOKEN`으로 **새 Worker에만** 비공개 등록한다(Cloudflare Worker Settings → Variables and Secrets → Secret). 기존 secret 추출·회전 금지. 메시지 수락을 위해 이 계정에서 봇 DM을 허용한다. 값·스크린샷·Discord 응답을 증적에 담지 않는다.
 

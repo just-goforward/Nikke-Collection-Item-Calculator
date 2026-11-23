@@ -84,6 +84,8 @@ jobs:
       - name: Run online build, artifact and publication guard tests
         timeout-minutes: 10
         run: node --test scripts/build-certified-wasm.test.mjs scripts/build-production-service.test.mjs scripts/site-deployment-artifact.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs scripts/pnpm-lock.test.mjs scripts/ci/operational-pnpm.test.mjs
+      - name: Enforce split incident install and its fixed denial controls
+        run: node --test scripts/ci/incident-install.test.mjs
 
       - name: Select the source profile from exact bytes, never a dispatch flag
         id: profile

@@ -9,27 +9,32 @@ on:
 permissions:
   contents: read
   actions: read
+  attestations: read
 concurrency:
   group: cloudflare-site-production
   cancel-in-progress: false
 jobs:
   prepare:
-    if: github.ref_protected && github.ref == 'refs/heads/main' && github.sha == inputs.source_sha
+    if: github.repository_id == '1229775730' && github.actor_id == '281915448' && github.run_attempt == 1 && github.ref_protected && github.ref == 'refs/heads/main' && github.sha == inputs.source_sha
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      - &node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
       - run: bash scripts/ci/setup-pnpm.sh
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: node --test production-incidents/worker.test.mjs
+      - run: node --test production-incidents/worker.test.mjs scripts/ci/incident-install.test.mjs
       - name: Bundle only the reviewed inert entry without credentials
         working-directory: production-incidents
         env:
@@ -38,7 +43,6 @@ jobs:
           build=$(jq -er '.serviceCodeHash|select(test("^[a-f0-9]{64}$"))' ../site-worker/production-root-release-v1.json)
           node config.mjs inert 9a516350-d7d8-4a77-9cce-45d669fd3502 419204 "$build" > inert.wrangler.json
           node ../node_modules/wrangler/bin/wrangler.js deploy --dry-run --config inert.wrangler.json --outdir "$RUNNER_TEMP/incident-bundle"
-          sha256sum "$RUNNER_TEMP/incident-bundle/worker.js"
       - id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
@@ -46,28 +50,141 @@ jobs:
           path: ${{ runner.temp }}/incident-bundle/worker.js
           if-no-files-found: error
           retention-days: 7
-  install:
+  absent:
     needs: prepare
     environment: cloudflare-site-production
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions: &attest
+      contents: read
+      actions: read
+      deployments: read
+      attestations: write
+      id-token: write
+    outputs:
+      absent: ${{ steps.upload.outputs.artifact-id }}
+      module_hash: ${{ steps.pin.outputs.module_hash }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version-file: .nvmrc
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+      - *checkout
+      - *node
+      - &module
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.prepare.outputs.artifact }}
           path: ${{ runner.temp }}/incident-bundle
           merge-multiple: true
-      - name: Reserve new Worker and install exactly one private version
-        run: node scripts/ci/install-incident-inert.mjs
-        env:
+      - id: pin
+        run: |
+          node scripts/ci/install-incident-inert.mjs absent
+          printf 'module_hash=%s\n' "$INCIDENT_MODULE_SHA256" >> "$GITHUB_OUTPUT"
+        env: &graph
           GH_TOKEN: ${{ github.token }}
           INCIDENT_REVIEWED_MAIN: ${{ vars.INCIDENT_REVIEWED_MAIN }}
           INCIDENT_MODULE_SHA256: ${{ vars.INCIDENT_MODULE_SHA256 }}
-          CF_INCIDENT_INSTALL_TOKEN: ${{ secrets.CF_INCIDENT_INSTALL_TOKEN }}
+          INCIDENT_GRAPH_TOKEN_ID: ${{ vars.INCIDENT_GRAPH_TOKEN_ID }}
+          CF_INCIDENT_GRAPH_READ: ${{ secrets.CF_INCIDENT_GRAPH_READ }}
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ runner.temp }}/absent.json
+          create-storage-record: false
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: incident-absent-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/absent.json
+          if-no-files-found: error
+          retention-days: 7
+  owner-reservation:
+    name: Owner private create-only reservation (approve through local helper only)
+    needs: absent
+    environment: incident-private-install
+    permissions: {}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - run: echo 'Checking this run’s native environment approval in the authenticated graph job.'
+  reserved:
+    needs: [absent, owner-reservation]
+    environment: cloudflare-site-production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: *attest
+    outputs:
+      reserved: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - *checkout
+      - *node
+      - &absence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.absent.outputs.absent }}
+          path: ${{ runner.temp }}
+          merge-multiple: true
+      - run: node scripts/ci/install-incident-inert.mjs reserved
+        env: *graph
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ runner.temp }}/reserved.json
+          create-storage-record: false
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: incident-reserved-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reserved.json
+          if-no-files-found: error
+          retention-days: 7
+  install:
+    needs: [prepare, absent, reserved]
+    environment: incident-private-install
+    permissions:
+      actions: read
+      contents: read
+      deployments: read
+      attestations: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.upload.outputs.version }}
+    steps:
+      - *checkout
+      - *node
+      - *module
+      - *absence
+      - &reservation
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.reserved.outputs.reserved }}
+          path: ${{ runner.temp }}
+          merge-multiple: true
+      - id: upload
+        run: node scripts/ci/install-incident-inert.mjs install
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INCIDENT_REVIEWED_MAIN: ${{ inputs.source_sha }}
+          INCIDENT_MODULE_SHA256: ${{ needs.absent.outputs.module_hash }}
+          CF_INCIDENT_WORKER_EDITOR: ${{ secrets.CF_INCIDENT_WORKER_EDITOR }}
+  verify:
+    needs: [absent, reserved, install]
+    environment: cloudflare-site-production
+    permissions: *attest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      INCIDENT_VERSION: ${{ needs.install.outputs.version }}
+    steps:
+      - *checkout
+      - *node
+      - *absence
+      - *reservation
+      - run: node scripts/ci/install-incident-inert.mjs verify
+        env: *graph
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ runner.temp }}/installed.json
+          create-storage-record: false
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: incident-installed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/installed.json
+          if-no-files-found: error
+          retention-days: 30
