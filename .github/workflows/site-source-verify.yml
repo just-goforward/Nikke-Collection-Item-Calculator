@@ -166,6 +166,47 @@ jobs:
           mkdir -p .artifacts
           node scripts/build-root-candidate.mjs "$RUNNER_TEMP/root-source"
           node --input-type=module -e 'import assert from "node:assert/strict";import fs from "node:fs";const p=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/root-source/root-assets.json"));assert.equal(p.status,"ISOLATED_LOCAL_ROOT_CANDIDATE");assert.equal(p.productionDeployable,false);assert.equal(p.conditionalJoint.enrolled,false)'
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { SERVICE_H14_BUILD as built } from './src/serviceH14/generated/build.ts';
+          const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+          const committed = file => execFileSync('git', ['show', `HEAD:${file}`], { maxBuffer: 16 * 1024 * 1024 });
+          const source = 'src/serviceH14/generated/build.ts';
+          const text = committed(source).toString('utf8');
+          const expected = JSON.parse(text.slice(text.indexOf(' = {') + 3, text.lastIndexOf(' as const;')));
+          for (const field of ['codeHash', 'nativeSourceHash', 'exactWasmHash'])
+            console.log(field, expected[field], built[field]);
+          const actual = new Map(built.sourceManifest.map(row => [row.path, row.sha256]));
+          for (const row of expected.sourceManifest) {
+            if (actual.get(row.path) !== row.sha256) console.log('changed-input', row.path, row.sha256, actual.get(row.path) ?? 'absent');
+            actual.delete(row.path);
+          }
+          for (const [path, digest] of actual) {
+            // A generated Wasm name is public. Do not expose unexpected runner paths.
+            console.log('additional-input', /^public\/wasm\/service-fused-h14-[a-f0-9]{64}\.wasm$/.test(path) ? path : hash(path), digest);
+          }
+          for (const path of ['shared/generated/certifiedEngineBuild.ts', 'src/serviceH14/generated/native.json', source])
+            console.log('generated-file', path, hash(committed(path)), hash(readFileSync(path)));
+          if (expected.exactWasmHash !== built.exactWasmHash) {
+            // Compare section payloads without publishing binary contents or embedded strings.
+            const sections = digest => {
+              const wasm = readFileSync(`public/wasm/service-fused-h14-${digest}.wasm`);
+              const out = [];
+              for (let at = 8; at < wasm.length;) {
+                const id = wasm[at++];
+                let length = 0, shift = 0, byte;
+                do { byte = wasm[at++]; length += (byte & 127) * 2 ** shift; shift += 7; } while (byte & 128);
+                out.push([id, hash(wasm.subarray(at, at + length))]);
+                at += length;
+              }
+              return out;
+            };
+            for (const [label, digest] of [['committed', expected.exactWasmHash], ['rebuilt', built.exactWasmHash]])
+              console.log('wasm-sections', label, JSON.stringify(sections(digest)));
+          }
+          JS
           test -z "$(git status --porcelain --untracked-files=all)"
 
   required-source:
