@@ -86,6 +86,8 @@ jobs:
         run: node --test scripts/build-certified-wasm.test.mjs scripts/build-production-service.test.mjs scripts/site-deployment-artifact.test.mjs scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs scripts/pnpm-lock.test.mjs scripts/ci/operational-pnpm.test.mjs
       - name: Enforce split incident install and its fixed denial controls
         run: node --test scripts/ci/incident-install.test.mjs scripts/ci/incident-recovery.test.mjs
+      - name: Check private canary one-shot delivery and fail-closed activation
+        run: node --test production-incidents/private-canary.test.mjs scripts/ci/incident-canary-control.test.mjs
 
       - name: Select the source profile from exact bytes, never a dispatch flag
         id: profile
