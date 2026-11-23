@@ -122,34 +122,60 @@ test('enrollment validates authenticated policy, not the token name or a success
   for (const other of [scoped(['a'],{[act]:'*'}),scoped(['e'],{[act]:'*'}),scoped(['e'],{[act]:{'*':'*'}}),scoped(['e'],{[act]:{[id]:'*',[tokenId]:'*'}})])assert.throws(()=>check([other],id));
   assert.throws(()=>check([onlyWorker],tokenId));assert.throws(()=>check([...graphRoles,scoped(['a'],{[act]:'*'})]));assert.throws(()=>check(graphRoles.slice(1)));
 });
-test('beta registry: observed wire shape proves a complete inventory, not just HTTP success', async()=>{
+test('graph replays sanitized live envelopes including historical deployment pages', async()=>{
   const path=`${registry}?per_page=100`, fixture=controls(), rows=await fixture.cf('graph')(path);
   const info={page:1,per_page:100,count:20,total_count:20};
   const wire={result:rows,success:true,errors:null,messages:null,result_info:info};
-  const run=delta=>graph(client('synthetic',async(url,{method})=>{
+  const history=[3,3,1,13,64,8,4,38,5,73,17,134,14,8,5,40,64,81,11,3];
+  const bindingCounts=[5,1,4,20,2,3,8,19,16,14,17,21,9,9,7,9,9,9,8,7];
+  const limits=[0,0,0,1,0,0,2,0,0,0,0,1,2,1,0,0,2,2,0,1];
+  const run=(delta,mutate=()=>{})=>graph(client('synthetic',async(url,{method})=>{
     assert.equal(method,'GET');
     const endpoint=url.slice('https://api.cloudflare.com/client/v4'.length);
     if(endpoint===path)return Response.json({...wire,...delta});
-    const result=await fixture.cf('graph')(endpoint);
-    return Response.json({success:true,errors:[],messages:[],result});
+    let result=await fixture.cf('graph')(endpoint);
+    const body={success:true,errors:[],messages:[]};
+    const page=(per_page,count,total_count,total_pages)=>({page:1,per_page,count,total_count,...(total_pages===undefined?{}:{total_pages})});
+    if(endpoint.includes('/pages/projects?')) body.result_info=page(1,0,0,0);
+    if(endpoint.startsWith('/zones?')) body.result_info=page(50,1,1,1);
+    if(endpoint.endsWith('/workers/routes')) result=Array.from({length:3},(_,j)=>({id:j.toString().padStart(32,'0'),pattern:`example.invalid/${j}`,script:'other'}));
+    if(endpoint.includes('/domains?')) Object.assign(body,{errors:null,messages:null,result_info:page(0,0,0)});
+    if(endpoint.endsWith('/deployments?per_page=1')) {
+      const total=history[Number(endpoint.match(/fixed-(\d+)/)[1])];
+      body.result_info=page(1,1,total,total);
+    }
+    if(endpoint.endsWith(`/versions/${vid}`)) {
+      const index=parseInt(endpoint.split('/').at(-3),16);
+      result={id:vid,bindings:Array.from({length:bindingCounts[index]},(_,j)=>j<limits[index]?{type:'ratelimit',namespace_id:'1'}:{type:'plain_text'})};
+    }
+    body.result=result; mutate(endpoint,body);
+    return Response.json(body);
   }));
   await run({});await run({errors:[],messages:[]});
   for(const delta of [{success:false},{errors:[{code:1234}]},{errors:undefined},{messages:undefined},{messages:[]},{errors:{}},
     {result:null},{result:{}},{result_info:null},{result_info:undefined},
     ...[{page:2},{per_page:10},{count:19},{total_count:21},{total_count:undefined},{total_pages:2},{total_pages:null}].map(v=>({result_info:{...info,...v}})),
     ...[{id:rows[1].id},{name:rows[1].name},{name:undefined},{name:null},{id:'wrong'}].map(v=>({result:[{...rows[0],...v},...rows.slice(1)]}))]) await assert.rejects(run(delta));
+  for(const suffix of ['/pages/projects?per_page=1',`account.id=${account}&per_page=50`,`/domains?service=${name}`,'/deployments?per_page=1']) {
+    for(const bad of [undefined,null,{page:2},{count:-1},{per_page:-1},{cursor:'next'},{total_count:-1},{total_pages:999}])
+      await assert.rejects(run({},(p,b)=>{if(p.endsWith(suffix)) b.result_info=bad==null?bad:{...b.result_info,...bad};}));
+  }
+  for(const suffix of [`/domains?service=${name}`,'/deployments?per_page=1',`/versions/${vid}`]) {
+    for(const bad of [{success:false},{errors:[{}]},{errors:undefined},{result:null}])
+      await assert.rejects(run({},(p,b)=>{if(p.endsWith(suffix)) Object.assign(b,bad);}));
+  }
 });
 test('beta read variant is bounded by method, path, list completeness and resource shape',async()=>{
   const wire={success:true,errors:null,messages:null}, cf=(body,postPath)=>client('synthetic',async()=>Response.json({...wire,...body}),postPath);
   for(const [suffix,per_page] of [['versions?per_page=100',100],['previews?per_page=1',1]]) {
     const p=`${registry}/${id}/${suffix}`, result_info={page:1,per_page,count:0,total_count:0};
-    await assert.rejects(cf({result:[],result_info})(p));
+    assert.deepEqual(await cf({result:[],result_info})(p),[]);
     const canonical={result:[],result_info,errors:[],messages:[]};
     assert.deepEqual(await cf(canonical)(p),[]);
     for(const extra of [{total_count:1},{page:2},{count:1}]) await assert.rejects(cf({...canonical,result_info:{...result_info,...extra}})(p));
   }
   for(const p of [`${registry}/${name}`,`${registry}/${id}`,`${registry}/${id}/versions/${vid}`,`${registry}/${id}/versions/${vid}?include=modules`]){
-    await assert.rejects(cf({result:{id}})(p));
+    assert.deepEqual(await cf({result:{id}})(p),{id});
     const canonical={errors:[],messages:[],result:{id}};
     assert.deepEqual(await cf(canonical)(p),{id});
     for(const result of [[],null,''])await assert.rejects(cf({...canonical,result})(p));

@@ -11,7 +11,6 @@ export const immutable = /^[a-f0-9]{32}$/, versionId = /^[a-f0-9]{8}(?:-[a-f0-9]
 export const digest = bytes => hash('sha256', bytes);
 export function requireThat(ok, message) { if (!ok) throw Error(message); }
 const list = value => { requireThat(Array.isArray(value), 'missing provider list'); return value; };
-// Only the registry list has been observed to return explicit null diagnostics.
 const versionRead = new RegExp(`^/[0-9a-f]{32}/versions/${versionId.source.slice(1,-1)}(?:\\?include=modules)?$`);
 function betaRead(path) {
   if (!path.startsWith(registry)) return;
@@ -20,19 +19,41 @@ function betaRead(path) {
   if (/^\/[0-9a-f]{32}\/previews\?per_page=1$/.test(suffix)) return 1;
   if (suffix === `/${name}` || /^\/[0-9a-f]{32}$/.test(suffix) || versionRead.test(suffix)) return 0;
 }
-function decodeBetaRead(value, perPage, registryList) {
-  requireThat(value?.success === true && ((registryList && value.errors === null && value.messages === null) ||
+const latest = new RegExp(`^${workers}/scripts/[a-zA-Z0-9_-]+/deployments\\?per_page=1$`);
+function page(info, rows, size, latestOnly = false) {
+  const n = list(rows).length;
+  requireThat(info?.page === 1 && info.per_page === size && info.count === n && n <= size &&
+    Object.keys(info).every(k => ['page','per_page','count','total_count','total_pages'].includes(k)) &&
+    (latestOnly ? n === 1 && Number.isSafeInteger(info.total_count) && info.total_count >= 1 && info.total_pages === info.total_count
+      : info.total_count === n && (!Object.hasOwn(info,'total_pages') || info.total_pages === 1 || (n === 0 && info.total_pages === 0))),
+    'incomplete provider inventory');
+}
+function readContract(path) {
+  if (path === `${root}/pages/projects?per_page=1`) return 1;
+  if (path === `/zones?account.id=${account}&per_page=50`) return 50;
+  if (path === `${workers}/domains?service=${name}`) return 'filtered';
+  if (latest.test(path)) return 'latest';
+  if (path === `/zones/${zone}/workers/routes`) return 'routes';
+  if (path === `${root}/d1/database/${db}`) return 0;
+  return betaRead(path);
+}
+function decodeRead(value, contract) {
+  const r = value?.result, i = value?.result_info;
+  requireThat(value?.success === true && r != null && ((value.errors === null && value.messages === null) ||
     (Array.isArray(value.errors) && !value.errors.length && Array.isArray(value.messages))), 'provider result not unambiguously successful');
-  if (perPage) {
-    const rows = list(value.result), info = value.result_info;
-    requireThat(info?.page === 1 && info.per_page === perPage && rows.length <= perPage &&
-      info.count === rows.length && info.total_count === rows.length &&
-      (!Object.hasOwn(info,'total_pages') || info.total_pages === 1 || (rows.length === 0 && info.total_pages === 0)), 'incomplete provider inventory');
+  if (typeof contract === 'number' && contract > 0) page(i,r,contract);
+  else if (contract === 'filtered') {
+    requireThat(Number.isSafeInteger(i?.per_page) && i.per_page >= 0, 'invalid filtered domain page');
+    page(i,r,i.per_page);
+  } else if (contract === 'latest') page(i,r.deployments,1,true);
+  else if (contract === 'routes') {
+    requireThat(Array.isArray(r) && !Object.hasOwn(value,'result_info') && r.every(route =>
+      typeof route?.script === 'string' && route.script.length > 0 && typeof route.pattern === 'string' && route.pattern.length > 0 &&
+      typeof route.id === 'string' && immutable.test(route.id)), 'invalid unpaged route list');
   } else {
-    requireThat(value.result !== null && typeof value.result === 'object' && !Array.isArray(value.result) &&
-      !Object.hasOwn(value,'result_info'), 'invalid provider detail');
+    requireThat(typeof r === 'object' && !Array.isArray(r) && !Object.hasOwn(value,'result_info'), 'invalid provider detail');
   }
-  return value.result;
+  return r;
 }
 export function client(token, send = fetch, postPath = null) {
   requireThat(typeof token === 'string' && token.length > 0 && !/\s/.test(token), 'credential missing or malformed');
@@ -45,13 +66,12 @@ export function client(token, send = fetch, postPath = null) {
     catch { throw Error(`provider ${method} transport failure; no retry`); }
     requireThat(response.ok, `provider ${method} HTTP ${response.status}; no retry`);
     let value; try { value = await response.json(); } catch { throw Error('ambiguous provider response; no retry'); }
-    const beta = method === 'GET' ? betaRead(path) : undefined;
-    if (beta !== undefined) return decodeBetaRead(value, beta, path === `${registry}?per_page=100`);
+    const contract = method === 'GET' ? readContract(path) : undefined;
+    if (contract !== undefined) return decodeRead(value,contract);
     requireThat(value?.success === true && value.result != null && Array.isArray(value.errors) && !value.errors.length, 'provider result not unambiguously successful');
     if (value.result_info) {
       const {page, total_pages, total_count, count} = value.result_info;
-      // Graph readers use one full inventory page or deliberately filter to a single absent resource.
-      if (!path.endsWith('/deployments?per_page=1')) requireThat((page ?? 1) === 1 && (total_pages ?? 1) <= 1 && (total_count == null || total_count === count), 'incomplete provider inventory');
+      requireThat((page ?? 1) === 1 && (total_pages ?? 1) <= 1 && (total_count == null || total_count === count), 'incomplete provider inventory');
     }
     return value.result;
   };
