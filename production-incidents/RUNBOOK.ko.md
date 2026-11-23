@@ -20,7 +20,9 @@
 
 [Create Worker](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/methods/create/) 요청 자체에 `subdomain.enabled=false`와 `previews_enabled=false`를 함께 보낸다. 먼저 공개로 만들고 나중에 닫는 경로는 없다. 제공자가 이를 무시하거나 빈 Worker의 상태·비노출을 증명하지 못하면, 이미 빈 예약이 생겼을 수 있으므로 **설치하지 않고 조사**한다. 버전·배포·secret 이름·cron·route·custom domain·preview·다른 리소스의 참조와 `419204` 충돌을 점검한다. 배포 뒤에도 핀된 모듈/바인딩·배포 버전 하나·비공개 상태를 다시 읽는다. [Workers 역할과 scope](https://developers.cloudflare.com/workers/authorization/workers/).
 
-그래프 확인에서 [Worker 목록](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/methods/list/)은 첫 페이지의 `count`와 `total_count`가 실제 행 수와 같아야 한다. `total_pages`는 없을 수 있다. 이 목록의 `GET .../workers/workers?per_page=100`에서만 `success:true`와 명시적인 `errors:null, messages:null` 쌍을 정상 진단 형식으로 인정한다. 이는 부재 자체의 증명이 아니다. 오류, 누락된 목록·페이지 정보, 불일치하는 ID, 비어 있음을 확인하지 못한 참조는 여전히 중단 조건이다. 다른 GET이나 쓰기 응답에는 이 예외를 적용하지 않는다.
+설치와 분리된 로컬 **읽기 전용** 사전 검사: `set +x` 상태에서 `INCIDENT_GRAPH_TOKEN_ID`를 이미 승인된 reader의 비밀이 아닌 ID로 지정하고 `node scripts/ci/incident-graph-preflight.mjs < "$reader_file"`을 실행한다. `$reader_file`은 소유자 장치에서만 접근 가능한 기존 토큰 파일(0600)의 경로다. secret manager의 stdout을 직접 파이프해도 된다. 토큰을 인수·환경 변수·채팅에 넣거나 Actions에서 꺼내지 않는다. ID와 active 상태를 먼저 대조하고, 실제 `graph()` 전체를 GET으로만 읽는다. 성공 출력은 일치 여부와 횟수뿐이며 부재/설치 영수증이 아니다. 이 명령은 secret 등록·승인·배포·재시도를 하지 않는다.
+
+그래프 GET은 `success:true`, 결과 존재, 명시적인 오류 없음(`errors:[], messages:배열` 또는 `errors:null, messages:null`)을 검사한다. Pages·zone·[Worker 목록](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/methods/list/)·필터된 domain은 한 페이지 전체의 행 수와 합계가 일치해야 한다. domain이 비어 있을 때 실제 `per_page:0`도 허용한다. route는 페이지 정보 없는 배열이다. Worker마다 배포 **이력 전체가 아닌 최신 한 건**(page/per_page/count 모두 1, total_pages=total_count)을 확인하고 그 배포에 포함된 모든 버전 ID와 binding을 검사한다. 누락·오류·모호한 페이지는 중단한다. POST 응답 규칙은 바뀌지 않는다.
 
 409·403·timeout·응답 유실·부분 성공·만료·승인 불일치는 다른 자격으로 재시도하거나 PUT/삭제하지 않는다. 원래 run과 로컬 시도 표시를 보존하고 소유자가 읽기만으로 대조한다. 성공/중단 후 사용한 단기 자격을 회수하고 전용 환경 secret을 정리한다(공용 secret은 건드리지 않는다). 이 절차는 D1 쓰기·키 등록·Discord canary·공개 전환을 승인하지 않는다. `schema.sql`은 별도 승인으로 빈 전용 D1에만 적용한다.
 
