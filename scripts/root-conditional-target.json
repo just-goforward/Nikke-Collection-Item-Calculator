@@ -1,0 +1,8 @@
+{
+  "environment": "production",
+  "domain": "nikke.production.conditional-joint-supply.v2",
+  "read": "/api/joint-supply/v2",
+  "keyId": "production-conditional-v1",
+  "enrolledPublicKeyBase64": null,
+  "isolatedCandidatePublicKeyBase64": "Np9dk9NSuOlRwc/73d7g/C2RHUUUelUYTnQYrRsby7I="
+}

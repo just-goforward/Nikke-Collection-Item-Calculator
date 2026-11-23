@@ -8,6 +8,8 @@ export class CertifiedLimit extends Error {
 }
 export class WorkBudget {
   readonly deadlineAt: number;
+  readonly finalDeadlineAt: number;
+  private finalizing = false;
   readonly maxMemoEntries: number;
   readonly maxSupportPoints: number;
   readonly maxManagedPayloadBytes: number;
@@ -28,7 +30,17 @@ export class WorkBudget {
   kernelCalls = 0;
   private ticks = 0;
   constructor(options: CertifiedOptions, started: number) {
-    this.deadlineAt = Math.min(options.deadlineAt ?? started + 15_000, started + 15_000);
+    const duration = options.requestDurationMs ?? 15_000;
+    if (duration !== 15_000 && duration !== 20_000) throw new CertifiedLimit("invalid_work_limits");
+    // Preserve historical exact callers' numerical deadline unless the source
+    // owner explicitly supplies its original delivery deadline.
+    this.finalDeadlineAt = Math.min(
+      options.finalDeadlineAt ?? options.deadlineAt ?? started + duration, started + duration,
+    );
+    this.deadlineAt = options.finalDeadlineAt === undefined
+      ? Math.min(options.deadlineAt ?? this.finalDeadlineAt, this.finalDeadlineAt)
+      : Math.min(options.deadlineAt ?? this.finalDeadlineAt - 300, this.finalDeadlineAt - 300);
+    if (!Number.isFinite(this.finalDeadlineAt)) throw new CertifiedLimit("invalid_final_deadline");
     // Four integer fields and numeric keys replace six reduced rational
     // fields/string keys. Admission grows explicitly; the byte ceiling stays
     // unchanged and remains the binding memory safeguard.
@@ -51,8 +63,17 @@ export class WorkBudget {
     }
   }
   check = (): void => {
-    if (performance.now() >= this.deadlineAt) throw new CertifiedLimit("request_budget_exhausted");
+    if (performance.now() >= (this.finalizing ? this.finalDeadlineAt : this.deadlineAt))
+      throw new CertifiedLimit("request_budget_exhausted");
   };
+  checkNumerical = (): void => {
+    if (this.finalizing || performance.now() >= this.deadlineAt)
+      throw new CertifiedLimit("request_budget_exhausted");
+  };
+  beginFinalization(): void {
+    this.finalizing = true;
+    this.check();
+  }
   tick(): void {
     if (++this.ticks % 32 === 0) this.check();
   }

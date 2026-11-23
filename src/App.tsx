@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { adaptiveShell } from "./lib/rootCandidate";
+import { useState } from "react";
 import { type AppHandlers, AppLayout, preloadDetailPanel } from "./AppLayout";
 import type { MobileTab } from "./components/MobileChrome";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
@@ -9,17 +10,17 @@ import type { Grade, Stock } from "./types";
 import { useDecisionPort } from "./analytics/useDecisionPort";
 import { DecisionPresentation } from "./analytics/DecisionPresentation";
 import { useMobileLayout } from "./hooks/useMobileLayout";
-import { createProductionDecision } from "./analytics/decisionProduction";
 
 type InputSnapshot = { grade: Grade; level: number; exp: number; stock: Stock };
 type AppHandlerOptions = {
   calculator: CalculatorAppModel;
+  openResultOnCalculate: boolean;
   resetWithUndo: () => void;
   setMobileViewTab: (next: MobileTab, focus?: boolean) => void;
   setPendingOutcome: (outcome: "success" | "fail" | null) => void;
 };
 function makeAppHandlers({
-  calculator, resetWithUndo, setMobileViewTab, setPendingOutcome,
+  calculator, openResultOnCalculate, resetWithUndo, setMobileViewTab, setPendingOutcome,
 }: AppHandlerOptions): AppHandlers {
   const { actions } = calculator;
   const handlers: AppHandlers = {
@@ -27,7 +28,7 @@ function makeAppHandlers({
       preloadDetailPanel();
       setPendingOutcome(null);
       const started = await actions.calculate();
-      if (!started) return;
+      if (!started || openResultOnCalculate) return;
       setMobileViewTab("result", true);
     },
     onReset: () => { if (!calculator.inputLocked) resetWithUndo(); },
@@ -50,26 +51,20 @@ function makeAppHandlers({
   return handlers;
 }
 export default function App({ decision }: { decision?: Parameters<typeof useDecisionPort>[0] } = {}) {
-  const [productionDecision, setProductionDecision] = useState<Awaited<ReturnType<typeof createProductionDecision>>>();
-  useEffect(() => {
-    let retired = false;
-    let port: Awaited<ReturnType<typeof createProductionDecision>>;
-    setProductionDecision(undefined);
-    if (!decision) void createProductionDecision().then(next => {
-      if (retired) next?.disable();
-      else { port = next; setProductionDecision(next); }
-    });
-    return () => { retired = true; port?.disable(); };
-  }, [decision]);
   const [pendingOutcome, setPendingOutcome] = useState<"success" | "fail" | null>(null);
   const shell = useAppShellNavigation<InputSnapshot>();
   const { mobileTab, setMobileViewTab, viewTab } = shell;
-  const binding = useDecisionPort(decision ?? productionDecision);
-  const model = useCalculatorApp(shell.statsVisible, binding.lifecycle);
+  const binding = useDecisionPort(decision);
+  const isMobile = useMobileLayout();
+  const openResultOnCalculate = adaptiveShell && isMobile;
+  const model = useCalculatorApp(
+    shell.statsVisible,
+    binding.lifecycle,
+    openResultOnCalculate ? () => setMobileViewTab("result", true) : undefined,
+  );
   const calculator = model;
   const { actions } = calculator;
   const statsMode = statsRuntimeMode();
-  const isMobile = useMobileLayout();
   const eligible = (isMobile ? mobileTab === "result" : viewTab !== "stats") &&
     !calculator.stockPanel.isStale && !calculator.stockPanel.needsStockEdit &&
     !calculator.inputLocked;
@@ -92,7 +87,7 @@ export default function App({ decision }: { decision?: Parameters<typeof useDeci
   };
   const resetToast = shell.resetToast;
   const handlers = makeAppHandlers({
-    calculator, resetWithUndo, setMobileViewTab, setPendingOutcome,
+    calculator, openResultOnCalculate, resetWithUndo, setMobileViewTab, setPendingOutcome,
   });
   const observedHandlers = {
     ...handlers,

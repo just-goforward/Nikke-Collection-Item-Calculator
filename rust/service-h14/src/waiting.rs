@@ -1,0 +1,983 @@
+//! H14 range-only certificates. Same ordered receipt selectors, exact endpoint
+//! proofs and exhaustive-date/gap semantics as the independent TS oracle.
+use super::*;
+use crate::supply::{Dist, Event, Outcome, Pieces, Supply};
+
+const WAITING_HORIZON: usize = risk_summary::HORIZON;
+
+#[derive(Clone)]
+struct Trajectory {
+    stock: Pieces,
+    receipts: Vec<Json>,
+}
+fn base(status: &str, reason: Option<&str>) -> Json {
+    json!({ "status": status, "horizonDays":WAITING_HORIZON, "recommendedDays":null,
+        "rangeBoundary":false, "bestDayRange":null, "value":null,
+        "evaluatedDays":[0], "successImprovementUpperBound":null,
+        "successProbabilityInterval":null, "reason":reason, "evidence":[] })
+}
+/// An optional tie candidate cannot invalidate an already completed base proof.
+fn keep_preferred_wait(
+    best: &mut (minimum_wait::Assessment, Value),
+    alternative: Result<(minimum_wait::Assessment, Value)>,
+) {
+    if let Ok(candidate) = alternative {
+        if let Some(rank) = candidate.0.rank() {
+            if best.0.rank().is_none_or(|old| rank < old) {
+                *best = candidate;
+            }
+        }
+    }
+}
+impl Engine {
+    fn compare_exact(&self, a: &Value, b: &Value) -> Ordering {
+        let exponent = a.exponent.max(b.exponent);
+        self.compare(&self.lift(a, exponent), &self.lift(b, exponent))
+    }
+    fn actual_view(&self, value: &Value) -> PublicValue {
+        let mut view = self.view(value);
+        view.b = wire(
+            &(rational(&self.burden(value), &self.powers[value.exponent])
+                / Q::from_integer(self.scale.clone().into())),
+        );
+        view
+    }
+    fn batch_for_kit(
+        &mut self,
+        sid: usize,
+        stock: Units,
+        limit: usize,
+        kit: usize,
+        root: &Value,
+    ) -> minimum_wait::Batch {
+        let mut batch = minimum_wait::Batch {
+            kit,
+            path: Vec::new(),
+            guard: None,
+        };
+        #[cfg(target_arch = "wasm32")]
+        let prior_denial = allocation::certified_allocation_denied();
+        let mut s = sid;
+        let mut raw = stock;
+        while batch.uses() < limit {
+            let value = if batch.path.is_empty() {
+                root.clone()
+            } else {
+                match self.get(s, std::array::from_fn(|j| raw[j] / 10), true) {
+                    Ok(value) => value,
+                    Err(reason) => {
+                        // The guard carries this refusal. Probe/tie callers
+                        // can continue; it is not a later native trap.
+                        #[cfg(target_arch = "wasm32")]
+                        allocation::restore_handled_denial(prior_denial);
+                        batch.guard = Some(reason);
+                        break;
+                    }
+                }
+            };
+            if value.mask & (1 << kit) == 0 {
+                break;
+            }
+            if raw[kit] < 10 {
+                batch.guard = Some("minimum_wait_batch_infeasible");
+                break;
+            }
+            let edge = self.edges[s][kit];
+            batch.path.push((s, edge));
+            raw[kit] -= 10;
+            let [per, _, normal] = edge;
+            s = normal;
+            let level = |state| {
+                if state < 150 {
+                    (0, state / 10)
+                } else {
+                    (1, (state - 150) / 30)
+                }
+            };
+            if per == 1000 || s == TERMINAL || level(s) != level(sid) {
+                break;
+            }
+        }
+        batch
+    }
+
+    fn current_json(&self, sid: usize, root: &Value, batch: Option<&minimum_wait::Batch>) -> Json {
+        let kit = batch.map(|batch| batch.kit);
+        let uses = batch.map_or(0, |batch| batch.uses());
+        json!({ "status": if sid == TERMINAL {"complete"} else if kit.is_some() {"use_certified"} else {"preserve"},
+            "value": self.actual_view(root), "kit":kit.map(|k| ["blue","purple","yellow"][k]),
+            "optimalActionMask":root.mask, "uses":uses, "pieces":uses*10,
+            "certification":"exact_rational_finite_inventory_v1" })
+    }
+
+    pub fn current(&mut self, sid: usize, stock: Units, limit: usize) -> Result<Json> {
+        self.current_root = None;
+        self.current_request = None;
+        self.current_choice = None;
+        let units = std::array::from_fn(|k| stock[k] / 10);
+        // A modest total can still branch across a large Cartesian inventory
+        // space. Count canonical states (including zero), not raw pieces;
+        // saturation treats overflow as large. Guidance only selects candidates:
+        // overlapping bounds still use exact comparison and retain root ties.
+        let inventory_volume = (0..3).fold(1usize, |volume, k| {
+            volume.saturating_mul(units[k].min(self.caps[sid][k]).saturating_add(1))
+        });
+        if units.iter().sum::<usize>() > 36 || inventory_volume > 1024 {
+            self.ensure_guidance(sid, units);
+        }
+        let root = self.get(sid, units, true)?;
+        let kit = (0..3).find(|k| root.mask & (1 << k) != 0);
+        let batch = kit.map(|kit| self.batch_for_kit(sid, stock, limit, kit, &root));
+        // Current certifies the entire normal path, not just its first
+        // feasible action. Never publish a resource-truncated exact batch.
+        if let Some(reason) = batch.as_ref().and_then(|b| b.guard) { return Err(reason); }
+        self.current_request = Some((sid, stock, limit));
+        self.current_root = Some(root.clone());
+        self.current_choice = batch.clone();
+        self.arena = None;
+        Ok(self.current_json(sid, &root, batch.as_ref()))
+    }
+
+    fn minimum_binding(
+        &self,
+        sid: usize,
+        stock: Units,
+    ) -> Result<(Value, Option<minimum_wait::Batch>, usize)> {
+        let (state, previous, limit) = self
+            .current_request
+            .ok_or("minimum_wait_requires_current")?;
+        if state != sid || previous != stock {
+            return Err("minimum_wait_current_binding_mismatch");
+        }
+        Ok((
+            self.current_root
+                .clone()
+                .ok_or("minimum_wait_requires_current")?,
+            self.current_choice.clone(),
+            limit,
+        ))
+    }
+
+    fn minimum_response(
+        &self,
+        sid: usize,
+        root: &Value,
+        assessment: &minimum_wait::Assessment,
+    ) -> Json {
+        json!({"current":self.current_json(sid, root, Some(&assessment.batch)),
+            "minimumWait":assessment.json()})
+    }
+
+    pub fn minimum_wait(
+        &mut self,
+        supply: &mut Supply,
+        sid: usize,
+        stock: Units,
+        complete: bool,
+    ) -> Result<Json> {
+        let (root, base, limit) = self.minimum_binding(sid, stock)?;
+        let Some(base) = base else {
+            return Ok(json!({"current":self.current_json(sid, &root, None),
+                "minimumWait":minimum_wait::inactive()}));
+        };
+        let assessment = self.assess_batch(supply, sid, stock, base.clone(), complete, false);
+        let mut best = (assessment, root.clone());
+        for kit in 0..3 {
+            if best.0.beyond {
+                break;
+            }
+            if kit == base.kit || root.mask & (1 << kit) == 0 {
+                continue;
+            }
+            #[cfg(target_arch = "wasm32")]
+            let prior_denial = allocation::certified_allocation_denied();
+            let alternative = (|| {
+                // Only maximal exact-optimal batches, never shortened for a label.
+                let batch = self.batch_for_kit(sid, stock, limit, kit, &root);
+                if let Some(reason) = batch.guard {
+                    return Err(reason);
+                }
+                let assessment = self.assess_batch(supply, sid, stock, batch, complete, false);
+                if let Some(reason) = assessment.reason {
+                    return Err(reason);
+                }
+                let mut value =
+                    self.forced_batch_value(&assessment.batch, stock.map(|pieces| pieces / 10))?;
+                if self.compare_exact(&value, &root) != Ordering::Equal {
+                    return Err("minimum_wait_batch_not_exact_tie");
+                }
+                value.mask = root.mask;
+                Ok((assessment, value))
+            })();
+            #[cfg(target_arch = "wasm32")]
+            if alternative.is_err() { allocation::restore_handled_denial(prior_denial); }
+            keep_preferred_wait(&mut best, alternative);
+        }
+        let (assessment, value) = best;
+        self.current_root = Some(value.clone());
+        self.current_choice = Some(assessment.batch.clone());
+        Ok(self.minimum_response(sid, &value, &assessment))
+    }
+
+    pub fn minimum_wait_probe(
+        &mut self,
+        supply: &mut Supply,
+        sid: usize,
+        stock: Units,
+        kit: usize,
+        uses: usize,
+        complete: bool,
+    ) -> Result<Json> {
+        let (root, _, limit) = self.minimum_binding(sid, stock)?;
+        if root.mask & (1 << kit) == 0 {
+            return Err("minimum_wait_batch_not_optimal");
+        }
+        let mut batch = self.batch_for_kit(sid, stock, limit, kit, &root);
+        if let Some(reason) = batch.guard {
+            return Ok(minimum_wait::Assessment::unknown(batch, reason).probe_json(self.caps[sid]));
+        }
+        if uses == 0 || uses > batch.uses() {
+            return Err("minimum_wait_batch_invalid");
+        }
+        batch.path.truncate(uses);
+        Ok(self
+            .assess_batch(supply, sid, stock, batch, complete, true)
+            .probe_json(self.caps[sid]))
+    }
+    fn endpoint(&mut self, sid: usize, stock: Pieces) -> Result<Value> {
+        self.kernel_calls += 1;
+        #[cfg(test)]
+        {
+            self.waiting_endpoint_solves += 1;
+        }
+        let units = std::array::from_fn(|k| (stock[k] / 10).min(self.caps[sid][k] as u64) as usize);
+        if units.iter().sum::<usize>() > 36 || self.arena.is_some() {
+            self.ensure_guidance(sid, units);
+        }
+        self.get(sid, units, true)
+    }
+    #[cfg(test)]
+    fn expected_rows(
+        &mut self,
+        sid: usize,
+        supports: &[Vec<Outcome>],
+        priors: &[Q],
+    ) -> Result<[Q; 4]> {
+        self.expected_rows_with_risk(sid, supports, priors, None)
+    }
+    fn expected_rows_with_risk(
+        &mut self,
+        sid: usize,
+        supports: &[Vec<Outcome>],
+        priors: &[Q],
+        mut risk: Option<&mut risk_summary::Accumulator<'_>>,
+    ) -> Result<[Q; 4]> {
+        if supports.len() != priors.len() {
+            return Err("invalid_cohort_weights");
+        }
+        if risk.is_some() {
+            risk_summary::validate_priors(priors, self.deadline)?;
+        }
+        let mut sum = std::array::from_fn(|_| Q::zero());
+        for cohort in 0..priors.len() {
+            if priors[cohort].is_zero() {
+                // No new endpoint solves for zero-prior cohorts. Still reject
+                // negative source masses, even though their weighted mass is zero.
+                if risk.is_some() {
+                    for row in &supports[cohort] {
+                        risk_summary::check_deadline(self.deadline)?;
+                        risk_summary::nonnegative_mass(&row.mass)?;
+                    }
+                }
+                continue;
+            }
+            let mut indices = HashMap::<Units, usize>::new();
+            let mut groups: Vec<(Units, Q)> = Vec::new();
+            let mut conditional_mass = risk.as_ref().map(|_| Q::zero());
+            for row in &supports[cohort] {
+                self.check()?;
+                if let Some(total) = conditional_mass.as_mut() {
+                    risk_summary::check_deadline(self.deadline)?;
+                    risk_summary::nonnegative_mass(&row.mass)?;
+                    *total += &row.mass;
+                }
+                let units = std::array::from_fn(|k| {
+                    (row.pieces[k] / 10).min(self.caps[sid][k] as u64) as usize
+                });
+                if let Some(&i) = indices.get(&units) {
+                    groups[i].1 += &row.mass;
+                } else {
+                    indices.insert(units, groups.len());
+                    groups.push((units, row.mass.clone()));
+                }
+            }
+            if conditional_mass.is_some_and(|total| total != Q::one()) {
+                return Err("invalid_risk_summary_mass");
+            }
+            // Group only this date's expectation, in first-seen order. Physical
+            // supports retain their remainders for all later convolutions.
+            for (units, group_mass) in groups {
+                self.check()?;
+                if units.iter().sum::<usize>() > 36 || self.arena.is_some() {
+                    self.ensure_guidance(sid, units);
+                }
+                #[cfg(test)]
+                {
+                    self.waiting_endpoint_solves += 1;
+                }
+                let v = self.get(sid, units, false)?;
+                let mass = &priors[cohort] * &group_mass;
+                let q = rational(&v.p, &self.powers[v.exponent]);
+                if let Some(accumulator) = risk.as_mut() {
+                    risk_summary::check_deadline(self.deadline)?;
+                    accumulator.observe(&mass, &q)?;
+                }
+                sum[0] += &mass * &q;
+                for k in 0..3 {
+                    sum[k + 1] += &mass * rational(&v.c[k], &self.powers[v.exponent]);
+                }
+            }
+        }
+        Ok(sum)
+    }
+    fn qview(&self, v: &[Q; 4]) -> PublicValue {
+        let b: Q = (0..3)
+            .map(|k| &v[k + 1] * Q::from_integer(self.prices[k].clone().into()))
+            .sum();
+        PublicValue {
+            p: wire(&v[0]),
+            b: wire(&(b / Q::from_integer(self.scale.clone().into()))),
+            c: wire(&(v[1].clone() + &v[2] + &v[3])),
+            consumed: std::array::from_fn(|k| wire(&v[k + 1])),
+            mask: 0,
+        }
+    }
+    fn qcompare(&self, a: &[Q; 4], b: &[Q; 4]) -> Ordering {
+        let cost = |v: &[Q; 4]| -> Q {
+            (0..3)
+                .map(|k| &v[k + 1] * Q::from_integer(self.prices[k].clone().into()))
+                .sum()
+        };
+        a[0].cmp(&b[0])
+            .then_with(|| cost(b).cmp(&cost(a)))
+            .then_with(|| (b[1].clone() + &b[2] + &b[3]).cmp(&(a[1].clone() + &a[2] + &a[3])))
+    }
+    // Called only after the whole date, monotonicity check, and prefix append.
+    // Equality is of objectives, not of the representative color consumption.
+    fn completed_prefix_bound_certificate(
+        &self,
+        values: &[[Q; 4]],
+        evaluated: &[usize],
+        bound: &[Q; 4],
+    ) -> Result<Option<Json>> {
+        let last = values.last().unwrap();
+        if self.qcompare(last, bound) != Ordering::Equal {
+            return Ok(None);
+        }
+        let earliest = values
+            .iter()
+            .position(|v| self.qcompare(v, last) == Ordering::Equal)
+            .unwrap();
+        let day = evaluated[earliest];
+        let actual = &values[earliest];
+        let mut result = base("certified", None);
+        result["recommendedDays"] = json!(day);
+        result["rangeBoundary"] = json!(day == WAITING_HORIZON);
+        result["bestDayRange"] = json!([day, day]);
+        result["value"] = json!(self.qview(actual));
+        result["evaluatedDays"] = json!(evaluated);
+        result["successProbabilityInterval"] =
+            json!({"lower":wire(&actual[0]),"upper":wire(&actual[0])});
+        result["successImprovementUpperBound"] = json!(wire(&(Q::one() - &actual[0])));
+        result["evidence"] = json!([
+            "exact_cohort_conditional_distributions_single_latent_cohort",
+            "exact_rational_completed_date_prefix",
+            "exact_P_B_C_equal_unlimited_optimum_at_completed_date",
+            "earliest_exact_objective_tie_in_completed_prefix",
+            "fixed_prices_all_dates",
+            "nonnegative_nonexpiring_inventory_coupling",
+            "range_only_no_global_or_deadline_claim"
+        ]);
+        if now() >= self.deadline {
+            return Err("request_budget_exhausted");
+        }
+        Ok(Some(result))
+    }
+    fn gap(result: &mut Json, lower: &Q) {
+        result["successProbabilityInterval"] = json!({"lower":wire(lower),"upper":wire(&Q::one())});
+        result["successImprovementUpperBound"] = json!(wire(&(Q::one() - lower)));
+    }
+    fn waiting_result(
+        &self,
+        mut result: Json,
+        include_completed_dates: bool,
+        values: &[[Q; 4]],
+        evaluated: &[usize],
+    ) -> Result<Json> {
+        if !include_completed_dates {
+            return Ok(result);
+        }
+        if values.len() != evaluated.len()
+            || evaluated.len() > WAITING_HORIZON + 1
+            || evaluated.iter().any(|&day| day > WAITING_HORIZON)
+            || evaluated.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err("invalid_completed_dates");
+        }
+        if now() >= self.deadline {
+            return Err("request_budget_exhausted");
+        }
+        let mut records = Vec::new();
+        records
+            .try_reserve_exact(evaluated.len())
+            .map_err(|_| "managed_payload_ceiling")?;
+        // Borrow the already retained exact expectations: no second rational
+        // vector, extra endpoint evaluation, or inferred intermediate date.
+        // All qview arithmetic, strings and JSON nodes remain charged to the
+        // accounted WASM allocator while live; the ABI separately admits and
+        // reserves the actual encoded byte length before final serialization.
+        for (&day, value) in evaluated.iter().zip(values) {
+            if now() >= self.deadline {
+                return Err("request_budget_exhausted");
+            }
+            records.push(json!({"day":day,"value":self.qview(value)}));
+        }
+        result["completedDates"] = json!({"schemaVersion":1,"records":[]});
+        result["completedDates"]["records"] = Json::Array(records);
+        if now() >= self.deadline {
+            return Err("request_budget_exhausted");
+        }
+        Ok(result)
+    }
+    fn waiting_current_result(
+        &self,
+        result: Json,
+        include_completed_dates: bool,
+        current: &Value,
+        p: Q,
+        risk: Option<risk_summary::Summaries>,
+    ) -> Result<Json> {
+        if !include_completed_dates {
+            return risk_summary::attach(result, risk, self.deadline);
+        }
+        if now() >= self.deadline {
+            return Err("request_budget_exhausted");
+        }
+        let d = &self.powers[current.exponent];
+        let first = [
+            p,
+            rational(&current.c[0], d),
+            rational(&current.c[1], d),
+            rational(&current.c[2], d),
+        ];
+        self.waiting_summaries_result(result, true, &[first], &[0], risk)
+    }
+    fn waiting_summaries_result(
+        &self,
+        result: Json,
+        include_completed_dates: bool,
+        values: &[[Q; 4]],
+        evaluated: &[usize],
+        risk: Option<risk_summary::Summaries>,
+    ) -> Result<Json> {
+        let result = self.waiting_result(result, include_completed_dates, values, evaluated)?;
+        risk_summary::attach(result, risk, self.deadline)
+    }
+    fn retain_boundary_evidence(result: &mut Json, boundary: Option<Json>) {
+        if let Some(mut boundary) = boundary {
+            result["strictBoundaryWitness"] = boundary["strictBoundaryWitness"].take();
+            result["evidence"]
+                .as_array_mut()
+                .unwrap()
+                .extend(boundary["evidence"].as_array_mut().unwrap().drain(..));
+        }
+    }
+    #[cfg(test)]
+    pub fn waiting(
+        &mut self,
+        supply: &mut Supply,
+        sid: usize,
+        stock: Units,
+        complete: bool,
+    ) -> Result<Json> {
+        self.waiting_with_completed_dates(supply, sid, stock, complete, false)
+    }
+    #[cfg(test)]
+    pub fn waiting_with_completed_dates(
+        &mut self,
+        supply: &mut Supply,
+        sid: usize,
+        stock: Units,
+        complete: bool,
+        include_completed_dates: bool,
+    ) -> Result<Json> {
+        self.waiting_with_summaries(supply, sid, stock, complete, include_completed_dates, false)
+    }
+    pub fn waiting_with_summaries(
+        &mut self,
+        supply: &mut Supply,
+        sid: usize,
+        stock: Units,
+        complete: bool,
+        include_completed_dates: bool,
+        include_risk_summaries: bool,
+    ) -> Result<Json> {
+        let current = self.current_root.clone().ok_or("current_not_completed")?;
+        let p = rational(&current.p, &self.powers[current.exponent]);
+        let mut risk = if include_risk_summaries {
+            if !self.current_request.is_some_and(|(state, previous, _)| {
+                state == sid && previous == stock
+            }) {
+                return Err("risk_summary_current_binding_mismatch");
+            }
+            risk_summary::validate_priors(&supply.priors, self.deadline)?;
+            Some(risk_summary::Summaries::new(&p, self.deadline)?)
+        } else {
+            None
+        };
+        self.ensure_relaxed(sid)?;
+        let equal = self.compare_exact(&current, &self.relaxed[sid].as_ref().unwrap().value)
+            == Ordering::Equal;
+        if equal
+            || (complete
+                && supply
+                    .model
+                    .events
+                    .iter()
+                    .all(|e| e.refs.iter().all(|r| r.count == 0)))
+        {
+            let mut result = base("certified", None);
+            result["recommendedDays"] = json!(0);
+            result["bestDayRange"] = json!([0, 0]);
+            result["value"] = json!(self.actual_view(&current));
+            result["successProbabilityInterval"] = json!({"lower":wire(&p),"upper":wire(&p)});
+            result["successImprovementUpperBound"] = json!(wire(&(Q::one() - &p)));
+            result["evidence"] = if equal {
+                json!([
+                    "exact_P_B_C_equal_feasible_unlimited_optimum",
+                    "fixed_prices_all_dates",
+                    "nonnegative_nonexpiring_inventory_coupling",
+                    "range_only_no_deadline"
+                ])
+            } else {
+                json!([
+                    "no_random_and_no_deterministic_arrivals_in_complete_future_snapshot",
+                    "exact_all_dates_same_inventory"
+                ])
+            };
+            return self.waiting_current_result(result, include_completed_dates, &current, p, risk);
+        }
+        if !complete {
+            let mut result = base("unresolved", Some("future_coverage_incomplete"));
+            result["bestDayRange"] = json!([0, WAITING_HORIZON]);
+            return self.waiting_current_result(result, include_completed_dates, &current, p, risk);
+        }
+        let events: Vec<_> = supply
+            .model
+            .events
+            .iter()
+            .filter(|event| event.day <= WAITING_HORIZON)
+            .cloned()
+            .collect();
+        let prior: Vec<_> = events.iter().filter(|e| e.day < WAITING_HORIZON).cloned().collect();
+        let last: Vec<_> = events.iter().filter(|e| e.day == WAITING_HORIZON).cloned().collect();
+        let mut boundary_certificate = None;
+        if !last.is_empty() {
+            if let Some((cohort, before, after, bv, av)) =
+                self.boundary(supply, sid, stock, &prior, &last)?
+            {
+                let mut result = base("certified", None);
+                result["recommendedDays"] = json!(WAITING_HORIZON);
+                result["rangeBoundary"] = json!(true);
+                result["bestDayRange"] = json!([WAITING_HORIZON, WAITING_HORIZON]);
+                Self::gap(&mut result, &p);
+                result["evidence"] = json!([
+                    "fixed_prices_all_dates",
+                    "nonnegative_nonexpiring_inventory_coupling",
+                    "single_latent_cohort_positive_prior",
+                    "positive_mass_receipt_witness_strict_lex_day13_to14",
+                    "all_prior_dates_bounded_by_day13",
+                    "PH_lower_bound_from_exact_current_P_and_inventory_coupling",
+                    "range_only_no_global_or_deadline_claim"
+                ]);
+                let mut receipts = before.receipts;
+                receipts.extend(after.receipts);
+                result["strictBoundaryWitness"] = json!({"cohort":cohort,"receipts":receipts,"beforeStock":before.stock,
+                    "afterStock":after.stock,"beforeValue":self.actual_view(&bv),"afterValue":self.actual_view(&av)});
+                if !include_risk_summaries {
+                    return self.waiting_current_result(result, include_completed_dates, &current, p, risk);
+                }
+                // This proves the range optimum, not H14's expectation or a
+                // risk-selector result. Keep it while the same engine, memo,
+                // prices, deadline and incremental supports collect real dates.
+                boundary_certificate = Some(result);
+            }
+        }
+        let caps = std::array::from_fn(|k| self.caps[sid][k] as u64 * 10);
+        let initial = std::array::from_fn(|k| (stock[k] as u64).min(caps[k]));
+        let mut supports: Vec<_> = supply
+            .priors
+            .iter()
+            .map(|_| Supply::singleton(initial))
+            .collect();
+        self.support_peak = self.support_peak.max(1);
+        let d = &self.powers[current.exponent];
+        let first = [
+            p,
+            rational(&current.c[0], d),
+            rational(&current.c[1], d),
+            rational(&current.c[2], d),
+        ];
+        let mut values = vec![first];
+        let mut evaluated = vec![0];
+        let relaxed = &self.relaxed[sid].as_ref().unwrap().value;
+        let d = &self.powers[relaxed.exponent];
+        let bound = [
+            rational(&relaxed.p, d),
+            rational(&relaxed.c[0], d),
+            rational(&relaxed.c[1], d),
+            rational(&relaxed.c[2], d),
+        ];
+        let evaluation = (|| -> Result<Option<Json>> {
+            if risk.is_some() {
+                // Summaries already reserves its fifteen records. Reserve the
+                // matching prefix slots before any date commits as well.
+                values.try_reserve_exact(WAITING_HORIZON)
+                    .map_err(|_| "managed_payload_ceiling")?;
+                evaluated.try_reserve_exact(WAITING_HORIZON)
+                    .map_err(|_| "managed_payload_ceiling")?;
+            }
+            for day in 1..=WAITING_HORIZON {
+                if now() >= self.deadline {
+                    return Err("request_budget_exhausted");
+                }
+                let arrivals: Vec<_> = events.iter().filter(|e| e.day == day).collect();
+                for cohort in 0..supply.priors.len() {
+                    if supply.priors[cohort].is_zero() {
+                        continue;
+                    }
+                    for event in &arrivals {
+                        for reference in &event.refs {
+                            let outcomes = supply.law(reference, cohort)?;
+                            supports[cohort] = supply.convolve(
+                                &supports[cohort],
+                                &outcomes,
+                                caps,
+                                self.max_support,
+                            )?;
+                            self.support_peak = self.support_peak.max(supports[cohort].len());
+                        }
+                    }
+                }
+                let mut date_mass = None;
+                let v = if arrivals.is_empty() {
+                    values.last().unwrap().clone()
+                } else {
+                    let mut accumulator = risk.as_ref().map(|summary| summary.accumulator());
+                    let value = self.expected_rows_with_risk(
+                        sid,
+                        &supports,
+                        &supply.priors,
+                        accumulator.as_mut(),
+                    )?;
+                    date_mass = accumulator
+                        .map(|accumulator| accumulator.finish(self.deadline))
+                        .transpose()?;
+                    value
+                };
+                if self.qcompare(&v, values.last().unwrap()) == Ordering::Less {
+                    return Err("certified_inventory_monotonicity_failed");
+                }
+                if let Some(summary) = risk.as_mut() {
+                    summary.complete_date(day, &v[0], date_mass, self.deadline)?;
+                }
+                values.push(v);
+                evaluated.push(day);
+                if let Some(result) =
+                    self.completed_prefix_bound_certificate(&values, &evaluated, &bound)?
+                {
+                    return Ok(Some(result));
+                }
+            }
+            Ok(None)
+        })();
+        let reason = match evaluation {
+            Ok(Some(mut result)) => {
+                Self::retain_boundary_evidence(&mut result, boundary_certificate);
+                return self.waiting_summaries_result(result, include_completed_dates, &values, &evaluated, risk);
+            }
+            Ok(None) => None,
+            Err(reason) => Some(reason),
+        };
+        if let Some(reason) = reason {
+            if ![
+                "request_budget_exhausted",
+                "exact_support_limit",
+                "exact_memo_limit",
+                "managed_payload_ceiling",
+            ]
+            .contains(&reason)
+            {
+                return Err(reason);
+            }
+            let boundary_retained = boundary_certificate.is_some();
+            let mut result = boundary_certificate
+                .unwrap_or_else(|| base("unresolved", Some(reason)));
+            // A catchable collection stop does not undo the completed boundary
+            // proof. status/recommendedDays still describe that proof; reason
+            // and the actual prefix describe the incomplete date calculation.
+            // Hard deadline/output guards below remain fatal, preserving the
+            // host's existing failedRequest/Current-only contract.
+            result["reason"] = json!(reason);
+            result["evaluatedDays"] = json!(evaluated);
+            if !boundary_retained {
+                result["bestDayRange"] = json!([0, WAITING_HORIZON]);
+            }
+            Self::gap(&mut result, &values.last().unwrap()[0]);
+            let mut evidence = vec![
+                "PH_lower_bound_from_last_exact_completed_date_and_nonnegative_inventory_coupling",
+                "UNKNOWN_is_not_equality_or_false",
+            ];
+            if boundary_retained {
+                evidence.push("strict_boundary_certificate_retained_date_collection_incomplete");
+            }
+            result["evidence"].as_array_mut().unwrap()
+                .extend(evidence.into_iter().map(|item| json!(item)));
+            return self.waiting_summaries_result(result, include_completed_dates, &values, &evaluated, risk);
+        }
+        let h = values.last().unwrap();
+        let earliest = values
+            .iter()
+            .position(|v| self.qcompare(v, h) == Ordering::Equal)
+            .unwrap();
+        let mut result = base("certified", None);
+        result["recommendedDays"] = json!(earliest);
+        result["rangeBoundary"] = json!(earliest == WAITING_HORIZON);
+        result["bestDayRange"] = json!([earliest, earliest]);
+        result["value"] = json!(self.qview(&values[earliest]));
+        result["evaluatedDays"] = json!(evaluated);
+        result["successProbabilityInterval"] = json!({"lower":wire(&h[0]),"upper":wire(&h[0])});
+        result["successImprovementUpperBound"] = json!(wire(&(Q::one() - &h[0])));
+        result["evidence"] = json!([
+            "exact_cohort_conditional_distributions_single_latent_cohort",
+            "exact_rational_all_15_date_expectations",
+            "fixed_prices_all_dates",
+            "nonnegative_nonexpiring_inventory_coupling",
+            if earliest == 0 {
+                "exact_day0_tie"
+            } else {
+                "exact_previous_day_strict_lex_inequality"
+            },
+            "range_only_no_global_or_deadline_claim"
+        ]);
+        Self::retain_boundary_evidence(&mut result, boundary_certificate);
+        self.waiting_summaries_result(result, include_completed_dates, &values, &evaluated, risk)
+    }
+}
+
+fn append(path: &mut Trajectory, event: &Event, index: usize, outcome: &Outcome) -> Result<()> {
+    for k in 0..3 {
+        path.stock[k] = path.stock[k]
+            .checked_add(outcome.pieces[k])
+            .ok_or("witness_stock_not_safe_integer")?;
+        if path.stock[k] > 9_007_199_254_740_991 {
+            return Err("witness_stock_not_safe_integer");
+        }
+    }
+    path.receipts.push(json!({"eventId":event.id,"refIndex":index,"pieces":outcome.pieces,"mass":wire(&outcome.mass)}));
+    Ok(())
+}
+fn trajectory(
+    supply: &mut Supply,
+    events: &[Event],
+    cohort: usize,
+    stock: Pieces,
+    select: impl Fn(&Event, usize, &[Outcome]) -> usize,
+) -> Result<Trajectory> {
+    let mut path = Trajectory {
+        stock,
+        receipts: Vec::new(),
+    };
+    for event in events {
+        for (index, reference) in event.refs.iter().enumerate() {
+            let law = supply.law(reference, cohort)?;
+            let chosen = select(event, index, &law);
+            append(&mut path, event, index, &law[chosen])?;
+        }
+    }
+    Ok(path)
+}
+fn maximal(rows: &[Outcome], color: usize) -> usize {
+    let mut chosen = 0;
+    for i in 1..rows.len() {
+        if rows[i].pieces[color] > rows[chosen].pieces[color] {
+            chosen = i;
+        }
+    }
+    chosen
+}
+fn scarce(rows: &[Outcome], color: usize) -> usize {
+    let mut chosen = 0;
+    for i in 1..rows.len() {
+        if rows[i].pieces[color] < rows[chosen].pieces[color]
+            || (rows[i].pieces[color] == rows[chosen].pieces[color]
+                && rows[i].pieces.iter().sum::<u64>() < rows[chosen].pieces.iter().sum::<u64>())
+        {
+            chosen = i;
+        }
+    }
+    chosen
+}
+fn target(
+    supply: &mut Supply,
+    events: &[Event],
+    cohort: usize,
+    stock: Pieces,
+    color: usize,
+    target: u64,
+    other: &[usize],
+) -> Result<Option<Trajectory>> {
+    if stock[color] > target {
+        return Ok(None);
+    }
+    let needed = target - stock[color];
+    let mut entries: Vec<(&Event, usize, Dist)> = Vec::new();
+    for e in events {
+        for (i, r) in e.refs.iter().enumerate() {
+            entries.push((e, i, supply.law(r, cohort)?));
+        }
+    }
+    let mut min = vec![0u64; entries.len() + 1];
+    let mut max = min.clone();
+    for i in (0..entries.len()).rev() {
+        min[i] = (needed + 1).min(
+            min[i + 1].saturating_add(
+                entries[i]
+                    .2
+                    .iter()
+                    .map(|r| r.pieces[color])
+                    .min()
+                    .ok_or("certified_empty_positive_law")?,
+            ),
+        );
+        max[i] = (needed + 1).min(
+            max[i + 1].saturating_add(entries[i].2.iter().map(|r| r.pieces[color]).max().unwrap()),
+        );
+    }
+    if needed < min[0] || needed > max[0] {
+        return Ok(None);
+    }
+    let mut remaining = needed;
+    let mut path = Trajectory {
+        stock,
+        receipts: Vec::new(),
+    };
+    for (i, (event, index, law)) in entries.iter().enumerate() {
+        let mut chosen: Option<&Outcome> = None;
+        for row in law.iter() {
+            if row.pieces[color] + max[i + 1] < remaining
+                || row.pieces[color] + min[i + 1] > remaining
+            {
+                continue;
+            }
+            if chosen.map_or(true, |old| {
+                row.pieces[color] > old.pieces[color]
+                    || (row.pieces[color] == old.pieces[color]
+                        && other.iter().map(|&k| row.pieces[k]).sum::<u64>()
+                            > other.iter().map(|&k| old.pieces[k]).sum::<u64>())
+            }) {
+                chosen = Some(row);
+            }
+        }
+        let Some(chosen) = chosen else {
+            return Ok(None);
+        };
+        append(&mut path, event, *index, chosen)?;
+        remaining -= chosen.pieces[color];
+    }
+    Ok(if remaining == 0 { Some(path) } else { None })
+}
+type Witness = (usize, Trajectory, Trajectory, Value, Value);
+impl Engine {
+    fn boundary(
+        &mut self,
+        supply: &mut Supply,
+        sid: usize,
+        stock: Units,
+        prior: &[Event],
+        last: &[Event],
+    ) -> Result<Option<Witness>> {
+        let stock: Pieces = std::array::from_fn(|k| stock[k] as u64);
+        self.ensure_relaxed(sid)?;
+        let bound = self.relaxed[sid].as_ref().unwrap().bound;
+        let mut colors: Vec<_> = (0..3).filter(|&k| bound[k] > 0).collect();
+        colors.sort_by_key(|&k| bound[k] as i64 * 10 - stock[k] as i64);
+        for &color in &colors {
+            let other: Vec<_> = colors.iter().copied().filter(|&k| k != color).collect();
+            for cohort in 0..supply.priors.len() {
+                if supply.priors[cohort].is_zero() {
+                    continue;
+                }
+                if let Some(before) = target(
+                    supply,
+                    prior,
+                    cohort,
+                    stock,
+                    color,
+                    bound[color] as u64 * 10 - 10,
+                    &other,
+                )? {
+                    let after = trajectory(supply, last, cohort, before.stock, |_, _, rows| {
+                        maximal(rows, color)
+                    })?;
+                    let bv = self.endpoint(sid, before.stock)?;
+                    let av = self.endpoint(sid, after.stock)?;
+                    if self.compare_exact(&av, &bv) == Ordering::Greater {
+                        return Ok(Some((cohort, before, after, bv, av)));
+                    }
+                }
+            }
+        }
+        for cohort in 0..supply.priors.len() {
+            if supply.priors[cohort].is_zero() {
+                continue;
+            }
+            for color in 0..3 {
+                let before = trajectory(supply, prior, cohort, stock, |_, _, rows| {
+                    scarce(rows, color)
+                })?;
+                let bv = self.endpoint(sid, before.stock)?;
+                for event in last {
+                    for (index, reference) in event.refs.iter().enumerate() {
+                        let law = supply.law(reference, cohort)?;
+                        for candidate in 0..law.len() {
+                            self.check()?;
+                            let after =
+                                trajectory(supply, last, cohort, before.stock, |e, i, _| {
+                                    if e.id == event.id && i == index {
+                                        candidate
+                                    } else {
+                                        0
+                                    }
+                                })?;
+                            let av = self.endpoint(sid, after.stock)?;
+                            if self.compare_exact(&av, &bv) == Ordering::Greater {
+                                return Ok(Some((cohort, before, after, bv, av)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    include!("waiting_tests.rs");
+    include!("waiting_completed_dates_tests.rs");
+    include!("waiting_risk_summary_tests.rs");
+    include!("waiting_current_guidance_tests.rs");
+    include!("waiting_boundary_continuation_tests.rs");
+}

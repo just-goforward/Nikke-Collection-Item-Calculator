@@ -528,7 +528,8 @@ export function buildSnapshot(
   const events = [
     ...recurring.events,
     ...(input.grants ?? []).flatMap((grant): CertifiedSupplyEvent[] => {
-      const at = dateStart(grant.grantGameDate);
+      const at = grant.scheduledAt === undefined ? dateStart(grant.grantGameDate) : timestamp(grant.scheduledAt);
+      if (gameDayKey(at) !== grant.grantGameDate) throw new Error("certified_grant_invalid");
       if (at < window.from || at >= window.until) return [];
       const rule = ruleAt(rules, at);
       if (!rule) throw new Error("certified_grant_rule_missing");
@@ -537,6 +538,7 @@ export function buildSnapshot(
           id: grant.id,
           gameDate: grant.grantGameDate,
           at: iso(at),
+          ...(grant.scheduledAt === undefined ? {} : { grantTiming: "scheduled-v1" as const }),
           kind: "grant",
           status: "confirmed",
           refs: grant.refs,
@@ -554,6 +556,11 @@ export function buildSnapshot(
   ];
   events.sort((a, b) => timestamp(a.at) - timestamp(b.at) || a.id.localeCompare(b.id));
   const missing = historyMissing(input, window, soloRounds, recurring.missingPastRules);
+  const authority = input.sourceAuthority;
+  if (authority && (
+    timestamp(authority.from) !== window.from || timestamp(authority.until) < window.until ||
+    timestamp(authority.observedAt) > window.now || timestamp(authority.freshUntil) <= window.now
+  )) throw new Error("certified_source_authority_window");
   const futureMissing = recurring.missingFutureRules ? ["reward_rules"] : [];
   const snapshot: CertifiedSupplySnapshot = {
     version: input.version ?? CERTIFIED_SUPPLY_VERSION,
@@ -562,6 +569,7 @@ export function buildSnapshot(
     sourceHash: input.sourceHash,
     asOf: iso(window.now),
     sourceStatus: window.sourceStatus,
+    ...(authority ? { sourceAuthority: authority } : {}),
     rules,
     laws: JSON.parse(JSON.stringify(input.laws ?? CERTIFIED_SUPPLY_LAWS)) as CertifiedSupplyLaw[],
     events,

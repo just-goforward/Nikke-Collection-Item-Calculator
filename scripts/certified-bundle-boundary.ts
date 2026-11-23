@@ -13,9 +13,9 @@ export function certifiedWorkerWhitespacePlugin(): Plugin {
         if (
           output.type !== "chunk" ||
           !output.isEntry ||
-          !output.facadeModuleId
-            ?.replaceAll("\\", "/")
-            .endsWith("/src/certifiedRuntime/browserWorker.ts")
+          !/\/src\/(?:certifiedRuntime|serviceH14)\/browserWorker\.ts$/.test(
+            output.facadeModuleId?.replaceAll("\\", "/") ?? "",
+          )
         )
           continue;
         output.code = (
@@ -42,12 +42,14 @@ export type CertifiedBundleBoundary = {
 export const WORKER_SOURCE_KINDS = {
   "src/worker.ts": "worker",
   "src/certifiedRuntime/browserWorker.ts": "certified-worker",
+  "src/serviceH14/browserWorker.ts": "service-h14-worker",
 } as const;
 export type WorkerChunkGraph = {
   version: "worker-chunk-graph-v1";
   source: keyof typeof WORKER_SOURCE_KINDS;
   entryFile: string;
   chunks: { file: string; imports: string[]; dynamicImports: string[] }[];
+  modules?: string[];
 };
 const WORKER_GRAPH_PREFIX = ".vite/worker-boundary/";
 
@@ -87,6 +89,9 @@ export function workerChunkGraphPlugin(): Plugin {
         version: "worker-chunk-graph-v1",
         source: source as WorkerChunkGraph["source"],
         entryFile: entry.fileName,
+        modules: [...new Set([...reachable].flatMap(file =>
+          Object.keys(chunks.get(file)!.modules).map(id => relative(root, id).replaceAll("\\", "/"))
+        ))].sort(),
         chunks: [...reachable].sort().map((file) => {
           const chunk = chunks.get(file);
           if (!chunk) throw new Error(`worker_chunk_graph_missing:${file}`);
@@ -115,7 +120,7 @@ type Chunk = {
 };
 
 function certifiedModule(id: string): boolean {
-  return /(?:^|\/)(?:src\/(?:certified|certifiedRuntime|certifiedUi)\/|src\/lib\/certifiedForecast[^/]*\.[^/]+|shared\/certified[^/]*\.[^/]+|shared\/generated\/certified[^/]*\.[^/]+)/.test(
+  return /(?:^|\/)(?:src\/(?:certified|certifiedRuntime|certifiedUi)\/|src\/serviceH14\/(?!(?:presentation|deadline)\.ts$)|src\/lib\/certifiedForecast[^/]*\.[^/]+|shared\/certified[^/]*\.[^/]+|shared\/generated\/certified[^/]*\.[^/]+)/.test(
     id.replaceAll("\\", "/"),
   );
 }

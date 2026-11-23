@@ -1,0 +1,10 @@
+import { parentPort } from 'node:worker_threads';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { createServiceH14WorkerHandler } from './workerHandler.ts';
+import { SERVICE_H14_NATIVE_PIN } from './loader.ts';
+if(!parentPort)throw new Error('service_h14_node_worker_port');
+const port=parentPort;
+const handler=createServiceH14WorkerHandler(message=>port.postMessage(message),async()=>new Uint8Array(await readFile(resolve(process.cwd(),'public',SERVICE_H14_NATIVE_PIN.assetPath.replace(/^\//,'')))));
+port.on('message',request=>{void handler.handle(request);});
+port.on('close',()=>handler.close());

@@ -31,6 +31,7 @@ export type CalculatorAppModel = {
     stock: Stock;
     needsStockEdit: boolean;
     isStale: boolean;
+    history?: { problem?: LocalizedMessage } | null;
     staleSource: "state" | "stock" | null;
     stockStale: boolean;
     correction: StockCorrectionView | null;
@@ -70,6 +71,7 @@ type CalculatorAppModelOptions = {
   detailView: DetailView;
   loading: LoadingView;
   isResultStale: boolean;
+  history?: { problem?: LocalizedMessage } | null;
   staleSource: "state" | "stock" | null;
   outcomeFlow: OutcomeFlow;
   resultView: ResultView;
@@ -105,6 +107,7 @@ export function makeCalculatorAppModel({
   clearActionTransition,
   detailView,
   isResultStale,
+  history,
   loading,
   outcomeFlow,
   resetInputs,
@@ -132,6 +135,7 @@ export function makeCalculatorAppModel({
       stock: calculatorState.stock,
       needsStockEdit: calculatorState.manualStockEditRequired,
       isStale: isResultStale,
+      ...(history ? {history} : {}),
       staleSource,
       stockStale: isResultStale && staleSource === "stock",
       correction: stockCorrection,

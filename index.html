@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <base href="/" />
+    <base href="/preview/" />
 <!-- localized-seo:start -->
     <title>NIKKE 소장품 레벨업 계산기</title>
     <meta
@@ -11,10 +11,9 @@
       content="니케 소장품 레벨업에 필요한 키트 사용 순서와 SR 15 도달 확률을 계산합니다."
     />
 <!-- localized-seo:end -->
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <script>
       (() => {
-        const firstPathSegment = window.location.pathname.split("/").find(Boolean);
+        const firstPathSegment = window.location.pathname.slice("/preview/".length).split("/")[0];
         const locale = firstPathSegment === "en" || firstPathSegment === "ja"
           ? firstPathSegment
           : "ko";
@@ -47,7 +46,7 @@
   <body>
     <script>
       (() => {
-        const storageKey = "collectionThemeMode";
+        const storageKey = "preview:collectionThemeMode";
         let theme = "light";
         try {
           const saved = window.localStorage.getItem(storageKey);
@@ -67,16 +66,6 @@
     </script>
     <div id="app"></div>
 
-    <script>
-      window.COLLECTION_STATS_CONFIG = {
-        endpoint: "https://nikkecollection.com",
-        turnstileSiteKey: "0x4AAAAAADJiF42vmIlh7EOp",
-        staging: {
-          endpoint: "https://collection-kit-stats-staging.tbvj159.workers.dev",
-          turnstileSiteKey: "0x4AAAAAADW5XM4osvVaOofe",
-        },
-      };
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

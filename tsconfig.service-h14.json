@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "resolveJsonModule": true, "allowJs": true, "checkJs": false },
+  "include": [
+    "src/main.tsx", "src/global.d.ts",
+    "src/serviceH14/**/*.ts", "src/certified/wasmBackend.spec.ts", "src/certified/budget.source.test.ts",
+    "scripts/service-h14*.ts", "vite.config.ts"
+  ],
+  "exclude": ["node_modules", "benchmarks", "**/.artifacts/**"]
+}

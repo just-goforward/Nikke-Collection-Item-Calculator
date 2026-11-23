@@ -42,7 +42,7 @@ function assertGrantEvents(snapshot: CertifiedSupplySnapshot) {
   for (const event of snapshot.events) {
     if (event.kind !== "grant") continue;
     if (
-      timestamp(event.at) !== dateStart(event.gameDate) ||
+      (event.grantTiming === undefined && timestamp(event.at) !== dateStart(event.gameDate)) ||
       event.id.split(":")[3] !== event.gameDate ||
       typeof event.claimWindowAssumed !== "boolean" ||
       !textList(event.sourceIds) ||

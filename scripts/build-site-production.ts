@@ -140,6 +140,7 @@ export async function buildSiteProduction(
   // The CLI/default stays bundled. Online packaging requires a separately reviewed,
   // complete contract and a matching receipt; this parameter cannot activate a service.
   if (productionContract !== undefined) {
+    if (target !== "production") throw new Error("production_forecast_site_target_mismatch");
     // Caller-supplied/synthetic approval is not authority for the formal packaging path.
     const configured = assertProductionForecastContract(productionProposal);
     const requested = assertProductionForecastContract(productionContract);

@@ -1,3 +1,4 @@
+import { adaptiveShell } from "../lib/rootCandidate";
 import {
   type ReactNode,
   type RefObject,
@@ -116,6 +117,7 @@ type MetricsDetailView = Extract<DetailView, { type: "metrics" }>;
 
 type DetailPanelProps = {
   loading: boolean;
+  showWaiting: boolean;
   view: DetailView;
   validation: ValidationView;
   onRunValidation: () => void;
@@ -402,11 +404,13 @@ function CandidateReason({
   );
 }
 
-function DetailMetricGrid({ view, loading }: { view: MetricsDetailView; loading: boolean }) {
+function DetailMetricGrid({ view, loading, showWaiting }: {
+  view: DetailView; loading: boolean; showWaiting: boolean;
+}) {
   const { t } = useI18n();
   const probabilityLabel = t("detail.sr15Probability");
   return (
-    <div className={classes.metricGrid.replace("grid-cols-2", "grid-cols-3")}>
+    <div className={showWaiting ? classes.metricGrid.replace("grid-cols-2", "grid-cols-3") : classes.metricGrid}>
       <div className={`${classes.metric} ${classes.metricHighlight}`}>
         <span
           className={`${classes.metricLabel} ${classes.metricLabelHighlight}`}
@@ -419,17 +423,40 @@ function DetailMetricGrid({ view, loading }: { view: MetricsDetailView; loading:
           className={`${classes.metricValue} ${classes.metricValueHighlight}`}
           style={{ color: "var(--green-dark)" }}
         >
-          {view.successProbability}
+          {view.type === "metrics" ? view.successProbability : t("detail.notApplicable")}
         </strong>
       </div>
       <div className={classes.metric}>
         <span className={classes.metricText}>{t("detail.segmentSuperSuccess")}</span>
         <strong className={classes.metricValue}>
-          {view.greatSuccessProbability ?? t("detail.notApplicable")}
+          {(view.type === "metrics" ? view.greatSuccessProbability : null) ?? t("detail.notApplicable")}
         </strong>
       </div>
-      <WaitingMetric view={view} loading={loading} />
+      {showWaiting && <WaitingMetric view={view} loading={loading} help={
+        adaptiveShell && !view.previewEvidence?.legacyD0 &&
+          <InfoTip label={t("detail.recommendedWaitAt")}>{t("detail.waitHorizonHelp")}</InfoTip>
+      } />}
     </div>
+  );
+}
+
+export function PreviewDetailPanel({ view, showSolverBackend, showWaiting=true }: {
+  view: DetailView; showSolverBackend: boolean; showWaiting?:boolean;
+}) {
+  const { t } = useI18n();
+  const titleId = useId();
+  return (
+    <section className={classes.panel} aria-labelledby={titleId}>
+      <div className={classes.heading}>
+        <h2 id={titleId}>{t("detail.title")}</h2>
+        {showSolverBackend && view.type === "metrics" && <span className={classes.solverBadge}>Solver · {view.solverLabel}</span>}
+      </div>
+      <div id="detailBox" className={classes.detailBody}>
+        <div className={classes.resultContent}>
+          <DetailMetricGrid view={view} loading={false} showWaiting={showWaiting} />
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -692,36 +719,39 @@ function ValidationDetails({
 function MetricsDetail({
   view,
   loading,
+  showWaiting,
   validation,
   onRunValidation,
 }: {
   view: MetricsDetailView;
   loading: boolean;
+  showWaiting: boolean;
   validation: ValidationView;
   onRunValidation: () => void;
 }) {
   return (
     <div className={classes.resultContent}>
-      <DetailMetricGrid view={view} loading={loading} />
-      <CandidateTable view={view} />
+      <DetailMetricGrid view={view} loading={loading} showWaiting={showWaiting} />
+      {!adaptiveShell && <><CandidateTable view={view} />
       <ValidationDetails
         monteCarloRuns={view.monteCarloRuns}
         onRunValidation={onRunValidation}
         validation={validation}
-      />
+      /></>}
     </div>
   );
 }
 
 export default function DetailPanel({
   loading,
+  showWaiting,
   view,
   validation,
   onRunValidation,
   showSolverBackend,
 }: DetailPanelProps) {
   const { t } = useI18n();
-  if (view.type !== "metrics") return <WaitingMetric view={view} loading={loading} />;
+  if (view.type !== "metrics") return showWaiting ? <WaitingMetric view={view} loading={loading} /> : null;
 
   return (
     <section className={classes.panel} aria-busy={loading || undefined}>
@@ -733,7 +763,7 @@ export default function DetailPanel({
           </span>
         ) : null}
       </div>
-      {loading && <WaitingMetric view={view} loading />}
+      {loading && showWaiting && <WaitingMetric view={view} loading />}
       <div id="detailBox" className={classes.detailBody}>
         {loading ? (
           <div className={classes.loadingOverlay} role="status" aria-live="polite">
@@ -744,7 +774,7 @@ export default function DetailPanel({
           </div>
         ) : null}
         <div aria-hidden={loading || undefined} inert={loading || undefined}>
-          <MetricsDetail view={view} loading={loading} validation={validation} onRunValidation={onRunValidation} />
+          <MetricsDetail view={view} loading={loading} showWaiting={showWaiting} validation={validation} onRunValidation={onRunValidation} />
         </div>
       </div>
     </section>

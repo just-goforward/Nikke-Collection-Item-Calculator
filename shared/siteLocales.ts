@@ -1,5 +1,10 @@
 import type { StatsLocale } from "./statsContract.ts";
 
+declare const __ISOLATED_ROOT_CANDIDATE__: boolean;
+declare const __PRODUCTION_ROOT_SITE__: boolean;
+const siteBase = (typeof __ISOLATED_ROOT_CANDIDATE__ !== 'undefined' && __ISOLATED_ROOT_CANDIDATE__) ||
+  (typeof __PRODUCTION_ROOT_SITE__ !== 'undefined' && __PRODUCTION_ROOT_SITE__) ? '/' : '/preview/';
+
 export const SITE_ORIGIN = "https://nikkecollection.com";
 
 export const SITE_LOCALE_ORDER = ["ko", "en", "ja"] as const satisfies readonly StatsLocale[];
@@ -13,7 +18,7 @@ export type SiteLocaleMetadata = {
   htmlLang: SiteLocale;
   ogImagePath: string;
   ogLocale: string;
-  path: "/" | "/en/" | "/ja/";
+  path: `${typeof siteBase}${"" | "en/" | "ja/"}`;
   title: string;
 };
 
@@ -21,42 +26,39 @@ export const SITE_LOCALES = {
   ko: {
     description: "니케 소장품 레벨업에 필요한 키트 사용 순서와 SR 15 도달 확률을 계산합니다.",
     fontFamily: "Pretendard Variable",
-    fontStylesheet:
-      "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css",
+    fontStylesheet: `${siteBase}fonts/pretendard-1.3.9/ko/pretendardvariable-dynamic-subset.css`,
     htmlLang: "ko",
-    ogImagePath: "/og/collection-calculator-ko.png",
+    ogImagePath: `${siteBase}og/collection-calculator-ko.png`,
     ogLocale: "ko_KR",
-    path: "/",
+    path: `${siteBase}`,
     title: "NIKKE 소장품 레벨업 계산기",
   },
   en: {
     description:
       "Calculate the best Maintenance Kit order and your chance of reaching SR Phase 15 in NIKKE.",
     fontFamily: "Pretendard Std Variable",
-    fontStylesheet:
-      "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-std-dynamic-subset.min.css",
+    fontStylesheet: `${siteBase}fonts/pretendard-1.3.9/en/pretendardvariable-std-dynamic-subset.css`,
     htmlLang: "en",
-    ogImagePath: "/og/collection-calculator-en.png",
+    ogImagePath: `${siteBase}og/collection-calculator-en.png`,
     ogLocale: "en_US",
-    path: "/en/",
+    path: `${siteBase}en/`,
     title: "NIKKE Collection Item Upgrade Calculator",
   },
   ja: {
     description:
       "NIKKEのコレクション強化に使うお手入れキットの順番と、SR15段階到達率を計算します。",
     fontFamily: "Pretendard JP Variable",
-    fontStylesheet:
-      "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-jp-dynamic-subset.min.css",
+    fontStylesheet: `${siteBase}fonts/pretendard-1.3.9/ja/pretendardvariable-jp-dynamic-subset.css`,
     htmlLang: "ja",
-    ogImagePath: "/og/collection-calculator-ja.png",
+    ogImagePath: `${siteBase}og/collection-calculator-ja.png`,
     ogLocale: "ja_JP",
-    path: "/ja/",
+    path: `${siteBase}ja/`,
     title: "NIKKE コレクション強化計算機",
   },
 } as const satisfies Record<SiteLocale, SiteLocaleMetadata>;
 
 export function siteLocaleFromPathname(pathname: string): SiteLocale {
-  const firstSegment = pathname.split("/").find(Boolean)?.toLowerCase();
+  const firstSegment = pathname.slice(siteBase.length).split("/")[0]?.toLowerCase();
   if (firstSegment === "en" || firstSegment === "ja") return firstSegment;
   return "ko";
 }
