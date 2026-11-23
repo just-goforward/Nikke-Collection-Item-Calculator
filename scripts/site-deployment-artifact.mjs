@@ -6,12 +6,20 @@ import productionProposal from "../site-worker/production-forecast.proposed.json
 import { renderDecisionProductionCatalog } from "./render-production-operations.mjs";
 import { SERVICE_H14_EMITTED_MODULES, K1R2_NATIVE_SHA256 } from "./service-h14-receipt.ts";
 import { assertServiceH14Build } from "./service-h14-integrity.ts";
+import { readServiceH14Native } from "./service-h14-native-integrity.ts";
+import { serviceH14Root } from "./service-h14-paths.ts";
 import staging from "../site-worker/forecast-runtime.json" with { type: "json" };
+
+function requireLegacyProductionNative() {
+  if (readServiceH14Native(serviceH14Root()).wasm.sha256 !== K1R2_NATIVE_SHA256)
+    throw new Error("service_h14_production_promotion_unapproved");
+}
 
 /** Both valid local profiles are nondeployable (see the separate deploy-site upload gate). */
 export function operationalProfileReceipt(mode = "bundled") {
   if (mode !== "bundled" && mode !== "production") throw new Error("Invalid operational profile");
   const online = mode === "production";
+  if (online) requireLegacyProductionNative();
   return {
     version: 1,
     profile: online ? "production-k1r2-verification-only" : "local-shared-service-bundled",
@@ -46,6 +54,7 @@ export async function assertProductionOffSiteProfile(directory, sha) {
 }
 
 export async function assertProductionSiteCandidateProfile(directory, sha, contract = productionProposal) {
+  requireLegacyProductionNative();
   const approved = assertProductionForecastContract(contract);
   if (!isDeepStrictEqual(approved, assertProductionForecastContract(productionProposal)))
     throw new Error("production_forecast_configured_contract_mismatch");

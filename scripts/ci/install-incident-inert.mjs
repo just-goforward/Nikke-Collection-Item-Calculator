@@ -36,13 +36,13 @@ const cf=async(path,...args)=>{const v=await request(`https://api.cloudflare.com
 const prefix=`/accounts/${account}/workers`, script=`${prefix}/scripts/${name}`;
 async function noIngress(){
   const [sub,schedules,routes,domains]=await Promise.all([cf(`${script}/subdomain`),cf(`${script}/schedules`),cf(`/zones/${zone}/workers/routes`),cf(`${prefix}/domains?service=${name}&per_page=1`)]);
-  assert.equal(sub.enabled,false);assert.equal(sub.previews_enabled,false);assert.deepEqual(schedules.schedules??schedules,[]);assert(!routes.some(r=>r.script===name));assert.deepEqual(domains,[]);
+  assert.equal(sub.enabled,false);assert.equal(sub.previews_enabled,false);assert.equal((schedules.schedules??schedules).length,0);assert(!routes.some(r=>r.script===name));assert.equal(domains.length,0);
 }
 await source();
 const dbInfo=await cf(`/accounts/${account}/d1/database/${db}`);assert.equal(dbInfo.uuid,db);assert.equal(dbInfo.name,name);
 // The account registry was independently inventoried. Fail closed if it grew beyond a page, gained Pages projects, or the namespace is now active.
 const scripts=await cf(`${prefix}/scripts?per_page=100`);assert(Array.isArray(scripts)&&scripts.length>0&&scripts.length<100);
-assert.deepEqual(await cf(`/accounts/${account}/pages/projects?per_page=1`),[]);
+assert.equal((await cf(`/accounts/${account}/pages/projects?per_page=1`)).length,0);
 for(const s of scripts){
   assert.match(s.id,/^[a-zA-Z0-9_-]+$/);assert.notEqual(s.id,name);
   const ds=await cf(`${prefix}/scripts/${s.id}/deployments?per_page=1`);assert.equal(ds.deployments.length,1);
@@ -53,14 +53,22 @@ for(const s of scripts){
 }
 // POST collection, not PUT script-by-name: a collision or ambiguous response must never become an overwrite/retry.
 const worker=await cf(`${prefix}/workers`,'POST',{name,logpush:false,observability:{enabled:false}});
-assert.equal(worker.name,name);assert.match(worker.id,uuid);
+assert.equal(worker.name,name);assert.match(worker.id,/^[0-9a-f]{32}$/);
+assert.equal(worker.logpush,false);assert.equal(worker.observability?.enabled,false);
 await cf(`${script}/subdomain`,'POST',{enabled:false,previews_enabled:false}); await noIngress();
 const bindings=[{type:'d1',name:'INCIDENT_DB',id:db},{type:'ratelimit',name:'INGRESS',namespace_id:namespace,simple:{limit:60,period:60}},{type:'plain_text',name:'INCIDENT_BUILD',text:build},{type:'plain_text',name:'PUBLIC_INGRESS',text:'0'}];
 const path=`${prefix}/workers/${worker.id}/versions`;
 await source();
 const version=await cf(`${path}?deploy=true`,'POST',{compatibility_date:'2026-08-14',main_module:'worker.js',bindings,modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:module.toString('base64')}]});
 assert.match(version.id,uuid); const live=await cf(`${path}/${version.id}?include=modules`);
-assert.equal(live.id,version.id);assert.equal(live.main_module,'worker.js');assert.equal(live.modules.length,1);assert.equal(live.modules[0].content_base64,module.toString('base64'));
+assert.equal(live.id,version.id);assert.equal(live.main_module,'worker.js');assert.equal(live.modules.length,1);
+assert.equal(live.modules[0].name,'worker.js');assert.equal(hash('sha256',Buffer.from(live.modules[0].content_base64,'base64')),env.INCIDENT_MODULE_SHA256);
 assert.deepEqual(live.bindings.map(b=>b.name).sort(),bindings.map(b=>b.name).sort());
-for(const expected of bindings){const actual=live.bindings.find(b=>b.name===expected.name);for(const [k,v] of Object.entries(expected))assert.deepEqual(actual[k],v);}
+for(const expected of bindings){const actual=live.bindings.find(b=>b.name===expected.name);for(const [k,v] of Object.entries(expected)){
+  if(k==='simple'){assert.equal(actual.simple.limit,v.limit);assert.equal(actual.simple.period,v.period);}
+  else assert(actual[k]===v,'installed binding differs from reviewed configuration');
+}}
+const {deployments}=await cf(`${script}/deployments?per_page=1`);
+assert.equal(deployments.length,1);assert.equal(deployments[0].versions.length,1);
+assert.equal(deployments[0].versions[0].version_id,version.id);assert.equal(deployments[0].versions[0].percentage,100);
 await noIngress(); console.log(`Verified inert incident version ${version.id} at ${sha}; no schema, secrets, route or schedule installed.`);

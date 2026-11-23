@@ -57,9 +57,14 @@ function statsScript(html: string): string {
   return html.slice(start, end).replace(/\r\n?/g, "\n").trim();
 }
 
+// Output paths are relative to dist, not to the public URL base used by the app.
+export function localeIndexFile(locale: typeof SITE_LOCALE_ORDER[number]): string {
+  return `${SITE_LOCALES[locale].path.slice(SITE_LOCALES.ko.path.length)}index.html`;
+}
+
 function siteApplicationLocale(path: string) {
   return SITE_LOCALE_ORDER.find(
-    (value) => `${SITE_LOCALES[value].path.slice(1)}index.html` === path,
+    (value) => localeIndexFile(value) === path,
   );
 }
 
@@ -167,7 +172,7 @@ export async function buildSiteProduction(
   const source = await readFile(join(ROOT, "index.html"), "utf8");
   const sourceConfig = statsScript(siteTargetHtml(source, target));
   for (const locale of SITE_LOCALE_ORDER) {
-    const path = `${SITE_LOCALES[locale].path.slice(1)}index.html`;
+    const path = localeIndexFile(locale);
     if (!files.includes(path)) throw new Error(`Missing production locale: ${path}`);
   }
   for (const path of files.filter((file) => file.endsWith(".html"))) {

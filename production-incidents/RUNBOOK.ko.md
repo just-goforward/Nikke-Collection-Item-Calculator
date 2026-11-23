@@ -1,6 +1,8 @@
 # 재계산 장애 전용 Worker
 
-승인된 소스·CI·환경 경로만 사용한다. 운영 forecast/observer 설정은 읽거나 변경할 필요가 없다. 배포 전 Worker/D1 이름 `collection-kit-production-incidents`, 별도 rate namespace 및 정확 경로의 기존 route 충돌을 확인하고 신규 전용 D1만 연결한다. `node config.mjs inert <D1 UUID> <namespace> <승인된 service codeHash>`의 출력은 이 디렉터리 기준 설정이다. 이 단계는 workers.dev, preview URL, route, cron이 모두 비활성이다. `schema.sql`은 빈 전용 D1에만 적용한다.
+최초 설치는 독립 검토한 보호 `main`의 `.github/workflows/incident-inert-install.yml`만 실행한다. `cloudflare-site-production` 환경의 `INCIDENT_REVIEWED_MAIN`은 최종 전체 SHA, `INCIDENT_MODULE_SHA256`은 그 SHA에서 동결된 패키지로 별도 검증한 Worker 모듈의 SHA-256이다. `CF_INCIDENT_INSTALL_TOKEN`은 환경 secret에만 등록한다. 검토하지 않은 workflow 출력의 해시를 그대로 승인하지 않는다. 환경 승인 전에는 자격 증명 없이 테스트와 번들만 만든다.
+
+설치는 `collection-kit-production-incidents` 전용 D1 ID와 rate namespace `419204`를 확인한다. 기존 Worker별 활성 binding·배포와 라우팅 정보만 읽어 충돌을 검사하고 다른 Worker를 수정하지 않는다. 이름을 신규 예약하고 검토된 모듈 1개만 설치한다. workers.dev, preview URL, route, cron, 수집 로그, 공개 ingress는 비활성이다. 실패·응답 유실 후 이미 예약된 이름에 덮어쓰거나 같은 실행을 재시도하지 않는다. 운영자가 실제 단계와 버전을 확인한다. 이 작업은 D1 쓰기나 secret 등록을 하지 않는다. `schema.sql`은 별도 승인으로 빈 전용 D1에만 적용한다.
 
 관리자가 기존 승인 계정의 Discord snowflake를 `ADMIN_ID`, 소유한 봇 토큰을 `BOT_TOKEN`으로 **새 Worker에만** 비공개 등록한다(Cloudflare Worker Settings → Variables and Secrets → Secret). 기존 secret 추출·회전 금지. 메시지 수락을 위해 이 계정에서 봇 DM을 허용한다. 값·스크린샷·Discord 응답을 증적에 담지 않는다.
 
