@@ -128,3 +128,47 @@ WHERE i.fingerprint='operator-private-canary' AND i.build=?
 `direct_block`은 발송기의 즉시 거절(입력, 채널 응답의 수신자 검증, 재시도 대상이 아닌 HTTP 거절 등), `sealed_retry`는 재시도 예약을 1회 canary가 종결한 경우다. 후자는 채널 단계 예외·응답 읽기/JSON 오류·429/5xx와 메시지 단계의 명시적 429를 구분하지 못한다. `unclassified`도 재실행 사유가 아니다. 이 결과는 HTTP 상태나 DM 수신 증명이 아니다.
 
 브라우저는 인증 없이 호출하므로 이 신호는 사용자 신원이나 진짜 장애의 증명이 아니다. Origin은 인증이 아니다. 전역 일일 신규 240건, 위치별 분당 60요청, 빌드·이유·단계당 UTC 하루 1통, cron당 1통이다. 과부하 시 429로 누락될 수 있다. 난수 시도 ID의 SHA-256만 저장한다. 사용자 ID/IP, URL, 입력, 예외문, stack은 저장하지 않는다. 5분 cron에서 사건은 30일, UTC 날짜별 발송 기록은 30~31일 후 삭제한다(중단 시 재개 후 삭제). Cloudflare 계정의 로그 수집·push 및 D1 백업 보존 정책은 별도 확인한다. 롤백 시 경로를 먼저 철회한다. 장기 비활성화 시 보존 기간 종료 후 전용 DB 폐기까지 담당자를 지정한다.
+
+### 성공한 두 번째 시험 뒤: 공개 발송기 버전 하나만 비활성 업로드
+
+**소스 PR 검토·병합 및 병합 SHA의 보호 `main` push CI가 성공하기 전에는 실행하지 않는다.** PR 측 CI만으로는 부족하다. 이 절차는 소유자 장치에서만 실행하며 워크플로 실행·환경 승인·변수/secret 변경이 필요 없다. 공개용 버전을 만드는 것과 공개하는 것은 다르다. 허용하는 쓰기는 고정 UUID의 `POST …/versions?deploy=false` 한 번뿐이다. 배포, preview URL, route, cron, D1 쿼리, DM, Site 변경은 없다.
+
+|확인할 근거|증명하는 것 / 증명하지 않는 것|
+|---|---|
+|GitHub-hosted attempt 1의 서명 검증|설치 `45171435589`의 `installed.json`은 inert 바이트·버전·폐기한 Editor를, `45197180403`의 `permit.json`은 선행 run `45184118767` 및 고정 successor 바이트를 결속한다. 과거 서명은 이번 쓰기 승인이나 공개 모듈의 서명이 아니다.|
+|소유자의 원 장치에 보존된 `~/.incident-private-canary/45197180403/journal.jsonl`|`sent/1`·inert 복구의 **서명되지 않은** 당시 기록. 이것만으로 실제 DM 수신, 실시간 DB 상태, 복구 배포 UUID를 추정하지 않는다.|
+|Cloudflare 읽기|기존 버전은 정확히 5개: inert `07805124-2b22-4311-84a5-261c13ee355b`, partial `73c7259d-8ed6-4386-9220-c673b0ede7ea`, donor `4b57a6dd-edf4-4465-9220-1da8a5aa9bcf`, 실패 `a888efe4-145f-42ca-8378-5660f46f3b93`, successor `a7a44718-3df0-4516-a3fa-ebced4038b9f`. 5개 배포 이력 전체를 고정한다. 최신은 `b87e67ae-d1c2-455a-b7c9-e33126c91e57`의 inert 100%, 직전은 `de7ca80b-dd35-47e3-a218-4cee7b05890c`의 successor 100%다.|
+|공개 번들|`3677b9bd19669172b82afea497b996234cc19c2d`의 공개 프로필(`entry/worker.ts` → `worker.js`)에서 재현한 SHA-256 `924bc0aa4ddb4c37351b4551c2d55696c5d0c50e14bef355d605a4af4109ed17`. 해시·배포 UUID를 실행 인수로 받지 않는다. 새 **비활성** 버전에만 `PUBLIC_INGRESS=1`, 원 `serviceBuild`, 전용 D1/ratelimit 및 고정 donor에서 상속한 `ADMIN_ID`·`BOT_TOKEN`을 담는다. 활성 inert는 `PUBLIC_INGRESS=0`, secret 없음이다.|
+
+`wrangler versions upload`는 즉시 배포하지 않더라도 대체 명령이 아니다. 고정 Wrangler 4.166.0의 버전 업로드는 `keepSecrets: true`로 이전 버전의 secret을 보존하며 `retryOnAPIFailure`로 POST한다. 그 동작은 이 donor 버전 하나에서 두 이름만 상속한다는 계약이나 재전송 금지를 보장하지 않는다. `--secrets-file`로 값을 재입력하지 않는다. helper는 [Worker Version API](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/subresources/versions/methods/create/) JSON의 각 `inherit.version_id`를 고정한다. 새 버전을 원래 바이트·실제 binding·빈 `urls`로 재조회하고, 기존 5개 + 새 ID 1개, 5개 배포 이력/활성 inert 100%, cron·preview·route·domain·참조의 비노출 상태와 전체 그래프 불변을 다시 확인한다.
+
+**승인된 경우의 소유자 명령** (한 장치·한 계정·다른 제어면 작업이 없는 전용 변경 창). 먼저 해당 PR만 병합된 정확한 보호 main checkout을 사용한다. `.nvmrc` Node 및 고정 pnpm/frozen `--ignore-scripts` 의존성이 필요하다. 아래 빌드는 자격을 공급하지 않는 로컬 dry-run이다. 번들과 임시 구성은 분리하고 helper 전에 구성을 지운다.
+
+```sh
+set -eu
+set +x
+umask 077
+test "$(node -p 'process.versions.node')" = "$(cat .nvmrc)"
+bundle=$(mktemp -d)
+(
+  cd production-incidents
+  cfg=$(mktemp "$PWD/.public-upload-XXXXXXXX")
+  trap 'rm -f "$cfg" "$cfg.json"' EXIT
+  build=$(node --input-type=module -e 'import {serviceBuild} from "./sealed-successor.ts"; console.log(serviceBuild)')
+  node config.mjs public 9a516350-d7d8-4a77-9cce-45d669fd3502 419204 "$build" > "$cfg.json"
+  env -i PATH="$PATH" HOME="$bundle" WRANGLER_SEND_METRICS=false \
+    node ../node_modules/wrangler/bin/wrangler.js deploy --dry-run --config "$cfg.json" --outdir "$bundle/public"
+)
+printf '%s  %s\n' 924bc0aa4ddb4c37351b4551c2d55696c5d0c50e14bef355d605a4af4109ed17 \
+  "$bundle/public/worker.js" | shasum -a 256 --check
+```
+
+그 후에만 기존 `gh` 소유자 세션과 아래 FD를 사용한다. 셸 변수에는 소유자만 읽을 수 있는 **파일 경로**만 지정한다. 이 도구는 자격을 발급·교체·추출하지 않는다. FD 0은 정확한 Worker UUID만의 계정 소유 `Individual Workers Editor`(발급→만료 24시간 이하, 승인 창 종료까지 유효, 설치 Editor 금지), FD 3은 이 계정의 `Account API Tokens Read` 정책 reader, FD 4는 `cloudflare-site-production`에 등록된 graph reader다. 정책 조회/graph 자격은 GET에만, Editor는 자체 ID·단일 Worker 상태 GET과 단 한 번의 POST에만 쓰인다. Editor 자체는 provider 차원에서 upload-only가 아니므로 다른 도구에 전달하지 않는다.
+
+```sh
+until_epoch=$(($(date +%s)+1800))
+node scripts/ci/incident-owner-upload-only.mjs "$bundle/public/worker.js" "$until_epoch" \
+  < "$fresh_editor_file" 3< "$policy_reader_file" 4< "$registered_graph_reader_file"
+```
+
+완료는 `inactive-upload-verified`만 인정한다. 기록은 원 장치 OS 계정 홈의 `~/.incident-owner-upload-only/bd4b7c3527c14626935139b0924e1249.json`(POST **전** 배타적 생성·동기화)과 응답 ID의 `.ack`다. 실패·유실·무응답·CI/서명 만료·불일치 시 재실행, 다른 장치/계정, 마커 삭제, 구 canary/배포 도구로 보정하지 않는다. **Cloudflare의 여러 GET과 POST 사이 원자적 잠금은 없다.** 같은 reader로 버전 전체·deployments·배포 비율·cron·preview·그래프만 대조하며, `.ack`나 목록에서 보이는 새 ID만으로 성공 판정하지 않는다. 저장된 비밀값이나 D1 행을 열어 대조하지 않는다. 실제 활성화·공개·발송은 별도 의사결정이다.
