@@ -256,6 +256,32 @@ jobs:
           } finally { rmSync(temp,{recursive:true,force:true}); }
           COMPILER
           test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Validate the single public WASM for PR 79 behavioral review
+        id: wasm_review
+        if: failure() && github.event_name == 'pull_request' && github.event.pull_request.number == 79
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync, lstatSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { assertServiceH14NativeAbi } from './scripts/service-h14-native-integrity.ts';
+          const hash = '7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5';
+          const path = `public/wasm/service-fused-h14-${hash}.wasm`;
+          const size = lstatSync(path);
+          assert(size.isFile() && size.size > 0 && size.size <= 32 * 1024 * 1024);
+          const bytes = readFileSync(path);
+          assert.equal(createHash('sha256').update(bytes).digest('hex'), hash);
+          await assertServiceH14NativeAbi(bytes);
+          console.log('review-wasm', path, bytes.length, hash);
+          JS
+      - name: Retain only validated review WASM for one day
+        if: failure() && steps.wasm_review.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: review-wasm-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: public/wasm/service-fused-h14-7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5.wasm
+          if-no-files-found: error
+          retention-days: 1
 
   required-source:
     name: Site source verification
