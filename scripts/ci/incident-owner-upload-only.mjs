@@ -120,23 +120,48 @@ function historicalReceipt(dir, run, workflowPath, sha, artifact, filename, reta
   return readFileSync(file);
 }
 
-// PR-side CI alone cannot authorize the operation. Require the merged, signed
-// protected tip and the successful post-merge push run including the offline guard.
-export function checkedMain(head,query,step='Verify post-successor inactive upload only (offline)') {
+// Only the mobile successor can recover an absent push; older owner operations remain push-only.
+function sourceJobs(head,query,mobileRecovery) {
   const branch = query('branches/main');
-  check(branch.protected && branch.commit.sha === head && query(`commits/${head}`).commit.verification.verified === true,
+  check(branch.protected === true && branch.commit.sha === head && query(`commits/${head}`).commit.verification.verified === true,
     'protected signed source changed');
   const pulls = query(`commits/${head}/pulls`);
   check(pulls.some(p=>p.merged_at && p.merge_commit_sha === head && p.base.ref === 'main' && p.base.repo.id === 1229775730),
     'not the merged source PR');
   const path = '.github/workflows/site-source-verify.yml';
-  const [run] = query(`actions/workflows/site-source-verify.yml/runs?branch=main&event=push&head_sha=${head}&per_page=1`).workflow_runs;
-  check(run?.head_sha === head && run.head_branch === 'main' && run.event === 'push' && run.path === path &&
+  const runs = event => query(`actions/workflows/site-source-verify.yml/runs?branch=main&event=${event}&head_sha=${head}&per_page=1`);
+  let event = 'push', result = runs(event);
+  if (mobileRecovery && result.total_count === 0 && result.workflow_runs.length === 0) {
+    event = 'workflow_dispatch'; result = runs(event);
+  }
+  const [run] = result.workflow_runs;
+  check(run?.head_sha === head && run.head_branch === 'main' && run.event === event && run.path === path &&
     run.repository.id === 1229775730 && run.head_repository.id === 1229775730 && run.status === 'completed' && run.conclusion === 'success' &&
-    Number.isSafeInteger(run.id) && Number.isSafeInteger(run.run_attempt) && run.run_attempt > 0,'no exact-main source CI');
+    Number.isSafeInteger(run.id) && run.id > 0 && Number.isSafeInteger(run.run_attempt) && run.run_attempt > 0,'no exact-main source CI');
   const jobs = query(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
-  check(jobs.total_count === jobs.jobs.length && jobs.jobs.some(j => j.name === 'Site source prerequisites' && j.conclusion === 'success' &&
-    j.steps.some(s => s.name === step && s.conclusion === 'success')), 'offline upload checks did not pass');
+  check(jobs.total_count === jobs.jobs.length, 'partial source job list');
+  return {jobs:jobs.jobs,event};
+}
+
+export function checkedMain(head,query) {
+  const {jobs} = sourceJobs(head,query,false);
+  check(jobs.some(j => j.name === 'Site source prerequisites' && j.conclusion === 'success' && j.steps.some(s =>
+    s.name === 'Verify post-successor inactive upload only (offline)' && s.conclusion === 'success')), 'offline upload checks did not pass');
+}
+
+export function checkedMobileMain(head,query) {
+  const {jobs,event} = sourceJobs(head,query,true);
+  const required = [
+    ['Site source prerequisites', ['Verify post-successor inactive upload only (offline)', 'Verify mobile retry inactive successor (offline)',
+      'Select the source profile from exact bytes, never a dispatch flag',
+      ...(event === 'workflow_dispatch' ? ['Authenticate the signed protected main tip'] : [])]],
+    ['Production root source (no publication)', ['Verify formal source bindings and the two-direction preparation contract',
+      'Build source-only root with the isolated pin, never the enrolled key']],
+    ['Site source verification', ['Require the complete applicable source lane']],
+  ];
+  check(jobs.length === required.length && required.every(([name,steps]) => jobs.some(j => j.name === name &&
+    j.status === 'completed' && j.conclusion === 'success' && steps.every(step => j.steps.some(s =>
+      s.name === step && s.conclusion === 'success')))), 'incomplete protected mobile source verification');
 }
 
 export function checkedCheckout(git) {

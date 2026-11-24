@@ -61,6 +61,45 @@ test('exact-main source status and source-only isolated profile are separate che
   }
 });
 
+test('input-free manual source verification authenticates main before any checkout and uses the existing reviewed root lane', () => {
+  const w = workflow('site-source-verify'), jobs = w.jobs, prerequisites = jobs['site-source-verify'];
+  assert.deepEqual((w.on ?? w.true).workflow_dispatch, {});
+  assert.deepEqual(w.permissions, { contents: 'read' });
+  assert.deepEqual(Object.keys(jobs).sort(), ['required-source', 'root-source-verify', 'site-source-verify']);
+  for (const j of Object.values(jobs)) {
+    assert.equal(j.environment, undefined);
+    assert(!j.steps.some(s => s.uses?.includes('download-artifact')));
+  }
+  const [guard, checkout] = prerequisites.steps;
+  assert.equal(guard.name, 'Authenticate the signed protected main tip');
+  assert.equal(guard.if, "github.event_name == 'workflow_dispatch'");
+  assert.deepEqual(guard.env, { GH_TOKEN: '${{ github.token }}' });
+  for (const s of [checkout, jobs['root-source-verify'].steps[0]]) {
+    assert.match(s.uses, /^actions\/checkout@[0-9a-f]{40}$/);
+    assert.equal(s.with.ref, '${{ github.sha }}'); assert.equal(s.with['persist-credentials'], false);
+  }
+  const repo = 'just-goforward/Nikke-Collection-Item-Calculator', sha = 'a'.repeat(40);
+  const bytes = Buffer.from('reviewed enrollment'), pin = hashOf(JSON.stringify(['production-root-source-review-v1',repo,sha,hashOf(bytes)]));
+  const env = { GITHUB_REPOSITORY:repo, GITHUB_REPOSITORY_ID:'1229775730', GITHUB_REF:'refs/heads/main', GITHUB_REF_PROTECTED:'true',
+    GITHUB_EVENT_NAME:'workflow_dispatch', GITHUB_SHA:sha, GITHUB_WORKFLOW_SHA:sha, ROOT_PAIR_SOURCE_APPROVAL_SHA256:pin,
+    GITHUB_WORKFLOW_REF:`${repo}/.github/workflows/site-source-verify.yml@refs/heads/main` };
+  const branch = {name:'main',protected:true,commit:{sha,commit:{verification:{verified:true}}}};
+  // Exercise the checked-in shell without a token or network, including a failed API read.
+  const run = (overrides={}, response=branch) => spawnSync('bash', ['-c',
+    `gh() { [[ "$*" == "api repos/${repo}/branches/main" && -n "$RESPONSE" ]] || return 1; printf '%s\\n' "$RESPONSE"; }\n` + guard.run],
+    {env:{PATH:process.env.PATH,...env,...overrides,RESPONSE:response && JSON.stringify(response)}}).status;
+  assert.equal(run(), 0);
+  for (const changed of [{GITHUB_REF:'refs/tags/main'},{GITHUB_REF_PROTECTED:'false'},{GITHUB_REPOSITORY:'other/repo'},
+    {GITHUB_REPOSITORY_ID:'1'},{GITHUB_WORKFLOW_REF:'other.yml'},{GITHUB_WORKFLOW_SHA:'b'.repeat(40)}]) assert.notEqual(run(changed), 0);
+  for (const response of ['', {...branch,protected:false}, {...branch,commit:{...branch.commit,sha:'b'.repeat(40)}},
+    {...branch,commit:{sha,commit:{verification:{verified:false}}}}]) assert.notEqual(run({},response), 0);
+  assert.equal(sourceLane(bytes,env),'root');
+  for (const changed of [{GITHUB_REF:'refs/heads/topic'},{GITHUB_REF_PROTECTED:'false'},{GITHUB_WORKFLOW_SHA:'b'.repeat(40)},
+    {GITHUB_WORKFLOW_REF:'other.yml'},{ROOT_PAIR_SOURCE_APPROVAL_SHA256:undefined},
+    {GITHUB_SHA:'b'.repeat(40),GITHUB_WORKFLOW_SHA:'b'.repeat(40)}]) assert.throws(()=>sourceLane(bytes,{...env,...changed}));
+  assert.throws(()=>sourceLane(Buffer.from('different bytes'),env)); assert.throws(()=>sourceLane(null,env));
+});
+
 test('required Site status cannot pass with a failed, skipped, or cancelled applicable lane',()=>{
   const jobs=workflow('site-source-verify').jobs, g=jobs['required-source'];
   assert.equal(g.name,'Site source verification');assert.equal(Object.values(jobs).filter(j=>j.name===g.name).length,1);
