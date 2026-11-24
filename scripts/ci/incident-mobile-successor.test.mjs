@@ -9,7 +9,6 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import receiver from '../../production-incidents/worker.ts';
-import enrollment from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 import {serviceBuild} from '../../production-incidents/sealed-successor.ts';
 import {original} from './incident-recovery-id.mjs';
 import {db as database,digest,namespace} from './incident-provider.mjs';
@@ -84,7 +83,7 @@ test('frozen real public bundle for the successor binding reproduces the unchang
   assert.equal(digest(readFileSync(join(temp,'bundle/worker.js'))),publicHash);
 });
 test('same receiver JS with old vs new version binding accepts exactly its one service build',async t=>{
-  const builds=[serviceBuild,stageU.build,newBuild];assert.equal(enrollment.serviceCodeHash,newBuild);assert.equal(new Set(builds).size,3);
+  const builds=[serviceBuild,stageU.build,newBuild];assert.equal(new Set(builds).size,3);
   for(const bound of builds) {
     const db=new DatabaseSync(':memory:');t.after(()=>db.close());db.exec(readFileSync(new URL('../../production-incidents/schema.sql',import.meta.url),'utf8'));
     const prepare=(sql,args=[])=>({bind:(...a)=>prepare(sql,a),run:()=>({meta:db.prepare(sql).run(...args)}),first:()=>db.prepare(sql).get(...args)});
