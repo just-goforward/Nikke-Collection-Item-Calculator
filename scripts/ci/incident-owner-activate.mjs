@@ -10,29 +10,23 @@ import {original} from './incident-recovery-id.mjs';
 import {policy} from './incident-owner.mjs';
 import {checkedMain,history,privateInput} from './incident-owner-upload-only.mjs';
 import {terminalExit,capabilities,checkedTarget,initialGraph,operate,probeIngress,reconcile,siteWitness} from './incident-activation-control.mjs';
-import {stageU,readStageU} from './incident-stage-u-evidence.mjs';
+import {layoutU,readLayoutU} from './incident-stage-u-evidence.mjs';
 import {observeSite,versionMessage} from './root-promotion-live.mjs';
 import enrolled from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 import {checkSwitchAuthority} from './root-switch-policy.mjs';
 
-const parent='28fbc4b62733311ffa88cf227aafe959fae2ad35', step='Verify exact existing incident activation and rollback (offline)';
+const parent=layoutU.source, step='Verify exact existing incident activation and rollback (offline)';
 const checkout=fileURLToPath(new URL('../../',import.meta.url));
 const files=[
-  '.github/workflows/site-source-verify.yml',
-  'docs/hybrid-b-release.md',
-  'e2e/hybrid-b-product-harness.mjs',
-  'e2e/operational-font-policy.mjs',
-  'e2e/operational-font-policy.test.mjs',
-  'e2e/operational-production.spec.ts',
-  'e2e/operational-source-bindings.json',
-  'e2e/root-candidate-analytics.ts',
+  'docs/root-rum-witness.md',
+  'production-incidents/RUNBOOK.ko.md',
+  'scripts/ci/incident-activation-control.mjs',
   'scripts/ci/incident-owner-activate.mjs',
   'scripts/ci/incident-owner-activate.test.mjs',
-  'scripts/ci/root-rum-witness.mjs',
-  'scripts/ci/root-switch-policy.mjs',
-  'scripts/ci/root-switch-policy.test.mjs',
-  'scripts/root-release-canary.mjs',
-  'scripts/root-release-sealed-check.mjs',
+  'scripts/ci/incident-stage-u-evidence.mjs',
+  'scripts/ci/root-promotion-custody.mjs',
+  'scripts/ci/root-promotion-live.mjs',
+  'scripts/ci/root-promotion.test.mjs',
 ];
 export function checkedSource(git,head) {
   check(/^[0-9a-f]{40}$/.test(head) && git('rev-list','--parents','-n','1','HEAD')===`${head} ${parent}` &&
@@ -119,7 +113,7 @@ export function rootProof(head,run,pair,{query=api,member=artifactMember,archive
   check(v.profile==='production-root-state-v1' && terminalExit(v) && (!artifactOperation || v.operation===artifactOperation) && v.source===head &&
     v.handoffSha256===pair.handoff && v.manifestSha256===pair.rollback && hash.test(v.moduleSha256) && hash.test(v.controlSha256) &&
     versionId.test(v.deployment) && versionId.test(v.version) && v.producerVersion===enrolled.publisherVersion &&
-    versionId.test(v.incident?.deployment) && v.incident.version===stageU.version && v.incident.build===stageU.build,'root restoration not bound to enrolled handoff and receiver');
+    versionId.test(v.incident?.deployment) && v.incident.version===layoutU.version && v.incident.build===layoutU.build,'root restoration not bound to enrolled handoff and receiver');
   return v;
 }
 export function restoredControl(receipt,live) {
@@ -137,7 +131,7 @@ function syncDir(dir) {const fd=openSync(dir,'r');try{fsyncSync(fd);}finally{clo
 export function custody(dir) {
   const put=(name,data)=>{safe(dir,true);writeFileSync(join(dir,name),JSON.stringify(data)+'\n',{flag:'wx',mode:0o600,flush:true});syncDir(dir);};
   const get=name=>readJSON(join(dir,name));
-  const identity={schema:3,worker:original.workerId,stageU,from:history[0].id};
+  const identity={schema:4,worker:original.workerId,layoutU,from:history[0].id};
   return {
     begin(head,before,pair) {mkdirSync(dir,{mode:0o700});syncDir(dirname(dir));put('start',{...identity,head,before,pair});},
     intent(n,op) {put(`${n}.intent`,{op});},
@@ -156,32 +150,35 @@ export function custody(dir) {
   };
 }
 function uploadProof(home) {
-  readStageU(join(home,'.incident-owner-upload-only'));
+  const receipt=readLayoutU(join(home,'.incident-owner-upload-only'));
   const j=join(home,'.incident-private-canary','45197180403','journal.jsonl');safe(j);
   check(digest(readFileSync(j))==='c86e031f96c0b4c5e87e76e516d4ded97c79ee4feef9561617ab1338a97f059f','wrong private successor journal');
+  return receipt;
 }
-export async function authorizeTokens({management,reader,editor,route,registered,retired,until}) {
+export async function authorizeTokens({management,reader,editor,route,registered,retired,upload,until}) {
   const groups=await management(`${root}/tokens/permission_groups`);
   check(Array.isArray(groups) && groups.every(g=>immutable.test(g.id) && typeof g.name==='string'),'invalid permission catalog');
   const roles=new Map(groups.map(g=>[g.id,g.name]));check(roles.size===groups.length,'ambiguous permission catalog');
   const [mid,rid,eid,zid]=await Promise.all([management,reader,editor,route].map(c=>activeTokenId(c)));
-  check(new Set([mid,rid,eid,zid]).size===4 && rid===registered && eid!==retired && zid!==retired,'wrong or shared token identity');
+  check(new Set([mid,rid,eid,zid]).size===4 && rid===registered &&
+    [eid,zid].every(id=>id!==retired && id!==upload.scope.editorId),'wrong or shared token identity');
   const detail=id=>management(`${root}/tokens/${id}`);
   const md=await detail(mid), [p]=md.policies??[];
   check(md.status==='active' && md.id===mid && md.policies.length===1 && p.effect==='allow' && p.permission_groups?.length===1 &&
     roles.get(p.permission_groups[0].id)==='Account API Tokens Read' && same(p.resources,{[`com.cloudflare.api.account.${account}`]:'*'}),'wrong token-policy reader');
   policy(await detail(rid),rid,roles);
   const e=await detail(eid), z=await detail(zid);policy(e,eid,roles,original.workerId);routePolicy(z,zid,roles);bounded(e,until);bounded(z,until);
+  check([e,z].every(t=>Date.parse(t.issued_on)>upload.verifiedAt),'writers must be issued after the layout upload');
 }
 async function main([mode,end,run,...extra]) {
   const readOnly=mode==='reconcile';
   check(['activate','rollback','reconcile'].includes(mode) && /^\d{10}$/.test(end) && (mode!=='activate' && run===undefined || numeric.test(run)) &&
     !extra.length && !process.env.CI && !process.env.GITHUB_ACTIONS && (readOnly || !process.stdin.isTTY),'local owner, window and intended root proof required');
-  check(enrolled.serviceCodeHash===stageU.build,'no enrolled Stage A receipt for this build');
+  check(enrolled.serviceCodeHash===layoutU.build,'no enrolled Stage A receipt for this build');
   const until=Number(end); windowOpen(until);
   const home=userInfo().homedir,git=(...args)=>execFileSync('git',args,{cwd:checkout,stdio:['ignore','pipe','pipe'],encoding:'utf8'}).trim(),head=git('rev-parse','HEAD');
   const source=()=>{checkedSource(git,head);check(JSON.parse(gh('api','user')).id===owner,'not the authenticated owner');checkedMain(head,api,step,mode!=='activate');};
-  source();uploadProof(home);
+  source();const upload=uploadProof(home);
   const journal=custody(join(home,'.incident-owner-activation-'+original.workerId)),graphToken=privateInput(4),reader=client(graphToken);
   const registered=()=>gh('variable','get','INCIDENT_GRAPH_TOKEN_ID','--env',graphEnv,'--repo',repo);
   const observe={inspect:s=>checkedTarget(reader,s,enrolled.serviceCodeHash),witness:()=>siteWitness(reader,fetch),ingress:open=>probeIngress(fetch,open),
@@ -194,17 +191,18 @@ async function main([mode,end,run,...extra]) {
   check(past.length===1,'retired installer identity unavailable');const old=JSON.parse(past[0].comment.slice('incident-private-v1:'.length));
   check(old.workerId===original.workerId && immutable.test(old.editorId),'retired installer identity changed');
   const management=client(privateInput(3)),routeToken=privateInput(5),editorToken=privateInput(0);
-  const auth={management,reader,editor:client(editorToken),route:client(routeToken),retired:old.editorId,until};
+  const auth={management,reader,editor:client(editorToken),route:client(routeToken),retired:old.editorId,upload,until};
   const authority=async()=>{source();await authorizeTokens({...auth,registered:registered()});windowOpen(until);};
   const ops=capabilities(editorToken,routeToken,graphToken,fetch);
   protectedEnv(graphEnv);
   const signed=Object.fromEntries(['ROOT_SWITCH_SIGNERS','ROOT_TECHNICAL_REVIEW','ROOT_OWNER_DECISION'].map(k=>[k,gh('variable','get',k,'--env',graphEnv,'--repo',repo)]));
   const approveChange=([record,...state])=>{
     const {packet,rehearsal,forward,rollback}=record;
-    return checkSwitchAuthority(signed,head,'incident-'+mode,{until,run:run??null,worker:original.workerId,stageU,handoff:record.handoff,pair:{packet,rehearsal,forward,rollback},state});
+    return checkSwitchAuthority(signed,head,'incident-'+mode,{until,run:run??null,worker:original.workerId,layoutU,handoff:record.handoff,pair:{packet,rehearsal,forward,rollback},state});
   };
   console.log(JSON.stringify(await operate(mode,{...ops,...observe,head,journal,authority,approveChange,
-    initialGraph:()=>initialGraph(reader),pairProof:()=>rootProof(head,run,null),windowOpen:()=>windowOpen(until)})));
+    initialGraph:async()=>{const graph=await initialGraph(reader);if(mode==='activate')check(graph===upload.scope.topology,'graph differs from the verified layout baseline');return graph;},
+    pairProof:()=>rootProof(head,run,null),windowOpen:()=>windowOpen(until)})));
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href) main(process.argv.slice(2)).catch(()=>{
   console.error('Stopped: approval, custody, current state, or ACK not proven. Preserve journal; no replay or broader credentials. Reconcile read-only before rollback.');process.exitCode=1;

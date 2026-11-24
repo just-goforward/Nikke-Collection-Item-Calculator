@@ -3,7 +3,7 @@ import { createPublicKey, verify } from 'node:crypto';
 import { assertProductionKey } from '../root-release-custody.mjs';
 import {rootGet} from './root-promotion-get.mjs';
 import {client} from './incident-provider.mjs';
-import {stageU,observeIncident} from './incident-stage-u-evidence.mjs';
+import {layoutU,observeIncident} from './incident-stage-u-evidence.mjs';
 import legacy from '../../site-worker/production-forecast.proposed.json' with {type:'json'};
 import { sha256 } from './root-promotion-custody.mjs';
 
@@ -95,8 +95,8 @@ export async function served(files, documentsOnly=false, immutable=new Set()){
 }
 export const versionMessage=(role,manifest)=>`root-${role}:${manifest}`;
 export function assertStartingState(g,live,h){
-  assert.equal(live.incident?.version,stageU.version,'wrong observed incident version');
-  assert.equal(live.incident.build,stageU.build,'wrong observed incident build');assert.match(live.incident.deployment,uuid);
+  assert.equal(live.incident?.version,layoutU.version,'wrong observed incident version');
+  assert.equal(live.incident.build,layoutU.build,'wrong observed incident build');assert.match(live.incident.deployment,uuid);
   assert.equal(live.controlSha256,g.controlSha256,'Site control plane changed');assert.equal(live.version,g.fromVersion,'unexpected active Site version');assert.equal(live.deployment,g.fromDeployment,'unexpected active Site deployment');
   if(g.operation!=='root-install-bridge') { const from=g.operation==='root-restore-rollback'?'forward':'rollback';assert.equal(live.annotations['workers/tag'],g.source);assert.equal(live.annotations['workers/message'],versionMessage(from,h.directions[from].manifestSha256)); }
 }

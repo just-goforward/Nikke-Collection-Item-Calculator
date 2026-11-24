@@ -6,7 +6,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {capabilities,checkedTarget,incidentUrl,operate,probeIngress,reconcile,replay,routePath,siteWitness} from './incident-activation-control.mjs';
-import {stageU,stageUPredecessor as predecessor,readStageU,observeIncident} from './incident-stage-u-evidence.mjs';
+import {layoutU,readLayoutU,stageU,stageUPredecessor as predecessor,readStageU,observeIncident} from './incident-stage-u-evidence.mjs';
+import {replaceInactive,reviewScope} from './incident-mobile-successor.mjs';
 import {authorizeTokens,checkedSource,custody,restoredControl,retainedRestore,rootProof,routePolicy} from './incident-owner-activate.mjs';
 import {beforeIds,checkedMain,history,publicBindings,publicHash} from './incident-owner-upload-only.mjs';
 import {baseline,schedule,script,target} from './incident-canary-control.mjs';
@@ -16,13 +17,13 @@ import {successorSummary} from '../../production-incidents/sealed-successor.ts';
 import enrolled from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 import {graphEnv,owner,repo} from './incident-receipt.mjs';
 
-const candidate=stageU.version;
+const candidate='e0fd1e38-5f7b-4777-9d96-681c6bb45038';
 const tmp=mkdtempSync(join(tmpdir(),'incident-activation-')),cwd=fileURLToPath(new URL('../../production-incidents/',import.meta.url));
 const modules={};before(()=>{
   const env={PATH:process.env.PATH,HOME:tmp,WRANGLER_SEND_METRICS:'false',CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV:'false'};
   for(const [phase,hash] of [['inert',baseline.module],['public',publicHash]]) {
     const cfg=join(cwd,`.activate-test-${process.pid}-${phase}.json`),out=join(tmp,phase);
-    try {writeFileSync(cfg,execFileSync(process.execPath,['config.mjs',phase,db,namespace,phase==='public'?stageU.build:baseline.build],{cwd,env}),{flag:'wx'});
+    try {writeFileSync(cfg,execFileSync(process.execPath,['config.mjs',phase,db,namespace,phase==='public'?enrolled.serviceCodeHash:baseline.build],{cwd,env}),{flag:'wx'});
       execFileSync(process.execPath,['../node_modules/wrangler/bin/wrangler.js','deploy','--dry-run','--config',cfg,'--outdir',out],{cwd,env,stdio:'pipe'});
       const b=readFileSync(join(out,'worker.js'));assert.equal(digest(b),hash);modules[phase]=b.toString('base64');
     } finally {rmSync(cfg,{force:true});}
@@ -37,13 +38,13 @@ function setup(){
   const live={jobs:structuredClone(history),crons:[],routes:[
     ['863270c636c945b8b788c329c9762f50','/preview/*','collection-kit-site-preview-k1r2'],['483199a1890b4fb696b38d53b6d63e3c','/api/calendar','collection-kit-conditional-production'],
     ['85e95eb76fd94eeba4531b7b26caa11c','/api/joint-supply/v2','collection-kit-conditional-production']
-  ].map(([id,path,script])=>({id,pattern:'nikkecollection.com'+path,script,request_limit_fail_open:false})),ids:[...beforeIds,predecessor,candidate],body:'html',box:{...goodBox},graph:'graph',http:301};
+  ].map(([id,path,script])=>({id,pattern:'nikkecollection.com'+path,script,request_limit_fail_open:false})),ids:[...beforeIds,predecessor,stageU.version,candidate],body:'html',box:{...goodBox},graph:'graph',http:301};
   const calls=[],dir=join(mkdtempSync(join(tmp,'run-')),'custody'),journal=custody(dir);
   const targetWorker={id:original.workerId,name,created_on:original.createdOn,deployed_on:stamp,tags:[original.tag],tail_consumers:[],logpush:false,observability:{enabled:false},subdomain:{enabled:false,previews_enabled:false},references:{workers:[],domains:[],dispatch_namespace_outbounds:[],durable_objects:[],queues:[]}};
   const read=async p=>{
     if(p===`${target}/versions?per_page=100`)return live.ids.map(id=>({id}));
-    for(const [id,phase] of [[candidate,'public'],[predecessor,'public'],[baseline.version,'inert']]) if(p===`${target}/versions/${id}?include=modules`) {
-      const b=phase==='inert'?bindings(baseline.build):[...publicBindings(id===candidate?(live.candidateBuild??stageU.build):baseline.build),...['ADMIN_ID','BOT_TOKEN'].map(name=>({name,type:'secret_text'}))];
+    for(const [id,phase,build] of [[candidate,'public',live.candidateBuild??enrolled.serviceCodeHash],[stageU.version,'public',live.historicalBuild??stageU.build],[predecessor,'public',baseline.build],[baseline.version,'inert',baseline.build]]) if(p===`${target}/versions/${id}?include=modules`) {
+      const b=phase==='inert'?bindings(build):[...publicBindings(build),...['ADMIN_ID','BOT_TOKEN'].map(name=>({name,type:'secret_text'}))];
       return {id,main_module:'worker.js',usage_model:'standard',compatibility_date:'2026-08-14',urls:[],bindings:b,
         modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:modules[phase]}],...(id===candidate?live.versionChange:{})};
     }
@@ -86,26 +87,28 @@ function setup(){
   };
   const io={journal,head,authority:async()=>{if(live.revoked)throw Error('revoked');},initialGraph:async()=>live.graph,
     windowOpen:()=>{},approveChange:()=>{},pairProof:()=>pair,pause:async()=>{},
-    inspect:s=>checkedTarget(read,s,stageU.build),witness:()=>siteWitness(read,send),ingress:b=>probeIngress(send,b),...capabilities('editor','zone','reader',send)};
+    inspect:s=>checkedTarget(read,s,enrolled.serviceCodeHash),witness:()=>siteWitness(read,send),ingress:b=>probeIngress(send,b),...capabilities('editor','zone','reader',send)};
   return {live,calls,io,dir,read,run:(mode='activate')=>operate(mode,io)};
 }
 test('root observer distinguishes inactive U, old active UUID, same-module stale binding, wrong share and cron',async()=>{
-  const f=setup(),observe=()=>observeIncident(f.read,stageU.build);
+  const f=setup(),observe=()=>observeIncident(f.read,enrolled.serviceCodeHash);
+  assert.equal(layoutU.version,candidate);assert.equal(layoutU.build,enrolled.serviceCodeHash);
   await assert.rejects(observe(),/sole active/); // Candidate bytes are already in the inventory.
   f.live.jobs.unshift({id:active,versions:[{version_id:candidate,percentage:100}]});
   await assert.rejects(observe());f.live.crons=[cron];
-  assert.deepEqual(await observe(),{deployment:active,version:candidate,build:stageU.build});
-  await assert.rejects(observeIncident(f.read,enrolled.serviceCodeHash),/not enrolled/);
-  await assert.rejects(checkedTarget(f.read,{route:null},enrolled.serviceCodeHash),/not enrolled/);
+  assert.deepEqual(await observe(),{deployment:active,version:candidate,build:enrolled.serviceCodeHash});
+  await assert.rejects(observeIncident(f.read,stageU.build),/not enrolled/);
+  await assert.rejects(checkedTarget(f.read,{route:null},stageU.build),/not enrolled/);
   await assert.rejects(observeIncident(f.read,baseline.build),/not enrolled/);
-  f.live.candidateBuild=baseline.build;await assert.rejects(observe(),/unexpected bindings/);
-  f.live.candidateBuild=stageU.build;f.live.jobs[0].versions[0].version_id=predecessor;await assert.rejects(observe(),/sole active/);
+  f.live.candidateBuild=stageU.build;await assert.rejects(observe(),/unexpected bindings/);
+  f.live.candidateBuild=enrolled.serviceCodeHash;
+  for(const old of [stageU.version,predecessor]) {f.live.jobs[0].versions[0].version_id=old;await assert.rejects(observe(),/sole active/);}
   f.live.jobs[0].versions=[{version_id:candidate,percentage:90},{version_id:predecessor,percentage:10}];await assert.rejects(observe(),/ambiguous active/);
   assert.deepEqual(f.calls,[]);
 });
 const originalReceiptDir=process.env.INCIDENT_U_ORIGINAL_RECEIPT_DIR;
 test('original Stage U bytes required: predecessor alone, missing ACK, substituted ID or altered verified bytes cannot pass',
-  {skip:!originalReceiptDir && 'requires original owner receipts; never synthesize successful proof'},()=>{
+  {skip:!originalReceiptDir && 'requires original owner receipts; never synthesize successful proof'},async()=>{
   assert.equal(readStageU(originalReceiptDir).id,stageU.version);
   const copy=mkdtempSync(join(realpathSync(tmp),'stage-u-')),slot='successor-of-'+predecessor;
   const originalCopy=file=>writeFileSync(join(copy,file),readFileSync(join(originalReceiptDir,file)),{mode:0o600});
@@ -117,6 +120,17 @@ test('original Stage U bytes required: predecessor alone, missing ACK, substitut
   assert.throws(()=>readStageU(copy),/wrong original ack.json/);originalCopy(ack);
   writeFileSync(join(copy,verified),JSON.stringify({id:candidate,activationAuthorized:true}),{mode:0o600});
   assert.throws(()=>readStageU(copy),/wrong original verified.json/);originalCopy(verified);assert.equal(readStageU(copy).id,stageU.version);
+  assert.throws(()=>readLayoutU(copy),{code:'ENOENT'});
+  const layout='successor-of-'+stageU.version;mkdirSync(join(copy,layout),{mode:0o700});
+  const args={dir:copy,until:Math.floor(Date.now()/1000)+300,read:assert.fail,send:assert.fail,authorize:assert.fail};
+  // Even an empty fixed slot consumes the upload. Neither review nor write may reach the provider.
+  await assert.rejects(reviewScope(args),/already consumed/);await assert.rejects(replaceInactive(args),/already consumed/);
+  for(const file of ['intent.json','ack.json','verified.json'])originalCopy(join(layout,file));
+  assert.equal(readLayoutU(copy).id,candidate);assert.equal(readLayoutU(originalReceiptDir).activationAuthorized,false);
+  for(const file of ['intent.json','ack.json','verified.json']){
+    writeFileSync(join(copy,layout,file),readFileSync(join(copy,slot,file)));
+    assert.throws(()=>readLayoutU(copy),new RegExp('wrong original '+file));originalCopy(join(layout,file));
+  }
 });
 test('unsigned incident activation and rollback cannot spend even one more intent',async()=>{
   for(const reverse of [false,true]) {const f=setup();if(reverse)await f.run();const count=f.calls.length;
@@ -133,6 +147,7 @@ for(const [label,alter] of Object.entries({
   'pre-existing deployment':x=>x.jobs[0].id=active,'split deployment':x=>x.jobs[0].versions[0].percentage=50,'inactive ID substitution':x=>x.ids.pop(),
   'predecessor absent':x=>x.ids.splice(x.ids.indexOf(predecessor),1),'stale candidate build':x=>x.candidateBuild=baseline.build,
   'wrong module':x=>x.versionChange={modules:[]},'unexpected env':x=>x.versionChange={env:{}},'version preview':x=>x.versionChange={urls:['other']},
+  'mobile predecessor absent':x=>x.ids.splice(x.ids.indexOf(stageU.version),1),'mobile predecessor rebound':x=>x.historicalBuild=enrolled.serviceCodeHash,
   'unsealed outbox':x=>x.box.sealed=0,'pending or claimed canary':x=>x.box.state='claimed','extra sendable row':x=>x.box.notifications=3,
   'insecure HTTP':x=>x.http=200,'revoked source':x=>x.revoked=true,
 })) test('no mutation: '+label,async()=>{const f=setup();alter(f.live);await assert.rejects(f.run());assert.deepEqual(f.calls,[]);});
@@ -200,7 +215,7 @@ test('protected pair and root-restore artifacts bind the whole source tree, job,
     const job={name:pair?'publish-root-pair':'prepare-root-pair',conclusion:'success'};
     const a={id:19,name,expired:false,digest:'sha256:'+sha,workflow_run:{id:123,head_sha:head}};
     const v=pair?{profile:'production-root-state-v1',state:'ROLLBACK_ACTIVE',operation:'root-restore-rollback',source:head,run,attempt,handoffSha256:pair.handoff,
-      manifestSha256:rh,moduleSha256:sha,controlSha256:sha,deployment:active,version:restored,producerVersion:enrolled.publisherVersion,incident:{deployment:active,version:candidate,build:stageU.build}}:
+      manifestSha256:rh,moduleSha256:sha,controlSha256:sha,deployment:active,version:restored,producerVersion:enrolled.publisherVersion,incident:{deployment:active,version:candidate,build:enrolled.serviceCodeHash}}:
       {profile:'production-root-pair-handoff-v1',repository:repo,sha:head,run,attempt,deployed:false,rehearsalSha256:sha,packetSha256:sha,directions:{rollback:{manifestSha256:rh},forward:{manifestSha256:sha}}};
     change({r,a,job,v,approvals});
     return rootProof(head,run,pair,{gate:()=>8,archived:archived?(h,r,t)=>{assert.deepEqual([h,r,t],[head,run,attempt]);return Buffer.from(JSON.stringify(v));}:undefined,query:p=>{
@@ -215,6 +230,9 @@ test('protected pair and root-restore artifacts bind the whole source tree, job,
   assert.deepEqual(artifact(intended,x=>{x.a.expired=true;},true),receipt);assert.throws(()=>artifact(intended,x=>{x.v.manifestSha256=sha;},true));
   const live={...receipt,annotations:{'workers/tag':head,'workers/message':'root-rollback:'+rh}};
   restoredControl(receipt,live);assert.throws(()=>restoredControl(receipt,{...live,controlSha256:rh}));
+  for(const archived of [false,true])for(const patch of [{version:stageU.version},{build:stageU.build},{version:stageU.version,build:stageU.build}]){
+    assert.throws(()=>artifact(intended,x=>Object.assign(x.v.incident,patch),archived),/not bound to enrolled handoff and receiver/);
+  }
   for(const fault of [x=>x.r.head_sha='b'.repeat(40),x=>x.job.name='other',x=>x.a.expired=true,x=>x.v.attempt='2',x=>x.approvals.length=0]) {
     const f=setup();f.io.pairProof=()=>artifact(null,fault);await assert.rejects(f.run());assert.equal(f.calls.length,0);assert.equal(existsSync(f.dir),false);
     assert.throws(()=>artifact(intended,fault));
@@ -252,29 +270,26 @@ test('fresh exact-zone permission and exactly one UUID Editor; management, graph
     [grant([6],{[acc]:{[`com.cloudflare.edge.worker.script.${original.workerId}`]:'*'}})],[grant([7],{[z]:'*'})],
   ][i]}));
   const readers=ids.map(id=>async p=>{if(p===`${root}/tokens/verify`)return {status:'active',id};assert.equal(id,ids[0]);if(p.endsWith('/permission_groups'))return groups;return details.find(d=>p===`${root}/tokens/${d.id}`);});
-  const [management,reader,editor,routeRead]=readers,args={management,reader,editor,route:routeRead,registered:ids[1],retired:'0'.repeat(32),until};await authorizeTokens(args);
+  const upload={scope:{editorId:'f'.repeat(32)},verifiedAt:ms-2000};
+  const [management,reader,editor,routeRead]=readers,args={management,reader,editor,route:routeRead,registered:ids[1],retired:'0'.repeat(32),upload,until};await authorizeTokens(args);
   for(const change of [p=>p.resources={[acc]:'*'},p=>p.resources={'com.cloudflare.api.account.zone.*':'*'},p=>p.permission_groups.push({id:groups[6].id}),p=>p.effect='deny']) {
     const d=structuredClone(details[3]);change(d.policies[0]);assert.throws(()=>routePolicy(d,ids[3],roles));
   }
   for(const changes of [{editor:routeRead},{registered:ids[2]},{retired:ids[2]},{until:until+86400}])await assert.rejects(authorizeTokens({...args,...changes}));
+  for(const editorId of ids.slice(2))await assert.rejects(authorizeTokens({...args,upload:{...upload,scope:{editorId}}}),/identity/);
+  await assert.rejects(authorizeTokens({...args,upload:{...upload,verifiedAt:ms-1000}}),/issued after/);
 });
 test('exact clean source gate and historical rollback ancestry do not authorize a stale activation',()=>{
-  const parent='28fbc4b62733311ffa88cf227aafe959fae2ad35',files=[
-  '.github/workflows/site-source-verify.yml',
-  'docs/hybrid-b-release.md',
-  'e2e/hybrid-b-product-harness.mjs',
-  'e2e/operational-font-policy.mjs',
-  'e2e/operational-font-policy.test.mjs',
-  'e2e/operational-production.spec.ts',
-  'e2e/operational-source-bindings.json',
-  'e2e/root-candidate-analytics.ts',
+  const parent='5649b7f942c1892100a40b782f9716015d89fdc5',files=[
+  'docs/root-rum-witness.md',
+  'production-incidents/RUNBOOK.ko.md',
+  'scripts/ci/incident-activation-control.mjs',
   'scripts/ci/incident-owner-activate.mjs',
   'scripts/ci/incident-owner-activate.test.mjs',
-  'scripts/ci/root-rum-witness.mjs',
-  'scripts/ci/root-switch-policy.mjs',
-  'scripts/ci/root-switch-policy.test.mjs',
-  'scripts/root-release-canary.mjs',
-  'scripts/root-release-sealed-check.mjs',
+  'scripts/ci/incident-stage-u-evidence.mjs',
+  'scripts/ci/root-promotion-custody.mjs',
+  'scripts/ci/root-promotion-live.mjs',
+  'scripts/ci/root-promotion.test.mjs',
   ];
   const git=cmd=>cmd==='rev-list'?`${head} ${parent}`:cmd==='status'?'':files.join('\n');checkedSource(git,head);
   for(const [which,out] of [['status','?? unexpected'],['diff',[...files,'other'].join('\n')],['rev-list',`${head} ${parent} ${head}`],['rev-list',`${head} ca2904054baf83ddc2a59166f9436776966a01d8`]])assert.throws(()=>checkedSource((c,...a)=>c===which?out:git(c,...a),head));
