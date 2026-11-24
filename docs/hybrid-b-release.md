@@ -6,6 +6,8 @@
 
 `e2e/operational-{inventory.json,case-map.mjs}` retain the historical IDs and meanings. `scripts/ci/hybrid-b-policy-{inventory,coverage}.mjs` enumerate each new case and the related assertions for every historical ID. Enumerate locally without running cases: `node --input-type=module -e 'import {coverage} from "./scripts/ci/hybrid-b-policy-coverage.mjs"; console.table(coverage())'`. “Related” does not mean passed or equivalent.
 
+On failure the policy reporter may identify the first error's matching BA009 step or analytics teardown step. A BA009 failure may also carry a Korean desktop primary-action snapshot taken before confirmation: `BLUE_FOUR`, `OTHER_BATCH` or `NOT_OBSERVABLE`. This is not the independent Current panel, proof of what settled, or a reason to change an assertion. Unknown or ambiguous attribution remains unclassified; no raw UI text, errors, stacks, requests or storage values enter the report. Passing evidence and first-attempt rules are unchanged.
+
 |Original requirement|B-specific comparison or remaining proof|
 |---|---|
 |P001–003|BP001–003: 3 locales, worker identity, real WASM and rational terminal result; distinct worker protocol and additional source/D0…14/WAIT checks.|

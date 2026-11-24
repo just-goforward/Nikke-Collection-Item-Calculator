@@ -45,6 +45,52 @@ for (const suite of ['product','analytics']) test(`${suite}: strict inventory, e
   assert.throws(() => validateReport(retried,suite,pin));
 });
 
+test('analytics retains an allowlisted first failing step, not the error, values or later teardown', () => {
+  const privateValue = 'https://example.invalid/?token=private-value';
+  const error = {message:privateValue,stack:`Error: ${privateValue}\n    private-path`};
+  const later = {...error,stack:'different private-path'};
+  const location = {file:join(root,'e2e/root-candidate-analytics.ts')};
+  const step = (title, props = {}) => ({category:'test.step',title,location,error:{...error},...props});
+  const unknown = 'CASE_OR_FIXTURE_UNCLASSIFIED';
+  const check = (expected,steps,{suite='analytics',index=8,errors=[error],status='failed'} = {}) => {
+    const report = simulate(suite,ts => Object.assign(ts[index].results[0],{status,errors,steps}));
+    assert.deepEqual(report.cases[index].attempts,[{retry:0,status,failureStage:expected}]);
+    assert.throws(() => validateReport(report,suite,pin));
+    assert(!JSON.stringify(report).includes('private'));
+  };
+  for (const title of ['BA009_BOOT','BA009_INITIAL_CALCULATION','BA009_CONFIRM_NORMAL','BA009_SETTLED_STOCK','BA009_FOLLOWUP_HORIZON','BA009_STORAGE'])
+    check(title,[step(title),step('AUDIT_CLOSE',{error:later})],{errors:[error,later]});
+  for (const title of ['AUDIT_CLOSE','AUDIT_DRAIN_ROUTES','AUDIT_PAGE_ERRORS','AUDIT_VIOLATIONS'])
+    check(title,[{category:'fixture',steps:[step(title)]}],{index:0});
+  check(unknown,[step(privateValue)]);
+  check(unknown,[step('BA009_STORAGE',{category:'expect'})]);
+  check(unknown,[step('BA009_STORAGE',{location:{file:'private-path'}})]);
+  check(unknown,[step('BA009_STORAGE')],{index:0});
+  check(unknown,[step('AUDIT_PAGE_ERRORS')],{suite:'product'});
+  check(unknown,[step('BA009_STORAGE'),step('AUDIT_CLOSE')]);
+  check(unknown,[step('AUDIT_CLOSE',{error:later})],{errors:[error,later]});
+  check(unknown,[],{errors:[{message:'BA009_SETTLED_STOCK'}]});
+  check('CASE_TIMEOUT',[step('AUDIT_CLOSE')],{status:'timedOut'});
+});
+
+test('only a failed BA009 may retain one closed, passive action bucket', () => {
+  const attempt = (values, status = 'failed', suite = 'analytics', index = 8) => {
+    const report = simulate(suite,ts => Object.assign(ts[index].results[0],{
+      status,errors:status === 'passed' ? [] : [{}],
+      annotations:values.map(description => ({type:'ba009-rendered-action',description})),
+    }));
+    if (status === 'passed') validateReport(report,suite,pin);
+    else assert.throws(() => validateReport(report,suite,pin));
+    assert(!JSON.stringify(report).includes('private-value'));
+    return report.cases[index].attempts[0];
+  };
+  for (const value of ['BLUE_FOUR','OTHER_BATCH','NOT_OBSERVABLE'])
+    assert.equal(attempt([value]).renderedAction,value);
+  for (const row of [attempt([]),attempt(['private-value']),attempt(['BLUE_FOUR','OTHER_BATCH']),
+    attempt(['OTHER_BATCH'],'passed'),attempt(['BLUE_FOUR'],'failed','product'),attempt(['BLUE_FOUR'],'failed','analytics',0)])
+    assert(!Object.hasOwn(row,'renderedAction'));
+});
+
 function scratch(t) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(),'policy-unit-')));
   t.after(() => rmSync(dir,{recursive:true,force:true})); return dir;

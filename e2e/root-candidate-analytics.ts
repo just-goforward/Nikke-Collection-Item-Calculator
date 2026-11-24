@@ -53,6 +53,26 @@ async function calculate(page: Page, audit: Audit, pkg: Package, mode: 'wait' | 
   for (const path of [...publicReads.keys(), '/' + pkg.receipt.worker, `/wasm/service-fused-h14-${pkg.receipt.review.nativeWasmSha256}.wasm`]) expect(audit.seen.has(path), path).toBe(true);
 }
 
+// BA009 runs on the Korean desktop root. Snapshot the action the normal button
+// refers to, not preview-current-candidate or an outgoing animation. No wait,
+// assertion, raw DOM text or mutation; the original confirmation always runs.
+async function observeNormalAction(page: Page) {
+  const action = await page.evaluate(() => {
+    const result = document.querySelector('#resultBox');
+    const button = result?.querySelector<HTMLButtonElement>('.fail-button');
+    const chips = result?.querySelectorAll('.next-action > :is(.next-action-card,.next-action-current) .action-chip');
+    if (!button || button.disabled || chips?.length !== 1) return 'NOT_OBSERVABLE';
+    const chip = chips[0]!;
+    const colors = ['blue','purple','yellow'].filter(color => chip.classList.contains(color));
+    const counts = chip.querySelectorAll('.action-chip-count');
+    const count = counts.length === 1 ? counts[0]!.textContent?.trim() : '';
+    if (colors.length !== 1 || !count || !/^[1-9]\d*\s*회$/.test(count)) return 'NOT_OBSERVABLE';
+    return colors[0] === 'blue' && /^4\s*회$/.test(count) ? 'BLUE_FOUR' : 'OTHER_BATCH';
+  }).catch(() => 'NOT_OBSERVABLE');
+  test.info().annotations.push({type:'ba009-rendered-action',description:
+    action === 'BLUE_FOUR' || action === 'OTHER_BATCH' ? action : 'NOT_OBSERVABLE'});
+}
+
 async function confirm(page: Page, success: boolean) {
   const result = page.locator('#resultBox');
   await result.locator(success ? '.success-button' : '.fail-button').click();
@@ -110,10 +130,10 @@ export function candidateAnalytics(load: () => Promise<Package>, register: Regis
       }
       await context.addInitScript({ content: `(${installPersistenceAudit.toString()})(); window.decisionPersistence.configure(${denied}); (${guardStorage.toString()})();` });
       try { await use(audit); } finally {
-        await page.close();
-        await context.unrouteAll({ behavior: 'wait' });
-        expect(errors, 'page exceptions').toEqual([]);
-        expect(audit.violations, 'unapproved network/storage or failed approved read').toEqual([]);
+        await test.step('AUDIT_CLOSE', () => page.close());
+        await test.step('AUDIT_DRAIN_ROUTES', () => context.unrouteAll({ behavior: 'wait' }));
+        await test.step('AUDIT_PAGE_ERRORS', async () => { expect(errors, 'page exceptions').toEqual([]); });
+        await test.step('AUDIT_VIOLATIONS', async () => { expect(audit.violations, 'unapproved network/storage or failed approved read').toEqual([]); });
       }
     },
   });
@@ -205,11 +225,13 @@ export function candidateAnalytics(load: () => Promise<Package>, register: Regis
     await storage(page);
   });
   run('confirmed normal batch settles real stock without analytics', async ({ page, audit }) => {
-    await boot(page, pkg.receipt.review.source); await calculate(page, audit, pkg, 'batch');
-    await confirm(page, false);
-    await expect(page.locator('#blueStock')).toHaveValue('10');
-    await expect(page.getByTestId('preview-verification')).toContainText('D0–D14', { timeout: 25_000 });
-    await storage(page);
+    await test.step('BA009_BOOT', () => boot(page, pkg.receipt.review.source));
+    await test.step('BA009_INITIAL_CALCULATION', () => calculate(page, audit, pkg, 'batch'));
+    await observeNormalAction(page);
+    await test.step('BA009_CONFIRM_NORMAL', () => confirm(page, false));
+    await test.step('BA009_SETTLED_STOCK', () => expect(page.locator('#blueStock')).toHaveValue('10'));
+    await test.step('BA009_FOLLOWUP_HORIZON', () => expect(page.getByTestId('preview-verification')).toContainText('D0–D14', { timeout: 25_000 }));
+    await test.step('BA009_STORAGE', () => storage(page));
   });
   for (const known of [true, false]) {
     run(known ? 'explicit batch attempt settles only actual use without analytics' : 'unknown batch attempt and stock correction remain private', async ({ page, audit }) => {

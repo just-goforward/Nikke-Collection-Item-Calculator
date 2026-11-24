@@ -4,8 +4,33 @@ import { claimFor, evidenceDir, harnessSource, knownStatus, load, record, valida
 import { inventory } from './hybrid-b-policy-inventory.mjs';
 import { root } from './hybrid-b-policy-package.mjs';
 
+const stageFile = join(root, 'e2e/root-candidate-analytics.ts');
+const batchStages = new Set(['BA009_BOOT','BA009_INITIAL_CALCULATION','BA009_CONFIRM_NORMAL','BA009_SETTLED_STOCK','BA009_FOLLOWUP_HORIZON','BA009_STORAGE']);
+const auditStages = new Set(['AUDIT_CLOSE','AUDIT_DRAIN_ROUTES','AUDIT_PAGE_ERRORS','AUDIT_VIOLATIONS']);
+
+// The worker serializes the same thrown error into the step and the result.
+// Match only the first error, not a later cleanup failure. Never serialize either stack.
+function analyticsStage(run,id) {
+  const first = run.errors[0];
+  if (run.status !== 'failed' || !first?.stack || !first.message) return;
+  let stage;
+  function visit(steps) {
+    for (const step of steps ?? []) {
+      if (step.category === 'test.step' && step.location?.file === stageFile &&
+          (auditStages.has(step.title) || (id === 'BA009' && batchStages.has(step.title))) &&
+          step.error?.stack === first.stack && step.error.message === first.message)
+        stage = stage === undefined ? step.title : null; // ambiguous is not evidence
+      visit(step.steps);
+    }
+  }
+  visit(run.steps);
+  return stage;
+}
+
 // Do not copy console streams, test errors, URLs, attachments or browser data to evidence.
-function failureStage(run) {
+function failureStage(run,suite,id) {
+  const stage = suite === 'analytics' && analyticsStage(run,id);
+  if (stage) return stage;
   const message = run.errors[0]?.message ?? '';
   if (/browserType\.launch:/.test(message)) {
     if (/No usable sandbox|Failed to move to new namespace/.test(message)) return 'BROWSER_SANDBOX';
@@ -18,6 +43,16 @@ function failureStage(run) {
   if (/^browserContext\.newPage:/.test(message)) return 'BROWSER_PAGE';
   if (run.status === 'timedOut') return 'CASE_TIMEOUT';
   return 'CASE_OR_FIXTURE_UNCLASSIFIED';
+}
+function failureDetail(run,suite,id) {
+  const detail = {failureStage:failureStage(run,suite,id)};
+  if (suite === 'analytics' && id === 'BA009' && run.status === 'failed') {
+    const observations = run.annotations?.filter(a => a.type === 'ba009-rendered-action');
+    const action = observations?.length === 1 && observations[0].description;
+    if (action === 'BLUE_FOUR' || action === 'OTHER_BATCH' || action === 'NOT_OBSERVABLE')
+      detail.renderedAction = action;
+  }
+  return detail;
 }
 export class CaseLedger {
   constructor(suite) {
@@ -64,7 +99,7 @@ export class CaseLedger {
       if (row?.test.expectedStatus !== 'passed' || runs.length !== 1 || row.begins.length !== 1 || row.ends.length !== 1 ||
           row.begins[0] !== runs[0] || row.ends[0] !== runs[0] || runs[0].errors.length !== 0 || runs[0].retry !== 0 || runs[0].status !== 'passed') this.failed = true;
       return {id, attemptCount:runs.length, attempts:runs.slice(0,2).map(run => ({retry:Number.isSafeInteger(run.retry) ? run.retry : -1,
-        status:knownStatus(run.status) ? run.status : 'invalid', ...(run.status === 'passed' ? {} : {failureStage:failureStage(run)})}))};
+        status:knownStatus(run.status) ? run.status : 'invalid', ...(run.status === 'passed' ? {} : failureDetail(run,suite,id))}))};
     });
     return {profile:'hybrid-b-policy-observation-v1',suite,claimSha256,cases,
       frameworkStatus:['passed','failed','timedout','interrupted'].includes(result.status) ? result.status : 'invalid',
