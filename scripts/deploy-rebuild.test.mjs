@@ -106,6 +106,7 @@ test("explicit online Site promotion validates production trust before uploading
       assert.equal(options.env.GITHUB_SHA, sha);
       if (command === "git") {
         if (args[0] === "rev-parse") return head;
+        if (args[0] === "ls-tree") return ""; // Historical source with no root enrollment.
         assert.deepEqual(args, ["status", "--porcelain", "--untracked-files=all"]);
         return status(++snapshots);
       }
@@ -127,7 +128,7 @@ test("explicit online Site promotion validates production trust before uploading
   const upload = accepted.calls.at(-1);
   assert.deepEqual(accepted.calls.map(call => call.command === "git" ? call.args[0] :
     call.args.includes("deploy") ? "upload" : "artifact"),
-  ["rev-parse", "status", "artifact", "rev-parse", "status", "upload"]);
+  ["rev-parse", "status", "artifact", "rev-parse", "status", "ls-tree", "upload"]);
   assert.equal(upload.command, process.execPath);
   assert.deepEqual(upload.args.slice(0, 8), [
     resolve(root, "node_modules/wrangler/bin/wrangler.js"),
@@ -257,3 +258,13 @@ for (const target of ["production", "staging"]) {
     assert.equal(uploaded, false);
   });
 }
+test('an enrolled source blocks every legacy production Site alias before credentials reach Wrangler',()=>{
+  const account='15be33fd20ea78eb3d60b719be831148';
+  for(const op of ['production','production-off','production-online','production-online-sealed','rebuild-production']) {
+    let writes=0;
+    assert.throws(()=>deploy('site',[op,sha],{CLOUDFLARE_ACCOUNT_ID:account,CLOUDFLARE_API_TOKEN:'fixture',SITE_DEPLOY_ACCOUNT_ID:account,SITE_DEPLOY_WORKER:productionWorkers.site,SITE_DEPLOY_HOSTNAME:'nikkecollection.com',SITE_RELEASE_DIR:'/test',SITE_RELEASE_MANIFEST_SHA256:'f'.repeat(64),GITHUB_RUN_ID:'1',GITHUB_RUN_ATTEMPT:'1'},(cmd,args)=>{
+      if(args.includes('deploy'))writes++; return cmd==='git'?(args[0]==='rev-parse'?sha:args[0]==='ls-tree'?'100644 blob enrolled':''):'';
+    }),/requires the protected two-seal transition/);
+    assert.equal(writes,0);
+  }
+});

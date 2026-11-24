@@ -12,5 +12,5 @@
   "enrollmentEvidenceSha256": "75b1d8ddd3dad6e9f3157cb0104789c9b1fb9eaea6bd96f6e0cbdf31a6c1f515",
   "nativeWasmSha256": "7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5",
   "nativeSourceHash": "d53899b40ec00ca49ac9eec0af46c149c0f0380eaabbea3e08c7ce20c18064b0",
-  "serviceCodeHash": "d3fab41a90525df0c22b0a38541423d9bb23b8f33f7b47738811cea74bd3b701"
+  "serviceCodeHash": "24d65a8263bf42e0205f4ee49c5451344c7c35c4c645cb849c4e88a47bb55f83"
 }

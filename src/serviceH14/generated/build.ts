@@ -3,7 +3,7 @@ export const SERVICE_H14_BUILD = {
   "schemaVersion": 1,
   "policy": "adaptive-next-batch-balanced-v1",
   "profileId": "service-fused-h14-v1",
-  "codeHash": "d3fab41a90525df0c22b0a38541423d9bb23b8f33f7b47738811cea74bd3b701",
+  "codeHash": "24d65a8263bf42e0205f4ee49c5451344c7c35c4c645cb849c4e88a47bb55f83",
   "nativeSourceHash": "d53899b40ec00ca49ac9eec0af46c149c0f0380eaabbea3e08c7ce20c18064b0",
   "exactWasmHash": "7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5",
   "sourceManifest": [
@@ -761,7 +761,7 @@ export const SERVICE_H14_BUILD = {
     },
     {
       "path": "src/AppLayout.tsx",
-      "sha256": "bb858c35b5fe3b01aaaef18434aa209126b03bd241624214bf1db85a496de903"
+      "sha256": "ae731f0ef870e177faa3551eb78595043460459d981cde1ee655b87d43681869"
     },
     {
       "path": "src/RootCandidateApp.tsx",

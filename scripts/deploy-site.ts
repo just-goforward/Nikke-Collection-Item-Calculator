@@ -134,6 +134,8 @@ if (sealed) {
   sealedEntry = resolve(directory, "worker/worker.js");
   snapshot();
 }
+if (kind === "site" && target === "production" && git(["ls-tree", "HEAD", "--", "site-worker/production-root-release-v1.json"]))
+  throw new Error("Enrolled production Site requires the protected two-seal transition; no legacy/off/rebuild publication");
 // Last step before credentials reach Wrangler; Stats has no Site artifact.
 if (kind === "site") assertSiteUploadApproved(artifact);
 execute(process.execPath, [

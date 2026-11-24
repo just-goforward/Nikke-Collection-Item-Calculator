@@ -671,10 +671,22 @@ export function AppLayout({
       resetToast={resetToast}
       result={
         <>
-          {history?.problem && <div role="status" data-testid="preview-replacement-error" className="rounded-card border border-yellow-kit bg-outcome p-3 text-sm text-outcome-text">
-            {rootCandidate && <strong>{t("result.recalculationError")}</strong>}
-            <div>{text(history.problem)}</div>
-            {rootCandidate && calculator.resultView.type === "recommendation" && <p>{t("result.previousRecommendationAfterFailure")}</p>}
+          {history?.problem && <div data-testid="preview-replacement-error" className="rounded-card border border-yellow-kit bg-outcome p-3 text-sm text-outcome-text">
+            <div role="status">
+              {rootCandidate && <strong>{t("result.recalculationError")}</strong>}
+              <div>{text(history.problem)}</div>
+              {rootCandidate && calculator.resultView.type === "recommendation" && <p>{t("result.previousRecommendationAfterFailure")}</p>}
+            </div>
+            {rootCandidate && calculator.resultView.type === "recommendation" && (
+              <button
+                className="mt-3 inline-flex min-h-11 items-center rounded-control bg-action px-4 text-sm font-bold text-ice disabled:opacity-50 min-[661px]:hidden"
+                type="button"
+                disabled={calculator.inputLocked || calculator.loading.active || calculator.solvePanel.calculateDisabled}
+                onClick={handlers.onCalculate}
+              >
+                {t("result.retryCalculation")}
+              </button>
+            )}
           </div>}
           <ResultPanel
             feedback={calculator.stateFeedback}
