@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 
 import { MAX_STOCK_PIECES } from "../../shared/game";
 import { useDismissableLayer } from "../hooks/useDismissableLayer";
@@ -382,7 +382,8 @@ export default function StockPanel({
   const [stockText, setStockText] = useState<Record<Kit, string>>(() => stockToText(stock));
   const committedStockRef = useRef<Stock>(stock);
 
-  useEffect(() => {
+  // A focus/blur after Undo must never commit the previous (empty) draft.
+  useLayoutEffect(() => {
     committedStockRef.current = stock;
     setStockText(stockToText(stock));
   }, [stock]);
