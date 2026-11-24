@@ -10,10 +10,14 @@ import {account,activeTokenId,bindings,client,digest,immutable,versionId,zone} f
 import {api,gh,graphEnv,owner,protectedEnv,repo} from './incident-receipt.mjs';
 import {original} from './incident-recovery-id.mjs';
 import {baseline,privateGraph,target} from './incident-canary-control.mjs';
-import {beforeIds,checkedCredentials,checkedMain,closed,historicalEditor,privateInput,publicBindings,publicHash,uploadReadbacks} from './incident-owner-upload-only.mjs';
+import {beforeIds,checkedCredentials,checkedMobileMain,closed,historicalEditor,privateInput,publicBindings,publicHash,uploadReadbacks} from './incident-owner-upload-only.mjs';
 import enrollment from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 
-const parent='ca2904054baf83ddc2a59166f9436776966a01d8', step='Verify mobile retry inactive successor (offline)';
+const predecessorSource='ca2904054baf83ddc2a59166f9436776966a01d8';
+const recoveryParent='b0a15d1c74dc4e4773887913c28c02c2bd28e7d7';
+const recoveryFiles=['.github/workflows/site-source-verify.yml','production-incidents/RUNBOOK.ko.md',
+  'scripts/ci/incident-mobile-successor.mjs','scripts/ci/incident-mobile-successor.test.mjs','scripts/ci/incident-owner-upload-only.mjs',
+  'scripts/ci/prepare-root-pair.test.mjs','scripts/ci/root-source-profile.mjs'];
 export const predecessor='00323557-9e9f-470f-b491-3906316f5d69', newBuild='24d65a8263bf42e0205f4ee49c5451344c7c35c4c645cb849c4e88a47bb55f83';
 const markerSha='e16afc3b992035149f42000b5984ac654acbaf8d5db7329ee411c03e31240068',ackSha='6e132d263351ea1ca1312a8d202c7ec6ea8e06e96ecb6dd52c26068a2ca1ae14';
 const prior=[...beforeIds,predecessor].sort(), inherited=['ADMIN_ID','BOT_TOKEN'];
@@ -28,7 +32,7 @@ function originalFile(file,expected) {
 }
 export function readPredecessor(dir) {
   checkDirectory(dir);const file=join(dir,original.workerId+'.json'),m=originalFile(file,markerSha);
-  assert.equal(m.phase,'attempt-consumed');assert.equal(m.reviewedMain,parent);assert.equal(m.hash,publicHash);assert.equal(m.deployment,closed.deployment);
+  assert.equal(m.phase,'attempt-consumed');assert.equal(m.reviewedMain,predecessorSource);assert.equal(m.hash,publicHash);assert.equal(m.deployment,closed.deployment);
   assert.deepEqual(originalFile(file+'.ack',ackSha),{candidate:predecessor});
   return {markerSha,ackSha,issued:Date.parse(m.utc)};
 }
@@ -84,6 +88,12 @@ export async function replaceInactive({head,until,module,dir,read,send,token,edi
   } finally {await expectClosed();assert.equal(await privateGraph(read),topology);await routes();await expectClosed();}
   checkWindow(until); const verified={state:'verified-inactive-only',id,scope,approval,verifiedAt:Date.now(),activationAuthorized:false};record(slot,'verified.json',verified);return verified;
 }
+export function checkRecoveryCheckout(head,git) {
+  assert.match(head,/^[a-f0-9]{40}$/);
+  assert.equal(git('rev-list','--parents','-n','1','HEAD'),head+' '+recoveryParent,'expected the signed recovery squash');
+  assert.equal(git('status','--porcelain','--untracked-files=all'),'','dirty recovery checkout');
+  assert.deepEqual(git('diff','--no-renames','--name-only',recoveryParent,head).split('\n').sort(),recoveryFiles,'unexpected recovery diff');
+}
 async function main([file,end,editorId,...extra]) {
   const preview=file==='--review-scope';
   assert(file && /^\d{10}$/.test(end) && !extra.length && (preview?typeof editorId==='string' && immutable.test(editorId):editorId===undefined) && !process.env.CI && !process.env.GITHUB_ACTIONS);
@@ -91,7 +101,7 @@ async function main([file,end,editorId,...extra]) {
   const cwd=fileURLToPath(new URL('../../',import.meta.url)),git=(...a)=>execFileSync('git',a,{cwd,encoding:'utf8'}).trim();
   assert.equal(realpathSync(process.cwd()),realpathSync(cwd),'run from the exact reviewed checkout');
   const dir=join(userInfo().homedir,'.incident-owner-upload-only'),head=git('rev-parse','HEAD');
-  const source=()=>{assert.equal(git('rev-parse','HEAD'),head);assert.equal(git('rev-parse','HEAD^'),parent);assert.equal(git('status','--porcelain','--untracked-files=all'),'');assert.equal(JSON.parse(gh('api','user')).id,owner);checkedMain(head,api,step);};
+  const source=()=>{checkRecoveryCheckout(head,git);assert.equal(JSON.parse(gh('api','user')).id,owner);checkedMobileMain(head,api);};
   source();const priorReceipt=readPredecessor(dir);protectedEnv(graphEnv);
   const {assertServiceH14Build}=await import('../service-h14-integrity.ts');const identity=await assertServiceH14Build();
   assert.equal(identity.codeHash,newBuild);assert.equal(identity.nativeSourceHash,enrollment.nativeSourceHash);assert.equal(identity.exactWasmHash,enrollment.nativeWasmSha256);

@@ -1,6 +1,7 @@
 name: Site source verification (no publication)
 
 on:
+  workflow_dispatch: {}
   push:
     branches:
       - ci/site-source-transition
@@ -13,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: site-source-${{ github.ref }}
+  group: site-source-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}
   cancel-in-progress: true
 
 env:
@@ -37,6 +38,21 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Authenticate the signed protected main tip
+        if: github.event_name == 'workflow_dispatch'
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo=just-goforward/Nikke-Collection-Item-Calculator
+          test "$GITHUB_REPOSITORY" = "$repo" && test "$GITHUB_REPOSITORY_ID" = 1229775730 || exit 1
+          test "$GITHUB_REF" = refs/heads/main && test "$GITHUB_REF_PROTECTED" = true || exit 1
+          test "$GITHUB_WORKFLOW_REF" = "$repo/.github/workflows/site-source-verify.yml@refs/heads/main"
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          gh api "repos/$repo/branches/main" | jq -e --arg sha "$GITHUB_SHA" \
+            '.name == "main" and .protected == true and .commit.sha == $sha and .commit.commit.verification.verified == true'
+
       - name: Checkout the event revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         timeout-minutes: 5

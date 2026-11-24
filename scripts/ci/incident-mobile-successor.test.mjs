@@ -13,10 +13,64 @@ import enrollment from '../../site-worker/production-root-release-v1.json' with 
 import {serviceBuild} from '../../production-incidents/sealed-successor.ts';
 import {original} from './incident-recovery-id.mjs';
 import {db as database,digest,namespace} from './incident-provider.mjs';
-import {historicalEditor,publicHash} from './incident-owner-upload-only.mjs';
+import {checkedMain,checkedMobileMain,historicalEditor,publicHash} from './incident-owner-upload-only.mjs';
 import {owner} from './incident-receipt.mjs';
-import {checkApproval,newBuild,readPredecessor,uploadScope} from './incident-mobile-successor.mjs';
+import {checkApproval,checkRecoveryCheckout,newBuild,readPredecessor,uploadScope} from './incident-mobile-successor.mjs';
 import {readTransition} from './root-promotion-custody.mjs';
+
+test('U recovery is one clean squash on #92 and exactly the source repair files',()=>{
+  const head='a'.repeat(40),parent='b0a15d1c74dc4e4773887913c28c02c2bd28e7d7';
+  const paths=['.github/workflows/site-source-verify.yml','production-incidents/RUNBOOK.ko.md',
+    ...['incident-owner-upload-only.mjs','prepare-root-pair.test.mjs','root-source-profile.mjs',
+      'incident-mobile-successor.mjs','incident-mobile-successor.test.mjs'].map(p=>'scripts/ci/'+p)];
+  const commands={'rev-list --parents -n 1 HEAD':head+' '+parent,'status --porcelain --untracked-files=all':'',
+    [`diff --no-renames --name-only ${parent} ${head}`]:paths.join('\n')};
+  const verify=(changes={})=>checkRecoveryCheckout(head,(...args)=>({...commands,...changes})[args.join(' ')]);
+  verify();
+  const [ancestry,status,diff]=Object.keys(commands);
+  for(const changed of [{[ancestry]:head+' '+head},{[ancestry]:head+' '+parent+' '+head},{[ancestry]:parent+' '+parent},
+    {[status]:'?? local-file'},{[diff]:paths.slice(1).join('\n')},{[diff]:[...paths,'production-incidents/worker.ts'].join('\n')}])
+    assert.throws(()=>verify(changed));
+});
+
+test('U requires all original jobs from one exact protected main attempt; only an absent push permits manual evidence',()=>{
+  const head='a'.repeat(40),repository={id:1229775730},workflow='.github/workflows/site-source-verify.yml';
+  const run={id:10,run_attempt:2,head_sha:head,head_branch:'main',path:workflow,repository,head_repository:repository,status:'completed',conclusion:'success'};
+  const job=(name,...steps)=>({name,status:'completed',conclusion:'success',steps:steps.map(s=>({name:s,conclusion:'success'}))});
+  const jobs=[job('Site source prerequisites','Authenticate the signed protected main tip','Verify post-successor inactive upload only (offline)',
+    'Verify mobile retry inactive successor (offline)','Select the source profile from exact bytes, never a dispatch flag'),
+    job('Production root source (no publication)','Verify formal source bindings and the two-direction preparation contract',
+      'Build source-only root with the isolated pin, never the enrolled key'),job('Site source verification','Require the complete applicable source lane')];
+  const branch='branches/main',commit=`commits/${head}`,pulls=commit+'/pulls',attempt='actions/runs/10/attempts/2/jobs?per_page=100';
+  const list=event=>`actions/workflows/site-source-verify.yml/runs?branch=main&event=${event}&head_sha=${head}&per_page=1`;
+  const response=(event,overrides={})=>({total_count:1,workflow_runs:[{...run,event,...overrides}]});
+  const push=list('push'),manual=list('workflow_dispatch');
+  const proof={[branch]:{protected:true,commit:{sha:head}},[commit]:{commit:{verification:{verified:true}}},
+    [pulls]:[{merged_at:'2026-11-24',merge_commit_sha:head,base:{ref:'main',repo:repository}}],
+    [push]:{total_count:0,workflow_runs:[]},[manual]:response('workflow_dispatch'),[attempt]:{total_count:3,jobs}};
+  const verify=(changes={},gate=checkedMobileMain)=>gate(head,path=>{
+    const value=({...proof,...changes})[path]; assert.ok(value,`unexpected API request: ${path}`);return value;
+  });
+  verify(); verify({[push]:response('push'),[manual]:null});
+  assert.throws(()=>verify({},checkedMain)); // Historical upload remains push-only.
+  for(const changes of [{[push]:response('push',{conclusion:'failure'})},{[push]:response('push',{status:'queued'})},
+    {[branch]:{protected:false,commit:{sha:head}}},{[branch]:{protected:true,commit:{sha:'b'.repeat(40)}}},
+    {[commit]:{commit:{verification:{verified:false}}}},{[pulls]:[]},{[attempt]:{total_count:4,jobs}},
+    {[attempt]:{total_count:3,jobs:[jobs[0],jobs[0],jobs[2]]}}]) assert.throws(()=>verify(changes));
+  for(const mutation of [{event:'pull_request'},{head_sha:'b'.repeat(40)},{head_branch:'topic'},{path:'other.yml'},
+    {run_attempt:3},{head_repository:{id:1}},{repository:{id:1}},{conclusion:'cancelled'}])
+    assert.throws(()=>verify({[manual]:response('workflow_dispatch',mutation)}));
+  for(const [i,j] of jobs.entries()){
+    for(const remove of [true,false]){
+      const changed=remove?jobs.filter((_,n)=>i!==n):jobs.map((v,n)=>i===n?{...v,conclusion:'skipped'}:v);
+      assert.throws(()=>verify({[attempt]:{total_count:changed.length,jobs:changed}}));
+    }
+    for(const [k] of j.steps.entries()){
+      const changed=structuredClone(jobs);changed[i].steps[k].conclusion='skipped';
+      assert.throws(()=>verify({[attempt]:{total_count:changed.length,jobs:changed}}));
+    }
+  }
+});
 
 test('frozen real public bundle for the successor binding reproduces the unchanged module SHA',t=>{
   const cwd=fileURLToPath(new URL('../../production-incidents/',import.meta.url)),temp=mkdtempSync(join(realpathSync(tmpdir()),'u-bundle-'));

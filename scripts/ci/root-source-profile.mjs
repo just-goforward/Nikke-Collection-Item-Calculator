@@ -28,13 +28,17 @@ export function requireReviewedBytes(bytes, env) {
   assert.equal(hash('sha256', scope), env.ROOT_PAIR_SOURCE_APPROVAL_SHA256, 'independent exact-main root source review required');
 }
 export function requireSourceReview(bytes, env) {
-  assert.equal(env.GITHUB_EVENT_NAME, 'push'); assert.equal(env.GITHUB_REF, 'refs/heads/main'); assert.equal(env.GITHUB_REF_PROTECTED, 'true');
+  assert(['push', 'workflow_dispatch'].includes(env.GITHUB_EVENT_NAME));
+  assert.equal(env.GITHUB_REF, 'refs/heads/main'); assert.equal(env.GITHUB_REF_PROTECTED, 'true');
   assert.match(env.GITHUB_SHA, /^[0-9a-f]{40}$/); assert.equal(env.GITHUB_WORKFLOW_SHA, env.GITHUB_SHA);
   assert.equal(env.GITHUB_WORKFLOW_REF, `${env.GITHUB_REPOSITORY}/.github/workflows/site-source-verify.yml@refs/heads/main`);
   requireReviewedBytes(bytes, env);
 }
 export function sourceLane(bytes, env) {
-  if (bytes === null) return 'legacy';
+  if (bytes === null) {
+    assert.notEqual(env.GITHUB_EVENT_NAME, 'workflow_dispatch', 'manual verification requires enrolled root source');
+    return 'legacy';
+  }
   if (env.GITHUB_EVENT_NAME === 'pull_request') {
     assert.equal(env.GITHUB_BASE_REF, 'main'); assert.match(env.GITHUB_REF, /^refs\/pull\/[1-9][0-9]*\/merge$/);
     return 'root-review-only';
