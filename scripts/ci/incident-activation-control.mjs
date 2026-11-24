@@ -3,8 +3,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {isDeepStrictEqual as same} from 'node:util';
 import {baseline, control, privateGraph, schedule, script, target} from './incident-canary-control.mjs';
 import {beforeIds, history, publicBindings, publicHash, uploadReadbacks} from './incident-owner-upload-only.mjs';
-import {predecessor} from './incident-mobile-successor.mjs';
-import {stageU,checkReceiverVersion} from './incident-stage-u-evidence.mjs';
+import {stageU,stageUPredecessor,checkReceiverVersion} from './incident-stage-u-evidence.mjs';
 import {db, immutable, name, noPreviews, requireThat as check, root, versionId, workers, zone} from './incident-provider.mjs';
 import {original} from './incident-recovery-id.mjs';
 import {incidentOrigin, incidentPath} from '../../shared/recalculationIncident.ts';
@@ -68,13 +67,13 @@ function checkedRoutes(rows,owned) {
   check(rows.length===expected.length && expected.every(([id,p,script])=>rows.some(r=>r.id===id && r.pattern===p &&
     r.script===script && r.request_limit_fail_open===false)), 'unexpected zone route; never adopt, replace or widen');
 }
-export async function checkedTarget(read,s) {
+export async function checkedTarget(read,s,serviceCodeHash) {
   const ids=(await read(`${target}/versions?per_page=100`)).map(v=>v.id).sort();
-  check(same(ids,[...beforeIds,predecessor,candidate].sort()),'changed seven-version inventory');
+  check(same(ids,[...beforeIds,stageUPredecessor,candidate].sort()),'changed seven-version inventory');
   const {exact}=uploadReadbacks(read);
   await exact(baseline.version,baseline.module,[],'worker.js');
-  await exact(predecessor,publicHash,['ADMIN_ID','BOT_TOKEN'],'worker.js',publicBindings());
-  await checkReceiverVersion(read,enrolled.serviceCodeHash);
+  await exact(stageUPredecessor,publicHash,['ADMIN_ID','BOT_TOKEN'],'worker.js',publicBindings());
+  await checkReceiverVersion(read,serviceCodeHash);
   await noPreviews(read,original.workerId);
   check(same(await read(`${workers}/domains?service=${name}`),[]),'incident custom domain present');
   checkedRoutes(await read(routePath),s.route);

@@ -69,7 +69,7 @@ const classes = {
   kitGrid:
     "grid grid-cols-3 gap-2.5 px-[18px] py-4 min-[661px]:max-tablet:flex-1 min-[661px]:max-tablet:grid-cols-1 min-[661px]:max-tablet:grid-rows-3 min-[661px]:max-tablet:gap-2 min-[661px]:max-tablet:p-3.5 max-mobile:grid-cols-3 max-mobile:gap-2 max-mobile:px-3 max-mobile:pt-2.5 max-mobile:pb-[13px]",
   kitInput:
-    "grid gap-[7px] min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_104px] min-[661px]:max-tablet:items-center min-[661px]:max-tablet:gap-2 max-mobile:grid-cols-1 max-mobile:items-start max-mobile:gap-x-0 max-mobile:gap-y-1.5 max-mobile:p-0",
+    "grid gap-[7px] min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_104px] min-[661px]:max-tablet:items-center min-[661px]:max-tablet:gap-2 max-mobile:grid-cols-1 max-mobile:grid-rows-[1fr_auto] max-mobile:items-start max-mobile:gap-x-0 max-mobile:gap-y-1.5 max-mobile:p-0",
   kitInputField:
     "relative min-w-0 min-[661px]:max-tablet:min-w-0 max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0",
   kitLabel:

@@ -3,7 +3,7 @@ export const SERVICE_H14_BUILD = {
   "schemaVersion": 1,
   "policy": "adaptive-next-batch-balanced-v1",
   "profileId": "service-fused-h14-v1",
-  "codeHash": "24d65a8263bf42e0205f4ee49c5451344c7c35c4c645cb849c4e88a47bb55f83",
+  "codeHash": "2bfe30a171be2e58243bcf3c6b05961c3b031a1d4ddbc114e650a928605c90d0",
   "nativeSourceHash": "d53899b40ec00ca49ac9eec0af46c149c0f0380eaabbea3e08c7ce20c18064b0",
   "exactWasmHash": "7e839b1c2651cf1aeda9afc9af9b8acaffce4928e368185978e34bfa8e3275a5",
   "sourceManifest": [
@@ -1005,7 +1005,7 @@ export const SERVICE_H14_BUILD = {
     },
     {
       "path": "src/components/StockPanel.tsx",
-      "sha256": "d09833e4296658e6c91a4a67f0a8c03b18f1ce45e7cf5b07895d1a687074dd82"
+      "sha256": "3ad95bb71701f701d2505dfc605ccc5de671f56cdb86618133d8a797e61a912f"
     },
     {
       "path": "src/components/SuccessAttemptModal.tsx",

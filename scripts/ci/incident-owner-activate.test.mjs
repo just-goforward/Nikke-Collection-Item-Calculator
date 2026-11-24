@@ -6,8 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {capabilities,checkedTarget,incidentUrl,operate,probeIngress,reconcile,replay,routePath,siteWitness} from './incident-activation-control.mjs';
-import {predecessor} from './incident-mobile-successor.mjs';
-import {stageU,readStageU,observeIncident} from './incident-stage-u-evidence.mjs';
+import {stageU,stageUPredecessor as predecessor,readStageU,observeIncident} from './incident-stage-u-evidence.mjs';
 import {authorizeTokens,checkedSource,custody,restoredControl,retainedRestore,rootProof,routePolicy} from './incident-owner-activate.mjs';
 import {beforeIds,checkedMain,history,publicBindings,publicHash} from './incident-owner-upload-only.mjs';
 import {baseline,schedule,script,target} from './incident-canary-control.mjs';
@@ -87,15 +86,17 @@ function setup(){
   };
   const io={journal,head,authority:async()=>{if(live.revoked)throw Error('revoked');},initialGraph:async()=>live.graph,
     windowOpen:()=>{},approveChange:()=>{},pairProof:()=>pair,pause:async()=>{},
-    inspect:s=>checkedTarget(read,s),witness:()=>siteWitness(read,send),ingress:b=>probeIngress(send,b),...capabilities('editor','zone','reader',send)};
+    inspect:s=>checkedTarget(read,s,stageU.build),witness:()=>siteWitness(read,send),ingress:b=>probeIngress(send,b),...capabilities('editor','zone','reader',send)};
   return {live,calls,io,dir,read,run:(mode='activate')=>operate(mode,io)};
 }
 test('root observer distinguishes inactive U, old active UUID, same-module stale binding, wrong share and cron',async()=>{
-  const f=setup(),observe=()=>observeIncident(f.read,enrolled.serviceCodeHash);
+  const f=setup(),observe=()=>observeIncident(f.read,stageU.build);
   await assert.rejects(observe(),/sole active/); // Candidate bytes are already in the inventory.
   f.live.jobs.unshift({id:active,versions:[{version_id:candidate,percentage:100}]});
   await assert.rejects(observe());f.live.crons=[cron];
   assert.deepEqual(await observe(),{deployment:active,version:candidate,build:stageU.build});
+  await assert.rejects(observeIncident(f.read,enrolled.serviceCodeHash),/not enrolled/);
+  await assert.rejects(checkedTarget(f.read,{route:null},enrolled.serviceCodeHash),/not enrolled/);
   await assert.rejects(observeIncident(f.read,baseline.build),/not enrolled/);
   f.live.candidateBuild=baseline.build;await assert.rejects(observe(),/unexpected bindings/);
   f.live.candidateBuild=stageU.build;f.live.jobs[0].versions[0].version_id=predecessor;await assert.rejects(observe(),/sole active/);
@@ -105,7 +106,7 @@ test('root observer distinguishes inactive U, old active UUID, same-module stale
 const originalReceiptDir=process.env.INCIDENT_U_ORIGINAL_RECEIPT_DIR;
 test('original Stage U bytes required: predecessor alone, missing ACK, substituted ID or altered verified bytes cannot pass',
   {skip:!originalReceiptDir && 'requires original owner receipts; never synthesize successful proof'},()=>{
-  assert.equal(readStageU(originalReceiptDir),stageU);
+  assert.equal(readStageU(originalReceiptDir).id,stageU.version);
   const copy=mkdtempSync(join(realpathSync(tmp),'stage-u-')),slot='successor-of-'+predecessor;
   const originalCopy=file=>writeFileSync(join(copy,file),readFileSync(join(originalReceiptDir,file)),{mode:0o600});
   for(const suffix of ['.json','.json.ack'])originalCopy(original.workerId+suffix);
@@ -113,9 +114,9 @@ test('original Stage U bytes required: predecessor alone, missing ACK, substitut
   mkdirSync(join(copy,slot),{mode:0o700});originalCopy(join(slot,'intent.json'));
   const ack=join(slot,'ack.json'),verified=join(slot,'verified.json');originalCopy(verified);
   assert.throws(()=>readStageU(copy),{code:'ENOENT'});writeFileSync(join(copy,ack),JSON.stringify({candidate:predecessor}),{mode:0o600});
-  assert.throws(()=>readStageU(copy),/wrong Stage U ack.json/);originalCopy(ack);
+  assert.throws(()=>readStageU(copy),/wrong original ack.json/);originalCopy(ack);
   writeFileSync(join(copy,verified),JSON.stringify({id:candidate,activationAuthorized:true}),{mode:0o600});
-  assert.throws(()=>readStageU(copy),/wrong Stage U verified.json/);originalCopy(verified);assert.equal(readStageU(copy),stageU);
+  assert.throws(()=>readStageU(copy),/wrong original verified.json/);originalCopy(verified);assert.equal(readStageU(copy).id,stageU.version);
 });
 test('unsigned incident activation and rollback cannot spend even one more intent',async()=>{
   for(const reverse of [false,true]) {const f=setup();if(reverse)await f.run();const count=f.calls.length;

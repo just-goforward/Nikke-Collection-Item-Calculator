@@ -177,13 +177,14 @@ async function main([mode,end,run,...extra]) {
   const readOnly=mode==='reconcile';
   check(['activate','rollback','reconcile'].includes(mode) && /^\d{10}$/.test(end) && (mode!=='activate' && run===undefined || numeric.test(run)) &&
     !extra.length && !process.env.CI && !process.env.GITHUB_ACTIONS && (readOnly || !process.stdin.isTTY),'local owner, window and intended root proof required');
+  check(enrolled.serviceCodeHash===stageU.build,'no enrolled Stage A receipt for this build');
   const until=Number(end); windowOpen(until);
   const home=userInfo().homedir,git=(...args)=>execFileSync('git',args,{cwd:checkout,stdio:['ignore','pipe','pipe'],encoding:'utf8'}).trim(),head=git('rev-parse','HEAD');
   const source=()=>{checkedSource(git,head);check(JSON.parse(gh('api','user')).id===owner,'not the authenticated owner');checkedMain(head,api,step,mode!=='activate');};
   source();uploadProof(home);
   const journal=custody(join(home,'.incident-owner-activation-'+original.workerId)),graphToken=privateInput(4),reader=client(graphToken);
   const registered=()=>gh('variable','get','INCIDENT_GRAPH_TOKEN_ID','--env',graphEnv,'--repo',repo);
-  const observe={inspect:s=>checkedTarget(reader,s),witness:()=>siteWitness(reader,fetch),ingress:open=>probeIngress(fetch,open),
+  const observe={inspect:s=>checkedTarget(reader,s,enrolled.serviceCodeHash),witness:()=>siteWitness(reader,fetch),ingress:open=>probeIngress(fetch,open),
     restoreProof:run?pair=>rootProof(head,run,pair,{archived:process.env.ROOT_RESTORE_ARCHIVE ? (h,r,a)=>retainedRestore(process.env.ROOT_RESTORE_ARCHIVE,h,r,a) : undefined}):undefined,restoredControl:async receipt=>restoredControl(receipt,await observeSite(enrolled,graphToken))};
   if(readOnly) {
     check(await activeTokenId(reader)===registered(),'unregistered graph reader');
