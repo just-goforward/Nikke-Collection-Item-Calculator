@@ -258,29 +258,22 @@ test('fresh exact-zone permission and exactly one UUID Editor; management, graph
   for(const changes of [{editor:routeRead},{registered:ids[2]},{retired:ids[2]},{until:until+86400}])await assert.rejects(authorizeTokens({...args,...changes}));
 });
 test('exact clean source gate and historical rollback ancestry do not authorize a stale activation',()=>{
-  const parent='6635d225b51aba5b9f33c44be6624902731f0858',files=[
+  const parent='28fbc4b62733311ffa88cf227aafe959fae2ad35',files=[
   '.github/workflows/site-source-verify.yml',
-  '.github/workflows/site-worker-promote.yml',
-  'docs/candidate-toolchain.md',
   'docs/hybrid-b-release.md',
   'e2e/hybrid-b-product-harness.mjs',
-  'e2e/hybrid-b-production.spec.ts',
-  'e2e/root-candidate-analytics.spec.ts',
+  'e2e/operational-font-policy.mjs',
+  'e2e/operational-font-policy.test.mjs',
+  'e2e/operational-production.spec.ts',
+  'e2e/operational-source-bindings.json',
   'e2e/root-candidate-analytics.ts',
-  'playwright.hybrid-b-analytics.config.ts',
-  'playwright.hybrid-b-product.config.ts',
-  'scripts/ci/hybrid-b-policy-coverage.mjs',
-  'scripts/ci/hybrid-b-policy-evidence.mjs',
-  'scripts/ci/hybrid-b-policy-inventory.mjs',
-  'scripts/ci/hybrid-b-policy-package.mjs',
-  'scripts/ci/hybrid-b-policy-reporter.mjs',
-  'scripts/ci/hybrid-b-policy.test.mjs',
-  'scripts/ci/hybrid-b-release.mjs',
-  'scripts/ci/hybrid-b-release.test.mjs',
   'scripts/ci/incident-owner-activate.mjs',
   'scripts/ci/incident-owner-activate.test.mjs',
-  'scripts/ci/prepare-root-pair.mjs',
-  'scripts/ci/run-hybrid-b-policy.mjs',
+  'scripts/ci/root-rum-witness.mjs',
+  'scripts/ci/root-switch-policy.mjs',
+  'scripts/ci/root-switch-policy.test.mjs',
+  'scripts/root-release-canary.mjs',
+  'scripts/root-release-sealed-check.mjs',
   ];
   const git=cmd=>cmd==='rev-list'?`${head} ${parent}`:cmd==='status'?'':files.join('\n');checkedSource(git,head);
   for(const [which,out] of [['status','?? unexpected'],['diff',[...files,'other'].join('\n')],['rev-list',`${head} ${parent} ${head}`],['rev-list',`${head} ca2904054baf83ddc2a59166f9436776966a01d8`]])assert.throws(()=>checkedSource((c,...a)=>c===which?out:git(c,...a),head));

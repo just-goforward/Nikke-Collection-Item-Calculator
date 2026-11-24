@@ -8,9 +8,6 @@ import {signedGet} from './hybrid-b-product-harness.mjs';
 
 const origin = 'https://nikkecollection.com';
 const publicReads = new Map([['/api/forecast/version', 4096], ['/api/forecast', 524288], ['/api/joint-supply/v2', 65536]]);
-// Optional legacy font fallback: intercepted and aborted, never proxied.
-const fontPrefix = 'https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/';
-const blockedFonts = ['pretendardvariable-dynamic-subset.min.css', 'pretendardvariable-std-dynamic-subset.min.css'].map(name => fontPrefix + name);
 const catalog = '/decision-production-catalog.json';
 const mime: Record<string, string> = { '.html': 'text/html', '.json': 'application/json', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.wasm': 'application/wasm', '.png': 'image/png' };
 type Package = { forward: string; receipt: { worker: string; files: { forward: Record<string, { bytes: number; sha256: string }> }; review: { source: string; nativeWasmSha256: string } } };
@@ -76,7 +73,6 @@ export function candidateAnalytics(load: () => Promise<Package>, register: Regis
       await context.routeWebSocket(/.*/, ws => { audit.violations.push('websocket'); ws.close(); });
       await context.route('**/*', async route => {
         const request = route.request(), url = new URL(request.url());
-        if (request.method() === 'GET' && request.resourceType() === 'stylesheet' && blockedFonts.includes(request.url())) return route.abort();
         try {
           assert(url.origin === origin && !url.search && !url.hash && !url.username && !url.password && request.method() === 'GET' && !request.postDataBuffer(), 'unapproved request');
           const path = ['/', '/en/'].includes(url.pathname) ? url.pathname + 'index.html' : url.pathname;

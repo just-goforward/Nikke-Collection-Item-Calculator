@@ -52,15 +52,36 @@ export function siteScope(env,g,h) {
   return {...(restore && {restoreRum:g.restoreRum}),run:env.GITHUB_RUN_ID,attempt:env.GITHUB_RUN_ATTEMPT,grantSha256:sha(env.ROOT_SITE_TRANSITION),handoff:g.handoffSha256,
     pair:{packet:h.packetSha256,rehearsal:h.rehearsalSha256,forward:h.directions.forward.manifestSha256,rollback:h.directions.rollback.manifestSha256}};
 }
-export function checkRehearsal(proof,pair,packetSha256,source,now=Date.now()) {
-  assert.equal(proof.profile,'sealed-root-rehearsal-v1');assert.equal(proof.source,source);assert.equal(proof.packetSha256,packetSha256);
+function checkDirectionProof(proof,pair,packetSha256,source,now) {
+  assert.equal(proof.source,source);assert.equal(proof.packetSha256,packetSha256);
   assert.equal(proof.publicTrafficSwitched,false);assert(Number.isSafeInteger(proof.startedAt) && Number.isSafeInteger(proof.finishedAt) && proof.startedAt>0 && proof.startedAt<=proof.finishedAt && proof.finishedAt<=now);
   assert.deepEqual(proof.results.map(r=>[r.before,r.after]),[['rollback','forward'],['forward','rollback']]);
   for(const r of proof.results) {
     assert.equal(Object.keys(r.documents).length,12);
     for(const prefix of ['/','/en/','/ja/']) for(const name of ['index','privacy','terms','licenses']) {const path=prefix+name+'.html';assert.equal(r.documents[path],pair.files[r.after][path].sha256);}
+    const expected=new Map();
+    function legacy(role,tree,key,locale) {
+      const sha256=pair.files.rollback[key].sha256;assert.equal(pair.files[tree][key].sha256,sha256);
+      expected.set(`${role}:${key}`,{row:{role,tree,key,sha256,method:'GET',path:`legacy-cdn-stylesheet-${locale}`,blocked:true,requestfailed:true},count:0});
+    }
+    if(r.before==='rollback')legacy('old','rollback','/index.html','ko');
+    for(const [prefix,locale] of [['/','ko'],['/en/','en'],['/ja/','ja']])for(const name of ['index','privacy','terms','licenses']){
+      if(name!=='index'||r.after==='rollback')legacy('new',r.after,prefix+name+'.html',locale);
+    }
+    assert(Array.isArray(r.blockedFonts) && r.blockedFonts.length<=15);
+    for(const row of r.blockedFonts){
+      const target=expected.get(`${row.role}:${row.key}`);assert(target);assert.deepEqual(row,target.row);
+      assert(++target.count<=(row.key.endsWith('/index.html')?2:1));
+    }
+    for(const t of expected.values())assert(t.count>0,'missing historical font block');
     const lazy=r.before==='rollback'?['/assets/browserWorker-EkFyhckN.js','/wasm/certified_solver.88553a72d8503d2c7c78366e3d85bbee0cd9dfd738ac94d588fb09bd9d5942ae.wasm']:['/'+pair.worker,'/wasm/service-fused-h14-'+pair.review.nativeWasmSha256+'.wasm'];
     assert(r.gets.some(g=>g.active===r.before && g.switched===false && g.p==='/' && g.sha256===pair.files[r.before]['/index.html'].sha256));
     for(const path of lazy) assert(r.gets.some(g=>g.active===r.after && g.switched===true && g.p===path && g.sha256===pair.files[r.before][path].sha256),'old tab did not fetch its retained lazy bytes');
   }
+}
+export function checkRehearsal(proof,pair,packetSha256,source,now=Date.now()) {
+  assert.equal(proof.profile,'sealed-root-rehearsal-v2');checkDirectionProof(proof,pair,packetSha256,source,now);
+}
+export function checkTabCanary(proof,pair,packetSha256,source,now=Date.now()) {
+  assert.equal(proof.profile,'private-root-tab-canary-v2');checkDirectionProof(proof,pair,packetSha256,source,now);
 }

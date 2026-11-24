@@ -15,31 +15,24 @@ import {observeSite,versionMessage} from './root-promotion-live.mjs';
 import enrolled from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 import {checkSwitchAuthority} from './root-switch-policy.mjs';
 
-const parent='6635d225b51aba5b9f33c44be6624902731f0858', step='Verify exact existing incident activation and rollback (offline)';
+const parent='28fbc4b62733311ffa88cf227aafe959fae2ad35', step='Verify exact existing incident activation and rollback (offline)';
 const checkout=fileURLToPath(new URL('../../',import.meta.url));
 const files=[
   '.github/workflows/site-source-verify.yml',
-  '.github/workflows/site-worker-promote.yml',
-  'docs/candidate-toolchain.md',
   'docs/hybrid-b-release.md',
   'e2e/hybrid-b-product-harness.mjs',
-  'e2e/hybrid-b-production.spec.ts',
-  'e2e/root-candidate-analytics.spec.ts',
+  'e2e/operational-font-policy.mjs',
+  'e2e/operational-font-policy.test.mjs',
+  'e2e/operational-production.spec.ts',
+  'e2e/operational-source-bindings.json',
   'e2e/root-candidate-analytics.ts',
-  'playwright.hybrid-b-analytics.config.ts',
-  'playwright.hybrid-b-product.config.ts',
-  'scripts/ci/hybrid-b-policy-coverage.mjs',
-  'scripts/ci/hybrid-b-policy-evidence.mjs',
-  'scripts/ci/hybrid-b-policy-inventory.mjs',
-  'scripts/ci/hybrid-b-policy-package.mjs',
-  'scripts/ci/hybrid-b-policy-reporter.mjs',
-  'scripts/ci/hybrid-b-policy.test.mjs',
-  'scripts/ci/hybrid-b-release.mjs',
-  'scripts/ci/hybrid-b-release.test.mjs',
   'scripts/ci/incident-owner-activate.mjs',
   'scripts/ci/incident-owner-activate.test.mjs',
-  'scripts/ci/prepare-root-pair.mjs',
-  'scripts/ci/run-hybrid-b-policy.mjs',
+  'scripts/ci/root-rum-witness.mjs',
+  'scripts/ci/root-switch-policy.mjs',
+  'scripts/ci/root-switch-policy.test.mjs',
+  'scripts/root-release-canary.mjs',
+  'scripts/root-release-sealed-check.mjs',
 ];
 export function checkedSource(git,head) {
   check(/^[0-9a-f]{40}$/.test(head) && git('rev-list','--parents','-n','1','HEAD')===`${head} ${parent}` &&

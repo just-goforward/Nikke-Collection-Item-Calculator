@@ -57,17 +57,23 @@ test('only a complete authenticated matching account/zone/site/rule inventory is
 });
 test('rehearsal binds both real direction traces, all new documents and old-tab lazy bytes',()=>{
   const pair={worker:'assets/browserWorker-FORWARD1.js',review:{nativeWasmSha256:sha('W')},files:{}},packet=sha('test packet'),source='1'.repeat(40);
-  const proof={profile:'sealed-root-rehearsal-v1',publicTrafficSwitched:false,packetSha256:packet,source,startedAt:1,finishedAt:2,results:[]};
+  const proof={profile:'sealed-root-rehearsal-v2',publicTrafficSwitched:false,packetSha256:packet,source,startedAt:1,finishedAt:2,results:[]};
   for(const role of ['rollback','forward']) {
-    const pins={}; for(const p of ['/','/en/','/ja/']) for(const d of ['index','privacy','terms','licenses']) pins[p+d+'.html']={sha256:sha(role+p+d)};
+    const pins={}; for(const p of ['/','/en/','/ja/']) for(const d of ['index','privacy','terms','licenses']) pins[p+d+'.html']={sha256:sha((d==='index'?role:'legacy')+p+d)};
     const paths=role==='rollback'?['/assets/browserWorker-EkFyhckN.js','/wasm/certified_solver.88553a72d8503d2c7c78366e3d85bbee0cd9dfd738ac94d588fb09bd9d5942ae.wasm']:['/'+pair.worker,'/wasm/service-fused-h14-'+pair.review.nativeWasmSha256+'.wasm'];
     for(const path of paths)pins[path]={sha256:sha(path)};pair.files[role]=pins;
   }
   for(const [before,after] of [['rollback','forward'],['forward','rollback']]) {
     const docs=Object.entries(pair.files[after]).filter(([p])=>p.endsWith('.html'));
     const gets=[{active:before,switched:false,p:'/',sha256:pair.files[before]['/index.html'].sha256},...Object.entries(pair.files[before]).filter(([p])=>!p.endsWith('.html')).map(([p,v])=>({active:after,switched:true,p,sha256:v.sha256}))];
-    proof.results.push({before,after,documents:Object.fromEntries(docs.map(([p,v])=>[p,v.sha256])),gets});
+    const row=(role,tree,key)=>({role,tree,key,sha256:pair.files.rollback[key].sha256,method:'GET',path:'legacy-cdn-stylesheet-'+(key.split('/').length===3?key.split('/')[1]:'ko'),blocked:true,requestfailed:true});
+    const blockedFonts=docs.filter(([k])=>after==='rollback'||!k.endsWith('/index.html')).map(([k])=>row('new',after,k));
+    if(before==='rollback')blockedFonts.push(row('old',before,'/index.html'));
+    proof.results.push({before,after,documents:Object.fromEntries(docs.map(([p,v])=>[p,v.sha256])),gets,blockedFonts});
   }
   checkRehearsal(proof,pair,packet,source,3);
   for(const mutate of [p=>p.results.pop(),p=>p.results.reverse(),p=>p.finishedAt=4,p=>p.publicTrafficSwitched=true,p=>p.source='old',p=>p.results[1].gets.pop(),p=>delete p.results[0].documents['/ja/terms.html'],p=>p.results[0].gets[1].active='rollback']) {const b=structuredClone(proof);mutate(b);assert.throws(()=>checkRehearsal(b,pair,packet,source,3));}
+  for(const change of [r=>delete r.blockedFonts,r=>r.blockedFonts.pop(),r=>r.blockedFonts.push(r.blockedFonts[0]),r=>r.blockedFonts[0].requestfailed=false,r=>r.blockedFonts[0].sha256=sha('other'),r=>r.blockedFonts[0].role='old']){
+    const b=structuredClone(proof);change(b.results[0]);assert.throws(()=>checkRehearsal(b,pair,packet,source,3));
+  }
 });
