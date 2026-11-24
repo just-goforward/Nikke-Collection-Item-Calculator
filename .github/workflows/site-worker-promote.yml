@@ -137,6 +137,7 @@ jobs:
       REVIEW_ARTIFACT: ${{ vars.ROOT_PAIR_REVIEW_ARTIFACT_ID }}
       ROOT_PAIR_REVIEW_SHA256: ${{ vars.ROOT_PAIR_REVIEW_SHA256 }}
       ROOT_PAIR_SOURCE_APPROVAL_SHA256: ${{ vars.ROOT_PAIR_SOURCE_APPROVAL_SHA256 }}
+      ROOT_SWITCH_SIGNERS: ${{ vars.ROOT_SWITCH_SIGNERS }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

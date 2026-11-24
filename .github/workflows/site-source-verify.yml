@@ -184,6 +184,7 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           node --input-type=module -e 'import {loadApproval} from "./e2e/operational-report.mjs"; for (const s of ["numerical-boundary","production-policy","analytics-policy"]) loadApproval(s);'
+          node --test scripts/ci/hybrid-b-policy.test.mjs scripts/ci/hybrid-b-release.test.mjs
           node --test scripts/ci/prepare-root-pair.test.mjs scripts/root-release-custody.test.mjs scripts/ci/root-rum-bytes.test.mjs scripts/ci/root-promotion.test.mjs scripts/ci/root-switch-policy.test.mjs
       - name: Build source-only root with the isolated pin, never the enrolled key
         run: |

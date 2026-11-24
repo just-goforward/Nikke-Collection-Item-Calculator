@@ -9,6 +9,7 @@ import { loadApproval, validateObserved } from '../../e2e/operational-report.mjs
 import { assertSiteUploadApproved } from '../deploy-site.ts';
 import { assertContext, sealRootRelease } from '../site-release.mjs';
 import { requireReviewedBytes } from './root-source-profile.mjs';
+import {policyAuthority, profile as hybridProfile, checkRedaction} from './hybrid-b-release.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 const roles = ['rollback', 'forward'];
@@ -30,8 +31,12 @@ export const servedDigest = files => sha256(JSON.stringify(Object.keys(files).so
 export function checkReview(input, digest, sha, repository, enrollment) {
   const a = JSON.parse(pinned(join(input, 'public-review.json'), digest));
   assert.equal(a.profile, 'production-root-pair-release-v1', 'independent public pair review required');
+  // The legacy schema remains verifiable for its original protected source only. The
+  // dispatcher, artifact and reviewer cannot select it for the hybrid successor.
+  const legacy = sha === '6635d225b51aba5b9f33c44be6624902731f0858';
+  if (!legacy) assert.equal(a.evidenceProfile, hybridProfile);
   assert.deepEqual(Object.keys(a).sort(), ['profile', 'source', 'repository', 'origin', 'siteWorker', 'enrollmentContractSha256',
-    'expiresAt', 'sourceRun', 'sourceAttempt', 'headersSha256', 'directions', 'evidence'].sort());
+    'expiresAt', 'sourceRun', 'sourceAttempt', 'headersSha256', 'directions', 'evidence', ...(legacy ? [] : ['evidenceProfile'])].sort());
   assert(hex.test(a.headersSha256) && [a.sourceRun, a.sourceAttempt].every(v => typeof v === 'string' && /^[1-9][0-9]*$/.test(v)));
   assert.equal(a.source, sha); assert.equal(a.repository, repository); assert.equal(a.origin, 'https://nikkecollection.com');
   assert.equal(a.siteWorker, 'collection-kit-site-production'); assert.equal(a.enrollmentContractSha256, sha256(enrollment));
@@ -42,9 +47,17 @@ export function checkReview(input, digest, sha, repository, enrollment) {
     assert(Object.values(a.directions[role]).every(v => typeof v === 'string' && hex.test(v)));
   }
   assert.notEqual(a.directions.forward.servedSha256, a.directions.rollback.servedSha256);
-  assert.deepEqual(Object.keys(a.evidence).sort(), ['root-numerical', 'root-product', ...suites].sort());
-  for (const name of ['root-numerical', 'root-product', ...suites]) {
+  const required = legacy ? ['root-numerical','root-product',...suites] : ['hybrid-b-attestation'];
+  assert.deepEqual(Object.keys(a.evidence).sort(), [...required].sort());
+  if (!legacy) {
+    const signatures = join(input,'policy-signatures.json');
+    assert.equal(realpathSync(signatures),signatures);
+    const st = lstatSync(signatures); assert(st.isFile() && st.size > 0 && st.size <= 1024);
+    policyAuthority(process.env.ROOT_SWITCH_SIGNERS,read(signatures),digest,repository,sha,a.expiresAt);
+  }
+  for (const name of required) {
     const bytes = pinned(join(input, `${name}.json`), a.evidence[name]);
+    if (!legacy) checkRedaction(JSON.parse(bytes),a,enrollment,sha256(Buffer.from(JSON.parse(process.env.ROOT_SWITCH_SIGNERS).review,'base64url')));
     if (!suites.includes(name)) continue; // Root-specific evidence is independently adjudicated, not a suite self-approval.
     const approval = loadApproval(name), report = JSON.parse(bytes);
     assert.equal(report.schemaVersion, 1); assert.equal(report.suiteId, name); assert.equal(report.inventoryDigest, approval.digest);
