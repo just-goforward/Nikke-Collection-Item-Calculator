@@ -9,32 +9,43 @@ import { requireReviewedBytes } from './root-source-profile.mjs';
 import { checkPair, checkReview } from './prepare-root-pair.mjs';
 import { childEnvironment } from './run-checked-command.mjs';
 import enrolled from '../../site-worker/production-root-release-v1.json' with {type:'json'};
-import {serviceBuild as predecessorBuild} from '../../production-incidents/sealed-successor.ts';
+import {stageU} from './incident-stage-u-evidence.mjs';
+import {rootGet} from './root-promotion-get.mjs';
+import { checkRehearsal, checkSwitchAuthority, siteScope } from './root-switch-policy.mjs';
 
 export const root = resolve(import.meta.dirname, '../..');
 export const roles = ['rollback', 'forward'];
-export const operations = { 'root-install-bridge': 'rollback', 'root-activate-forward': 'forward', 'root-restore-rollback': 'rollback' };
+export const operations = { 'root-install-bridge': 'rollback', 'root-activate-forward': 'forward', 'root-restore-rollback': 'rollback', 'root-abandon-bridge':'rollback' };
 export const json = path => JSON.parse(readFileSync(path));
 export const sha256 = bytes => hash('sha256', bytes);
 const digest = /^[0-9a-f]{64}$/, uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/, id = /^[1-9][0-9]*$/;
 const strings = (re, ...vals) => vals.every(x => typeof x === 'string' && re.test(x));
 const parsePinned = (path, pin) => { assert.match(pin, digest); const b = readFileSync(path); assert.equal(sha256(b), pin, 'promotion bytes differ from independent pin'); return JSON.parse(b); };
 export function readTransition(env) {
-  // Stage U holds every root direction. Only the earlier receiver binding has an enrolled version.
-  assert.equal(enrolled.serviceCodeHash,predecessorBuild,'no activated incident receiver for this candidate build');
+  // Source enrollment is necessary, not proof of activation. observeSite verifies the live receiver.
+  assert.equal(enrolled.serviceCodeHash,stageU.build,'no verified receiver for this candidate build');
   assertContext(env, env.GITHUB_SHA); assert.equal(env.GITHUB_REF_PROTECTED, 'true');
   const op = env.ROOT_OPERATION, event = json(env.GITHUB_EVENT_PATH);
-  assert(Object.hasOwn(operations, op)); assert.equal(event.inputs.operation, op); assert.equal(event.inputs.deploy_sha, env.GITHUB_SHA);
-  // Independent environment owner grants one direction from one observed deployment; no artifact selector in dispatch inputs.
+  assert(op==='root-reconcile' || Object.hasOwn(operations, op)); assert.equal(event.inputs.operation, op); assert.equal(event.inputs.deploy_sha, env.GITHUB_SHA);
+  // The protected grant selects one direction. It is not itself the owner signature.
   const g = JSON.parse(env.ROOT_SITE_TRANSITION);
-  assert.equal(g.profile, 'production-root-transition-v1'); assert.equal(g.operation, op); assert.equal(g.repository, env.GITHUB_REPOSITORY); assert.equal(g.source, env.GITHUB_SHA);
+  assert.equal(g.profile, 'production-root-transition-v1'); assert(Object.hasOwn(operations,g.operation));
+  const ref=g.reconcile??g.bridgeWrite;
+  if(op==='root-reconcile') {assert.notEqual(g.operation,'root-abandon-bridge');assert(g.reconcile && !g.bridgeWrite);}
+  else {assert.equal(g.operation,op);assert.equal(g.reconcile,undefined);}
+  if(g.bridgeWrite!==undefined)assert(op==='root-abandon-bridge' && g.bridge===null && g.bridgeWrite.deployment===g.fromDeployment);
+  if(ref){
+    assert(strings(id,ref.run,ref.attempt,ref.artifactId) && strings(digest,ref.archiveSha256,ref.checkpointSha256));
+    assert.notEqual(ref.run,env.GITHUB_RUN_ID);assert(strings(uuid,ref.deployment),'independently observed post-write deployment required');
+  }
+  assert.equal(g.repository, env.GITHUB_REPOSITORY); assert.equal(g.source, env.GITHUB_SHA);
   assert.equal(g.worker, 'collection-kit-site-production'); assert.equal(g.hostname, 'nikkecollection.com');
   assert.ok(Number.isSafeInteger(g.expiresAt) && g.expiresAt > Date.now(), 'expired exclusive change window');
   assert(strings(uuid, g.fromVersion, g.fromDeployment)); assert(strings(digest, g.controlSha256, g.handoffSha256, g.receiptArchiveSha256));
   assert(Number.isSafeInteger(g.minimumProducerSequence) && g.minimumProducerSequence > 0, 'fresh producer floor required');
   assert(strings(id, g.prepareRun, g.prepareAttempt, g.receiptId));
-  if (op === 'root-install-bridge') { assert.equal(g.bridge, null); assert.equal(g.fromVersion, '741e68d9-cd5c-400a-83ce-21757315bcc8'); }
-  else { assert(g.bridge, 'verified BRIDGE_READY artifact required'); assert(strings(id, g.bridge.run, g.bridge.attempt, g.bridge.artifactId)); assert(strings(digest, g.bridge.archiveSha256, g.bridge.stateSha256)); }
+  if (g.operation === 'root-install-bridge') { assert.equal(g.bridge, null); assert.equal(g.fromVersion, '741e68d9-cd5c-400a-83ce-21757315bcc8'); }
+  else if(!g.bridgeWrite) { assert(g.bridge, 'verified BRIDGE_READY artifact required'); assert(strings(id, g.bridge.run, g.bridge.attempt, g.bridge.artifactId)); assert(strings(digest, g.bridge.archiveSha256, g.bridge.stateSha256)); }
   return g;
 }
 export function paths(env) {
@@ -54,17 +65,18 @@ export function verifyHandoff(env, g) {
     assert.equal(b.handoffSha256,g.handoffSha256); assert.equal(b.source,g.source); assert.equal(b.run,g.bridge.run); assert.equal(b.attempt,g.bridge.attempt);
     assert.equal(b.manifestSha256,h.directions.rollback.manifestSha256); assert(strings(uuid,b.deployment,b.version));
     assert.equal(b.controlSha256,g.controlSha256); assert(Number.isSafeInteger(b.sequence) && g.minimumProducerSequence >= b.sequence, 'producer floor below bridge');
-    if (g.operation === 'root-activate-forward') { assert.equal(g.fromVersion,b.version); assert.equal(g.fromDeployment,b.deployment); }
+    if (['root-activate-forward','root-abandon-bridge'].includes(g.operation)) { assert.equal(g.fromVersion,b.version); assert.equal(g.fromDeployment,b.deployment); }
   }
   return h;
 }
 async function github(env, path) {
   assert.match(env.GITHUB_REPOSITORY,/^[\w.-]+\/[\w.-]+$/); assert(env.GH_TOKEN);
-  const r = await fetch(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/${path}`, { headers:{authorization:`Bearer ${env.GH_TOKEN}`,accept:'application/vnd.github+json'},redirect:'error',signal:AbortSignal.timeout(12000) });
+  const r = await rootGet(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/${path}`, { headers:{authorization:`Bearer ${env.GH_TOKEN}`,accept:'application/vnd.github+json'} });
   assert.equal(r.status,200,`GitHub read denied: ${path}`); return r.json();
 }
 export async function requireMain(env) {
   const main = await github(env,'branches/main'); assert.equal(main.protected,true); assert.equal(main.commit.sha,env.GITHUB_SHA,'protected main moved');
+  const commit=await github(env,'commits/'+env.GITHUB_SHA); assert.equal(commit.sha,env.GITHUB_SHA); assert.equal(commit.commit.verification.verified,true,'signed protected source required');
 }
 async function requireRun(env, run, attempt, job) {
   const path = `actions/runs/${run}`; const r = await github(env,path);
@@ -85,6 +97,9 @@ export function verifyPackages(env, g, restore) {
   const receiptReview = parsePinned(join(p.receipt,'public-review.json'), h.reviewSha256); assert.deepEqual(receiptReview,review);
   const packet = join(p.receipt,'private-root-pair.json'), canary = join(p.receipt,'private-canary.json');
   const pair = parsePinned(packet,h.packetSha256); assert.equal(parsePinned(canary,h.canarySha256).packetSha256,h.packetSha256); checkPair(review,pair);
+  const rehearsal=parsePinned(join(p.receipt,'sealed-rehearsal.json'),h.rehearsalSha256);
+  checkRehearsal(rehearsal,pair,h.packetSha256,g.source);
+  const approval=checkSwitchAuthority(env,g.source,env.ROOT_OPERATION,siteScope(env,g,h));
   // Exact git context is checked outside the credentialled process. Child processes receive no provider credentials.
   const node = (...args) => execFileSync(process.execPath,args,{cwd:root,env:childEnvironment(env,g.source),stdio:'inherit'});
   for (const role of roles) {
@@ -98,7 +113,7 @@ export function verifyPackages(env, g, restore) {
   const role = operations[g.operation], release = join(p.base,role), manifest = h.directions[role].manifestSha256;
   if (restore) assert(!existsSync(join(root,'dist')));
   node('scripts/site-release.mjs',restore?'restore-root':'verify-root',release,g.source,manifest,h.run,h.attempt);
-  return { h,pair,enrolled:JSON.parse(enrolled),role,release,manifest,expiresAt:Math.min(g.expiresAt,review.expiresAt) };
+  return { h,pair,approval,enrolled:JSON.parse(enrolled),role,release,manifest,expiresAt:Math.min(approval.expiresAt,g.expiresAt,review.expiresAt) };
 }
 async function receiptArtifacts(env,g) {
   await requireRun(env,g.prepareRun,g.prepareAttempt,'prepare-root-pair');
@@ -107,6 +122,18 @@ async function receiptArtifacts(env,g) {
   if (g.bridge) { const b=g.bridge; await requireRun(env,b.run,b.attempt,'publish-root-pair');
     await requireArtifact(env,b.artifactId,b.run,`root-state-root-install-bridge-${g.source}-${b.run}-${b.attempt}`,b.archiveSha256);
     Object.assign(fields,{bridge_run:b.run,bridge_id:b.artifactId}); }
+  if(g.reconcile || g.bridgeWrite){
+    const r=g.reconcile??g.bridgeWrite, direction=g.bridgeWrite?'root-install-bridge':g.operation;
+    const prior=await github(env,'actions/runs/'+r.run+'/attempts/'+r.attempt);
+    assert.equal(String(prior.id),r.run); assert.equal(String(prior.run_attempt),r.attempt);
+    assert.equal(prior.event,'workflow_dispatch');assert.equal(prior.path,'.github/workflows/site-worker-promote.yml');
+    assert.equal(prior.head_sha,g.source);assert.equal(prior.head_branch,'main');assert.equal(prior.status,'completed');
+    assert.equal(prior.head_repository?.id,1229775730);assert.equal(prior.actor?.id,281915448);assert.equal(prior.triggering_actor?.id,281915448);
+    const jobs=await github(env,'actions/runs/'+r.run+'/attempts/'+r.attempt+'/jobs?per_page=100');
+    assert.equal(jobs.jobs.filter(j=>j.name==='publish-root-pair' && j.steps.some(s=>s.name==='Retain acknowledged root write before health checks' && s.conclusion==='success')).length,1);
+    await requireArtifact(env,r.artifactId,r.run,`root-write-${direction}-${g.source}-${r.run}-${r.attempt}`,r.archiveSha256);
+    Object.assign(fields,{ack_run:r.run,ack_id:r.artifactId});
+  }
   return fields;
 }
 async function sealArtifacts(env,h) {
@@ -120,6 +147,10 @@ export async function requireLiveCustody(env,g,h) {
   assert.equal(run.event,'workflow_dispatch');assert.equal(run.path,'.github/workflows/site-worker-promote.yml');
   assert.equal(run.head_sha,g.source);assert.equal(run.head_branch,'main');assert.equal(run.status,'in_progress');
   assert.equal(String(run.run_attempt),env.GITHUB_RUN_ATTEMPT);
+  assert.equal(run.actor?.id,281915448);assert.equal(run.triggering_actor?.id,281915448);
+  assert.equal(run.repository?.id,1229775730);assert.equal(run.head_repository?.id,1229775730);
+  const approvals=await github(env,'actions/runs/'+env.GITHUB_RUN_ID+'/approvals');
+  assert(approvals.some(a=>a.state==='approved' && a.user?.id===281915448 && a.environments?.some(e=>e.name==='cloudflare-site-production')),'explicit protected environment approval missing');
 }
 async function main(env, mode) {
   const g = readTransition(env); await requireMain(env);

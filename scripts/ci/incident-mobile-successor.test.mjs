@@ -16,7 +16,6 @@ import {db as database,digest,namespace} from './incident-provider.mjs';
 import {checkedMain,checkedMobileMain,historicalEditor,publicHash} from './incident-owner-upload-only.mjs';
 import {owner} from './incident-receipt.mjs';
 import {checkApproval,checkRecoveryCheckout,newBuild,readPredecessor,uploadScope} from './incident-mobile-successor.mjs';
-import {readTransition} from './root-promotion-custody.mjs';
 
 test('U recovery is one clean squash on #92 and exactly the source repair files',()=>{
   const head='a'.repeat(40),parent='b0a15d1c74dc4e4773887913c28c02c2bd28e7d7';
@@ -91,7 +90,7 @@ test('same receiver JS with old vs new version binding accepts exactly its one s
     assert.equal((await post(other)).status,400);assert.equal(db.prepare('select count(*) n from incidents').get().n,0);
     assert.equal((await post(bound)).status,202);assert.equal(db.prepare('select build from incidents').get().build,bound);
   }
-  for(const op of ['root-install-bridge','root-activate-forward','root-restore-rollback']) assert.throws(()=>readTransition({ROOT_OPERATION:op}),/no activated incident receiver/);
+  // Stage A tests exercise the common live Site pre/post observer: neither an inactive upload nor the old active build admits a root transition.
 });
 test('substituted predecessor bytes never authorize a new slot',t=>{
   const dir=mkdtempSync(join(realpathSync(tmpdir()),'invalid-u-predecessor-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));

@@ -34,7 +34,7 @@ function page(info, rows, size, latestOnly = false) {
 function readContract(path) {
   if (path === `${root}/pages/projects?per_page=1`) return 1;
   if (path === `/zones?account.id=${account}&per_page=50`) return 50;
-  if (path === `${workers}/domains?service=${name}`) return 'filtered';
+  if (path === `${workers}/domains?service=${name}` || path === `${workers}/domains?service=collection-kit-site-production`) return 'filtered';
   if (path === `${script}/deployments?per_page=100`) return 'target-deployments';
   if (path === `${script}/secrets`) return 'secret-names';
   if (path === `${script}/subdomain` || path === `${script}/schedules`) return 'classic-detail';

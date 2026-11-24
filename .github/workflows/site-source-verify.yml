@@ -108,6 +108,8 @@ jobs:
         run: node --test scripts/ci/incident-owner-upload-only.test.mjs
       - name: Verify mobile retry inactive successor (offline)
         run: node --test scripts/ci/incident-mobile-successor.test.mjs
+      - name: Verify exact existing incident activation and rollback (offline)
+        run: node --test scripts/ci/incident-owner-activate.test.mjs
 
       - name: Select the source profile from exact bytes, never a dispatch flag
         id: profile
@@ -182,7 +184,7 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           node --input-type=module -e 'import {loadApproval} from "./e2e/operational-report.mjs"; for (const s of ["numerical-boundary","production-policy","analytics-policy"]) loadApproval(s);'
-          node --test scripts/ci/prepare-root-pair.test.mjs scripts/root-release-custody.test.mjs
+          node --test scripts/ci/prepare-root-pair.test.mjs scripts/root-release-custody.test.mjs scripts/ci/root-rum-bytes.test.mjs scripts/ci/root-promotion.test.mjs scripts/ci/root-switch-policy.test.mjs
       - name: Build source-only root with the isolated pin, never the enrolled key
         run: |
           bash scripts/ci/setup-root-rust.sh
