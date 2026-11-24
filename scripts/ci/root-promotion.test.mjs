@@ -7,16 +7,16 @@ import { join, resolve } from 'node:path';
 import { operations, paths, readTransition, sha256, verifyHandoff } from './root-promotion-custody.mjs';
 import { assertExactRoutes, checkFresh, versionMessage } from './root-promotion-live.mjs';
 import { rootGet } from './root-promotion-get.mjs';
-import {stageU} from './incident-stage-u-evidence.mjs';
+import {layoutU,stageU,stageUPredecessor} from './incident-stage-u-evidence.mjs';
 import { transition as publishTransition, confirmTransition, confirmBridgeExit, readWriteCheckpoint } from './promote-root-pair.mjs';
 
 // Test only sequencing below custody, with in-memory counters. No credentials, approved production SHA, environment grant or remotely consumable receipt.
 const after='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-const incident={version:stageU.version,build:stageU.build,deployment:'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef'};
+const incident={version:layoutU.version,build:layoutU.build,deployment:'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef'};
 const transition=async(g,c,io)=>confirmTransition(g,c,await publishTransition(g,c,io),io,async()=>{});
-test('without a verified layout receiver receipt no Site grant is read, in either direction',()=>{
+test('inactive layout enrollment alone grants no Site operation, in either direction',()=>{
   for(const op of [...Object.keys(operations),'root-reconcile'])
-    assert.throws(()=>readTransition({ROOT_OPERATION:op}),/no verified receiver for this candidate build/);
+    assert.throws(()=>readTransition({ROOT_OPERATION:op}),/Exact main manual workflow required/);
 });
 function fixture(op){
   const g={source:'test-only',operation:op,minimumProducerSequence:7,fromVersion:'before',fromDeployment:'old',controlSha256:'control',rumConfigSha256:sha256('config'),previewSha256:sha256('[]'),bridge:op==='root-install-bridge'?null:{}};
@@ -67,7 +67,7 @@ for(const [operation,expected,pre] of [['root-install-bridge','BRIDGE_READY','ge
 }
 test('each Site write and terminal readback needs the same verified active incident identity',async()=>{
   for(const op of ['root-install-bridge','root-activate-forward','root-restore-rollback','root-abandon-bridge']){
-    for(const side of ['pre','post'])for(const patch of [{version:'00323557-9e9f-470f-b491-3906316f5d69'},{build:sha256('other build')}]){
+    for(const side of ['pre','post'])for(const patch of [{version:stageUPredecessor},{version:stageU.version},{build:stageU.build},{version:stageU.version,build:stageU.build},{build:sha256('other build')}]){
       const f=fixture(op),observe=f.io.observe;let n=0;
       f.io.observe=()=>{const live=observe();++n;
         const change=side==='pre'?n===1:op==='root-abandon-bridge'?n===2:f.calls.includes('write');

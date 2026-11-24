@@ -14,6 +14,12 @@ export const stageU=Object.freeze({source:'b84443033056b28a5f23594f90c4171863015
   intentSha256:'6f659360595515445f79aed7f418d6a795825b9d58c27a92bc0a1eec91386182',
   ackSha256:'f1fd6d13362ab2e8afa833f0cdaca9cdbfab2c645df4bd5044572d5eb681a1b9',
   verifiedSha256:'19aa8cce5fbae0ce6be0db2f3ff5dfb3fcc2cd1d1fbe340a5aa006cd7fba8338'});
+// The predecessor remains the only receipt accepted by the historical upload path.
+export const layoutU=Object.freeze({source:'5649b7f942c1892100a40b782f9716015d89fdc5',version:'e0fd1e38-5f7b-4777-9d96-681c6bb45038',build:'2bfe30a171be2e58243bcf3c6b05961c3b031a1d4ddbc114e650a928605c90d0',module:publicHash,
+  bindingsSha256:'8db7effc4f4f7f0bf97c536e4960f642692806689c83a871dd4f1b870ef383bd',
+  intentSha256:'f31ab715c04987481102b79d9ce8ae681f71d42fed7125fb40f35d4c93a2f1a4',
+  ackSha256:'b202d53695046099c2c98c66581a66a0a99ba4c4800d5d12aea88c4daaccf168',
+  verifiedSha256:'94c3d58540cf841d4926282e7bf4caca0937fd06c66d2090e5f5ac7ec085a987'});
 
 export function checkOwnerDirectory(dir) {
   const s=lstatSync(dir);assert(s.isDirectory() && realpathSync(dir)===dir && s.uid===process.getuid() && !(s.mode&0o077),'unsafe owner directory');
@@ -29,27 +35,40 @@ export function readStageU(dir) {
   const file=original.workerId+'.json',m=receipt(dir,file,markerSha);
   assert.equal(m.phase,'attempt-consumed');assert.equal(m.reviewedMain,'ca2904054baf83ddc2a59166f9436776966a01d8');assert.equal(m.hash,publicHash);assert.equal(m.deployment,closed.deployment);
   assert.deepEqual(receipt(dir,file+'.ack',ackSha),{candidate:stageUPredecessor});
-  const slot=join(dir,'successor-of-'+stageUPredecessor);checkOwnerDirectory(slot);
-  const {scope,approval}=receipt(slot,'intent.json',stageU.intentSha256);
-  const {source,build,module,bindingsSha256,version:id}=stageU;
-  assert.deepEqual(receipt(slot,'ack.json',stageU.ackSha256),{id,source,predecessor:stageUPredecessor,build,module,bindingsSha256});
-  const verified=receipt(slot,'verified.json',stageU.verifiedSha256);
+  return readSuccessor(dir,stageUPredecessor,stageU);
+}
+function readSuccessor(dir,predecessor,enrolled) {
+  const slot=join(dir,'successor-of-'+predecessor);checkOwnerDirectory(slot);
+  const {scope,approval}=receipt(slot,'intent.json',enrolled.intentSha256);
+  const {source,build,module,bindingsSha256,version:id}=enrolled;
+  assert.deepEqual(receipt(slot,'ack.json',enrolled.ackSha256),{id,source,predecessor,build,module,bindingsSha256});
+  const verified=receipt(slot,'verified.json',enrolled.verifiedSha256);
   assert.deepEqual(verified,{state:'verified-inactive-only',id,scope,approval,verifiedAt:verified.verifiedAt,activationAuthorized:false});
   assert.equal(scope.source,source);assert.equal(scope.build,build);assert.equal(scope.bindingsSha256,bindingsSha256);
   assert(Number.isSafeInteger(verified.verifiedAt));assert.match(scope.editorId,immutable);
   return verified;
 }
-
-export async function checkReceiverVersion(read,build) {
-  assert.equal(build,stageU.build,'receiver not enrolled for this service build');
-  const settings=publicBindings(build);assert.equal(digest(JSON.stringify(settings)),stageU.bindingsSha256);
-  await uploadReadbacks(read).exact(stageU.version,stageU.module,['ADMIN_ID','BOT_TOKEN'],'worker.js',settings);
+export function readLayoutU(dir) {
+  readStageU(dir);
+  const verified=readSuccessor(dir,stageU.version,layoutU),{scope}=verified;
+  assert.equal(scope.operation,'layout-successor-inactive-upload-v1');assert.deepEqual(scope.predecessorReceipt,stageU);
+  assert.equal(scope.predecessor,stageU.version);assert.equal(scope.module,layoutU.module);
+  assert.equal(scope.worker,original.workerId);assert.equal(scope.inertDeployment,closed.deployment);
+  return verified;
 }
+
+async function exactReceiver(read,build,enrolled) {
+  assert.equal(build,enrolled.build,'receiver not enrolled for this service build');
+  const settings=publicBindings(build);assert.equal(digest(JSON.stringify(settings)),enrolled.bindingsSha256);
+  await uploadReadbacks(read).exact(enrolled.version,enrolled.module,['ADMIN_ID','BOT_TOKEN'],'worker.js',settings);
+}
+export const checkReceiverVersion=(read,build)=>exactReceiver(read,build,stageU);
+export const checkLayoutVersion=(read,build)=>exactReceiver(read,build,layoutU);
 
 // A matching inactive version, receiver route, or build setting on another version is not live proof.
 export async function observeIncident(read,build) {
   const live=await control(read);
-  assert.equal(live.version,stageU.version,'Stage U receiver is not the sole active incident version');
-  assert.deepEqual(live.crons,[schedule]);await checkReceiverVersion(read,build);
+  assert.equal(live.version,layoutU.version,'layout receiver is not the sole active incident version');
+  assert.deepEqual(live.crons,[schedule]);await checkLayoutVersion(read,build);
   return {deployment:live.deployment,version:live.version,build};
 }
