@@ -16,6 +16,7 @@ const paths = [
   '.github/workflows/site-source-verify.yml', 'docs/candidate-toolchain.md', 'e2e/stock-undo.fixture.tsx', 'e2e/stock-undo.test.mjs',
   'production-incidents/RUNBOOK.ko.md', 'scripts/ci/incident-mobile-successor.mjs', 'scripts/ci/incident-mobile-successor.test.mjs',
   'scripts/ci/incident-owner-activate.test.mjs', 'scripts/ci/incident-undo-stage-u.mjs', 'scripts/ci/incident-undo-stage-u.test.mjs',
+  'scripts/ci/root-promotion-custody.mjs', 'scripts/ci/root-promotion.test.mjs',
   'site-worker/production-root-release-v1.json', 'src/components/StockPanel.tsx', 'src/serviceH14/generated/build.ts',
 ];
 
