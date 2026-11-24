@@ -3,7 +3,6 @@ import { createPublicKey, hash, verify } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import legacy from '../site-worker/production-forecast.proposed.json' with { type: 'json' };
-import { isExpectedBlockedFont } from './operational-font-policy.mjs';
 import {controlFromCustody,supplyProjectionSha256} from '../scripts/ci/hybrid-b-policy-evidence.mjs';
 
 export const origin = 'https://nikkecollection.com';
@@ -53,7 +52,6 @@ export async function productNetwork(context, { receipt, forward }, mode) {
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     try {
-      if (isExpectedBlockedFont({ url: url.href, method: request.method(), resourceType: request.resourceType() })) return await route.abort();
       assert.equal(request.method(), 'GET'); assert.equal(url.origin, origin); assert(!url.search && !url.hash);
       assert(!url.username && !url.password);
       if (mode === 'stats-offline' && path === '/api/stats') { seen.add(path); return await route.abort('failed'); }

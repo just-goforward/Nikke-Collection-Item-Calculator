@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { writeFileSync } from "node:fs";
 import { installPersistenceAudit } from "./decision-analytics-persistence";
 import { diagnosticJson } from "./operational-report.mjs";
-import { isExpectedBlockedFont } from "./operational-font-policy.mjs";
 import { enMessages } from "../src/i18n/messages.en";
 import { koMessages } from "../src/i18n/messages.ko";
 import { CERTIFIED_WASM_ASSET } from "../shared/generated/wasmRuntimeAssets";
@@ -17,7 +16,6 @@ type NetworkEvidence = {
   console: unknown[];
   pageErrors: unknown[];
   pending: Promise<void>[];
-  expectedBlockedFonts: { category: "EXPECTED_BLOCKED_FONT"; url: string; method: string; resourceType: string; blocked: boolean }[];
   externalResponses: unknown[];
 };
 const networkEvidence = new WeakMap<Page, NetworkEvidence>();
@@ -34,7 +32,7 @@ test.beforeEach(async ({ context, page }) => {
   const unexpected: string[] = [];
   violations.set(page, unexpected);
   const network: NetworkEvidence = { requests: [], responses: [], console: [], pageErrors: [], pending: [],
-    expectedBlockedFonts: [], externalResponses: [] };
+    externalResponses: [] };
   networkEvidence.set(page, network);
   page.on("pageerror", error => {
     unexpected.push("pageerror");
@@ -74,14 +72,6 @@ test.beforeEach(async ({ context, page }) => {
       method: request.method(), url: url.href, resourceType: request.resourceType(),
     };
     if (network.requests.length < 128) network.requests.push(descriptor);
-    if (isExpectedBlockedFont(descriptor) && network.expectedBlockedFonts.length < 128) {
-      const entry = { category: "EXPECTED_BLOCKED_FONT" as const, ...descriptor, blocked: false };
-      network.expectedBlockedFonts.push(entry);
-      const aborted = route.abort("blockedbyclient").then(() => { entry.blocked = true; });
-      network.pending.push(aborted);
-      await aborted;
-      return;
-    }
     if (url.origin !== origin || request.method() !== "GET" ||
         /^\/(?:api|auth|v1|account|admin)(?:\/|$)/.test(url.pathname)) {
       unexpected.push(`${request.method()}:${url.href}`); await route.abort(); return;
@@ -149,11 +139,10 @@ test.afterEach(async ({ page }, testInfo) => {
   writeFileSync(evidence, diagnosticJson({ violations: violations.get(page), state,
     network: { requests: network.requests, responses: network.responses,
       console: network.console, pageErrors: network.pageErrors,
-      expectedBlockedFonts: network.expectedBlockedFonts, externalResponses: network.externalResponses } }));
+      externalResponses: network.externalResponses } }));
   await testInfo.attach("operational-private-evidence", { path: evidence, contentType: "application/json" });
   expect(violations.get(page)).toEqual([]);
   expect(network.externalResponses).toEqual([]);
-  expect(network.expectedBlockedFonts.every(attempt => attempt.blocked)).toBe(true);
   if (state) {
     expect(state.audit.forbidden).toEqual([]);
     expect(state.persistence.forbidden).toEqual([]);

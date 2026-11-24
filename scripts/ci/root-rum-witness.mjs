@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
 import { assertPin, beaconURL, restoreBeacon, checkPreview, rootOrigin, traceIdentity, verifyRootDocument } from './root-rum-bytes.mjs';
+import {legacyFontAudit} from '../../e2e/operational-font-policy.mjs';
 
 const [packet, role, mode = 'full'] = process.argv.slice(2);
 const previewOnly=mode==='restore-preflight';
@@ -41,14 +42,18 @@ try {
   }
   const ctx = await browser.newContext({serviceWorkers:'block'}), cdp = await browser.newBrowserCDPSession();
   const tracePage = await ctx.newPage(), page = await ctx.newPage(); let egress, activePath, beaconAttempts = 0;
+  const fonts=legacyFontAudit(ctx,rootOrigin);
   await ctx.routeWebSocket('**/*', socket => { errors.push('unexpected WebSocket (blocked)'); socket.close(); });
-  await ctx.route('**/*', route => {
+  await ctx.route('**/*', async route => {
     const req = route.request(), u = new URL(req.url());
     if (req.method() !== 'GET') errors.push('unexpected non-GET (blocked)');
     else if (u.href === trace && req.isNavigationRequest() && req.frame() === tracePage.mainFrame()) return route.continue();
     else if (u.origin === rootOrigin && !u.search && (u.pathname === activePath || Object.hasOwn(files,u.pathname) || reads.has(u.pathname) || (activePath?.startsWith('/preview/') && u.pathname.startsWith('/preview/')))) return route.continue();
     else if (u.href === (proof?.url ?? beaconURL) && req.resourceType() === 'script') beaconAttempts++;
-    else if (!(u.origin === 'https://cdn.jsdelivr.net' && u.pathname.startsWith('/gh/orioncactus/pretendard@v1.3.9/dist/'))) errors.push('unexpected GET destination (blocked)');
+    else {
+      try {if(await fonts.block(route))return;}catch{errors.push('unverified blocked stylesheet');}
+      errors.push('unexpected GET destination (blocked)');
+    }
     return route.abort(); // Do not download/execute the third-party script or send a single RUM event.
   });
   const classify = async (tab=tracePage) => {
@@ -83,6 +88,8 @@ try {
       if (docs.has(u.pathname)) {
         assert(u.pathname === activePath && mime === 'text/html'); const {original,pin} = docs.get(activePath);
         verifyRootDocument(original, pin, b, egress, tag); rows.push({path:activePath, bytes:b.length, originSha256:pin.sha256, browserSha256:digest});
+        const key=activePath+(activePath.endsWith('/')?'index.html':'.html');
+        fonts.bind(page.mainFrame(),{role:'witness',tree:role,key,href:u.href,servedHash:pin.sha256,legacyHash:pair.files.rollback[key].sha256});
       } else {
         assert((u.pathname === worker && ['text/javascript','application/javascript'].includes(mime)) || (u.pathname === wasm && mime === 'application/wasm'));
         assertPin(b, files[u.pathname]); resources.push({path:u.pathname, bytes:b.length, sha256:digest});
@@ -125,5 +132,5 @@ try {
     previews.push({path,sha256:hash('sha256',bytes),cache:headers['cache-control'],csp:headers['content-security-policy']});
   }
   assert.deepEqual(await classify(),network,'browser egress changed'); await ctx.close(); assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({scope:'single-vantage-readback-not-authorization',mode,role,source:pair.review.source,packetSha256:hash('sha256',packetBytes),observedAt:new Date().toISOString(),egress,egressId:network.id,rows,resources,previews}));
+  console.log(JSON.stringify({scope:'single-vantage-readback-not-authorization',mode,role,source:pair.review.source,packetSha256:hash('sha256',packetBytes),observedAt:new Date().toISOString(),egress,egressId:network.id,rows,resources,previews,blockedFonts:fonts.finish()}));
 } finally { await browser.close(); }
