@@ -6,11 +6,11 @@ import {closeSync,constants,fstatSync,fsyncSync,lstatSync,mkdirSync,openSync,rea
 import {userInfo} from 'node:os';
 import {join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {account,bindings,digest,immutable,versionId,zone} from './incident-provider.mjs';
+import {account,activeTokenId,bindings,client,digest,immutable,versionId,zone} from './incident-provider.mjs';
 import {api,gh,graphEnv,owner,protectedEnv,repo} from './incident-receipt.mjs';
 import {original} from './incident-recovery-id.mjs';
 import {baseline,privateGraph,target} from './incident-canary-control.mjs';
-import {beforeIds,checkedCredentials,checkedMain,closed,historicalEditor,publicBindings,publicHash,uploadReadbacks} from './incident-owner-upload-only.mjs';
+import {beforeIds,checkedCredentials,checkedMain,closed,historicalEditor,privateInput,publicBindings,publicHash,uploadReadbacks} from './incident-owner-upload-only.mjs';
 import enrollment from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 
 const parent='ca2904054baf83ddc2a59166f9436776966a01d8', step='Verify mobile retry inactive successor (offline)';
@@ -50,17 +50,27 @@ export function checkApproval(scope,comment,reviewEnvelope,reviewKey,now=Date.no
   const reviewSha256=digest(reviewEnvelope); assert.equal(comment.body,'APPROVE INACTIVE UPLOAD ONLY '+scopeSha256+' '+reviewSha256);
   assert(Number.isSafeInteger(comment.id)&&comment.id>0);return {commentId:comment.id,scopeSha256,reviewSha256};
 }
-export async function replaceInactive({head,until,module,dir,read,send,token,editorId,readerId,authorize}) {
-  checkWindow(until);assert.equal(enrollment.serviceCodeHash,newBuild);assert.notEqual(newBuild,baseline.build);assert.equal(digest(module),publicHash);
+function receiverChecks(read) {
   const {expectClosed,inventory,exact,verifyKnown}=uploadReadbacks(read);
   const routes=async()=>{
     const rows=await read('/zones/'+zone+'/workers/routes');assert.equal(rows.length,3);
     for(const [id,path,script] of [['863270c636c945b8b788c329c9762f50','/preview/*','collection-kit-site-preview-k1r2'],['483199a1890b4fb696b38d53b6d63e3c','/api/calendar','collection-kit-conditional-production'],['85e95eb76fd94eeba4531b7b26caa11c','/api/joint-supply/v2','collection-kit-conditional-production']])assert(rows.some(r=>r.id===id && r.pattern==='nikkecollection.com'+path && r.script===script && r.request_limit_fail_open===false),'zone routes changed');
   };
   const priorState=async()=>{await routes();await expectClosed();await verifyKnown();await exact(predecessor,publicHash,inherited,'worker.js',publicBindings());};
-  await priorState();assert.deepEqual(await inventory(),prior);const topology=await privateGraph(read);
+  const topology=async()=>{await priorState();assert.deepEqual(await inventory(),prior);return privateGraph(read);};
+  return {topology,priorState,expectClosed,routes,inventory,exact};
+}
+export async function reviewScope({head,until,editorId,readerId,read}) {
+  checkWindow(until);const graph=await receiverChecks(read).topology();checkWindow(until);
+  const scope=uploadScope(head,until,graph,editorId,readerId);
+  return {scope,scopeSha256:digest(JSON.stringify(scope)),uploadAuthorized:false};
+}
+export async function replaceInactive({head,until,module,dir,read,send,token,editorId,readerId,authorize}) {
+  checkWindow(until);assert.equal(enrollment.serviceCodeHash,newBuild);assert.notEqual(newBuild,baseline.build);assert.equal(digest(module),publicHash);
+  const {topology:checkTopology,priorState,expectClosed,routes,inventory,exact}=receiverChecks(read);
+  const topology=await checkTopology();
   const scope=uploadScope(head,until,topology,editorId,readerId),approval=await authorize(scope);
-  await priorState();assert.deepEqual(await inventory(),prior);assert.equal(await privateGraph(read),topology);
+  assert.equal(await checkTopology(),topology);
   assert.deepEqual(await authorize(scope),approval);checkDirectory(dir);checkWindow(until);
   // One fixed slot on the original owner device. Never select a fresh directory by run, build, expiry or attempt.
   const slot=join(dir,'successor-of-'+predecessor);mkdirSync(slot,{mode:0o700});sync(dir);
@@ -74,8 +84,10 @@ export async function replaceInactive({head,until,module,dir,read,send,token,edi
   } finally {await expectClosed();assert.equal(await privateGraph(read),topology);await routes();await expectClosed();}
   checkWindow(until); const verified={state:'verified-inactive-only',id,scope,approval,verifiedAt:Date.now(),activationAuthorized:false};record(slot,'verified.json',verified);return verified;
 }
-async function main([file,end,...extra]) {
-  assert(file && /^\d{10}$/.test(end) && !extra.length && !process.env.CI && !process.env.GITHUB_ACTIONS);const until=Number(end);checkWindow(until);
+async function main([file,end,editorId,...extra]) {
+  const preview=file==='--review-scope';
+  assert(file && /^\d{10}$/.test(end) && !extra.length && (preview?typeof editorId==='string' && immutable.test(editorId):editorId===undefined) && !process.env.CI && !process.env.GITHUB_ACTIONS);
+  const until=Number(end);checkWindow(until);
   const cwd=fileURLToPath(new URL('../../',import.meta.url)),git=(...a)=>execFileSync('git',a,{cwd,encoding:'utf8'}).trim();
   assert.equal(realpathSync(process.cwd()),realpathSync(cwd),'run from the exact reviewed checkout');
   const dir=join(userInfo().homedir,'.incident-owner-upload-only'),head=git('rev-parse','HEAD');
@@ -83,8 +95,18 @@ async function main([file,end,...extra]) {
   source();const priorReceipt=readPredecessor(dir);protectedEnv(graphEnv);
   const {assertServiceH14Build}=await import('../service-h14-integrity.ts');const identity=await assertServiceH14Build();
   assert.equal(identity.codeHash,newBuild);assert.equal(identity.nativeSourceHash,enrollment.nativeSourceHash);assert.equal(identity.exactWasmHash,enrollment.nativeWasmSha256);
+  const retained=process.env.INCIDENT_U_RETAINED_PROOF_DIR;
+  if(retained!==undefined)checkDirectory(retained);
+  const retired=historicalEditor(retained);
+  if(preview) {
+    // FD4 only. Never read a policy token, Editor, review envelope or owner decision to preview a scope.
+    const read=client(privateInput(4)),readerId=await activeTokenId(read);
+    assert(readerId===gh('variable','get','INCIDENT_GRAPH_TOKEN_ID','--env',graphEnv,'--repo',repo) && editorId!==retired,'unregistered reader or retired Editor');
+    const result=await reviewScope({head,until,editorId,readerId,read});source();checkWindow(until);
+    console.log(JSON.stringify(result));return;
+  }
   const module=readFileSync(file);assert.equal(digest(module),publicHash);
-  const credentials=await checkedCredentials(historicalEditor(),until);assert(credentials.issued>priorReceipt.issued,'fresh successor-only Editor required');
+  const credentials=await checkedCredentials(retired,until);assert(credentials.issued>priorReceipt.issued,'fresh successor-only Editor required');
   const variable=k=>gh('variable','get',k,'--env',graphEnv,'--repo',repo);
   const authorize=async scope=>{source();readPredecessor(dir);protectedEnv(graphEnv);await credentials.recheck();const cid=variable('INCIDENT_U_OWNER_COMMENT_ID');assert.match(cid,/^[1-9][0-9]{0,15}$/);
     const c=api('comments/'+cid);assert.equal(String(c.id),cid);return checkApproval(scope,c,variable('INCIDENT_U_TECH_REVIEW'),variable('INCIDENT_U_TECH_REVIEW_KEY'));};

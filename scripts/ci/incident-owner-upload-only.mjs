@@ -94,11 +94,29 @@ async function upload(token, module, send) {
 
 // Historical signatures identify the inert installation/retired Editor and the private
 // successor's bytes. Neither signature authorizes this upload, public traffic or another DM.
-function historicalReceipt(dir, run, workflowPath, sha, artifact, filename) {
-  gh('run','download',run,'--repo',repo,'--name',`${artifact}-${run}-1`,'--dir',dir);
-  const file = join(dir,filename);
+const retainedSubjects = {
+  'installed.json': ['3417671dfd921563e3bbba6233b677064d59b49ad951937d90546aab54ae213f','98d9ad846ac02dd7e90d10d63386f1a4b14b9ab877ea45c4d73d2d0a225a502f'],
+  'permit.json': ['10c7e0fa04028cba69076b28f078dfd6089ebaea53d3e592adba7b65dbec3069','c4a2e7da223ddedd73463b591565e8b31a10b4b0e5faaf4ab0c56c5dfe0b5d66'],
+};
+const trustedRootSha='65ca537f6ed8a47fd0e560c421baa1f6c1efb8b25fc200d8c5c02c0e92eb2b9c';
+function historicalReceipt(dir, run, workflowPath, sha, artifact, filename, retained) {
+  const file = join(dir,filename), offline=[];
+  if (retained === undefined) {
+    gh('run','download',run,'--repo',repo,'--name',`${artifact}-${run}-1`,'--dir',dir);
+  } else {
+    // Verify private snapshots of the independently pinned bytes, never a local verifier result or user-selected trust root.
+    const snapshot=(name,expected,dest=join(dir,filename+'.'+name))=>{
+      const path=join(retained,name),st=lstatSync(path);
+      check(st.isFile() && st.size>0 && st.size<=256*1024,'invalid retained provenance input');
+      const bytes=readFileSync(path);check(digest(bytes)===expected,'retained provenance digest mismatch');
+      writeFileSync(dest,bytes,{mode:0o600,flag:'wx'});return dest;
+    };
+    const [subject,bundle]=retainedSubjects[filename];
+    snapshot(filename,subject,file);
+    offline.push('--bundle',snapshot(`sha256:${subject}.jsonl`,bundle),'--custom-trusted-root',snapshot('trusted_root.jsonl',trustedRootSha));
+  }
   certifiedRun(JSON.parse(gh('attestation','verify',file,'--repo',repo,'--signer-workflow',`${repo}/${workflowPath}`,
-    '--signer-digest',sha,'--source-digest',sha,'--source-ref',ref,'--deny-self-hosted-runners','--format','json')),run);
+    '--signer-digest',sha,'--source-digest',sha,'--source-ref',ref,'--deny-self-hosted-runners',...offline,'--format','json')),run);
   return readFileSync(file);
 }
 
@@ -139,15 +157,15 @@ function provenance() {
   requireSource();
   return {retired:historicalEditor(),requireSource,head};
 }
-export function historicalEditor() {
+export function historicalEditor(retained) {
   const dir = mkdtempSync(join(tmpdir(),'incident-upload-proof-'));
   try {
-    const installed = historicalReceipt(dir,'45171435589',workflow,'b65321df6af1a67773642261315d3b6edd4c63bc','incident-installed','installed.json');
+    const installed = historicalReceipt(dir,'45171435589',workflow,'b65321df6af1a67773642261315d3b6edd4c63bc','incident-installed','installed.json',retained);
     check(digest(installed) === '3417671dfd921563e3bbba6233b677064d59b49ad951937d90546aab54ae213f','unexpected installation receipt');
     const i = JSON.parse(installed);
     check(i.phase === 'private-installed' && i.workerId === original.workerId && i.version === baseline.version &&
       i.moduleHash === baseline.module && immutable.test(i.editorId), 'wrong installed identity');
-    const permit = historicalReceipt(dir,successor.run,'.github/workflows/incident-private-canary.yml',source,'private-canary-permit','permit.json');
+    const permit = historicalReceipt(dir,successor.run,'.github/workflows/incident-private-canary.yml',source,'private-canary-permit','permit.json',retained);
     check(same(JSON.parse(permit),{phase:'sealed-successor-one-dm',predecessor:'45184118767',slot:successorBuild,sha:source,
       run:successor.run,attempt:1,module:successor.module,end:1795448388}), 'wrong historical successor permit');
     // The unsigned local journal records SENT/1 and inert restoration, not the restoration ID.

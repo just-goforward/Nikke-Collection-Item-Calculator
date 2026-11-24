@@ -186,3 +186,18 @@ node scripts/ci/incident-owner-upload-only.mjs "$bundle/public/worker.js" "$unti
 3. 별도 승인 때만 소유자가 해당 실제 병합 커밋에 수정되지 않은 댓글 `APPROVE INACTIVE UPLOAD ONLY <scopeSha256> <reviewEnvelopeSha256>`을 직접 기록하고 그 ID를 보호 환경 전용 `INCIDENT_U_OWNER_COMMENT_ID`로 등록한다. 같은 이름의 repo/org fallback을 두지 않는다. 검토는 두 번째 인간의 동의가 아니며, 이 댓글은 만료 전 해당 Editor/reader·graph·UUID·모듈·바인딩 하나에 대해서만 유효하다. 스스로 승인하거나 예제/이전 결정을 재생하지 않는다.
 4. 승인 후에만 원 장치의 `node scripts/ci/incident-mobile-successor.mjs <exact-public-worker.js> <until-epoch-seconds>`에 기존과 같은 FD 0/3/4를 전달한다. route 쓰기 토큰 불필요. `successor-of-00323557-9e9f-470f-b491-3906316f5d69/`는 매 실행마다 새로 고르는 경로가 아니라 첫 승인에서만 배타적으로 생성되는 슬롯이다. POST 전 intent를 동기화한다. 허용 요청은 한 Worker의 `versions?deploy=false` 하나뿐이고, 기존 donor의 두 secret은 이름으로 상속한다. secret 값을 읽거나 D1/Discord/배포/스케줄/route에 쓰지 않는다.
 5. ACK는 새 UUID 식별일 뿐이다. 정확한 일곱 version, 새 바인딩·모듈, 불변 배포/cron/route/graph까지 확인한 뒤에만 `verified.json`이 생긴다. 누락·부분 실패·만료 시 슬롯을 지우거나 ID를 추정하지 않고 읽기만 한다. verified도 활성화 권한이 아니다. **단계 A**는 해당 원본 ACK/verified 해시·정확 UUID·새 단일 빌드·실제 생산자에 결속한 별도 소스·검토·승인 후에만 고려한다. 과거 제품/분석 실패나 EU 미측정은 해소되지 않았다.
+
+**실제 main SHA의 소스 검증.** PR의 녹색 `root-review-only`는 main push 또는 업로드 승인이 아니다. 별도 병합 승인 후 **서명된 squash 결과 SHA**와 원본 `site-worker/production-root-release-v1.json`을 독립 검토한다. 그때만 저장소 Actions 변수 `ROOT_PAIR_SOURCE_APPROVAL_SHA256`를 `sha256(UTF8(JSON.stringify(["production-root-source-review-v1", repositoryFullName, actualMainSHA, sha256(originalEnrollmentBytes)])))`로 등록한다. `scripts/ci/root-source-profile.mjs`가 그 exact main **push**에서 검사한다. 변수가 늦게 등록되었다면 그 push run을 재실행하여 필수 job 전체의 성공을 확인한다. PR head·테스트 merge SHA·과거 pin으로 대체하지 않는다. 보호 환경의 U 전용 검토/승인 변수와 다른 값이다.
+
+**원본 보존 시한.** `private-canary-permit-45197180403-1`(ID `14829496001`)의 만료는 **2026-11-30 14:47:11 UTC**다. `incident-installed-45171435589-1`(ID `14819607495`)은 2026-12-23 12:41:46 UTC 만료다. 만료는 새 permit·canary·DM 발행 사유가 아니다. 만료 전에 `umask 077`을 적용한 전용 디렉터리에 **원본 archive**, 그 멤버, GitHub attestation bundle 및 별도 신뢰경로의 Sigstore trust root를 보존한다. 재실행 결과나 `gh attestation verify --format json` 출력만 보존해서는 안 된다.
+
+|원본 멤버|GitHub ZIP SHA-256|멤버 SHA-256|
+|---|---|---|
+|`installed.json`|`eb97f1acdf229368a2c06479d3a7fce1d188200715948dc04e5473e28dd6846a`|`3417671dfd921563e3bbba6233b677064d59b49ad951937d90546aab54ae213f`|
+|`permit.json`|`9280cb5f532add7e29a83c7b3d5dfce5f8283b6feec0d03e078e87a262e7c80c`|`10c7e0fa04028cba69076b28f078dfd6089ebaea53d3e592adba7b65dbec3069`|
+
+`gh api "repos/$repo/actions/artifacts/$id/zip"`의 원본 바이트를 ID별로 저장하고 위 ZIP 해시 확인 후에만 `unzip -p "$id.zip" "$member"`로 지정한 단일 멤버를 꺼낸다. 같은 디렉터리에서 `gh attestation download "$member" --repo "$repo"`로 `sha256:<멤버 해시>.jsonl`을 보존한다. `gh attestation trusted-root`로 신뢰된 기본 TUF 저장소에서 얻은 `trusted_root.jsonl`의 핀은 `65ca537f6ed8a47fd0e560c421baa1f6c1efb8b25fc200d8c5c02c0e92eb2b9c`이다. 별도 관리하는 비공개 백업에 복제하고 원래 journal은 보존한다. 공개 PR·로그에 원본 자격 자료를 첨부하지 않는다.
+
+복구 시 `INCIDENT_U_RETAINED_PROOF_DIR`에 소유자 전용 디렉터리의 **절대 실경로**를 준다. 도구는 원본 subject·bundle·trust root 해시와 `gh attestation verify --bundle … --custom-trusted-root …`의 서명, 실제 저장소·소유자 ID, workflow·SHA·main ref·호스팅 runner·run/attempt 1을 모두 확인한다. 이 선택이 실패하면 온라인 fallback은 없다. 환경 변수를 주지 않으면 기존 온라인 검증이 필수다. 오프라인 옵션은 역사적 파일 획득에만 쓰인다. 현재 main·환경·권한·승인·실시간 그래프와 시계 검사는 그대로다.
+
+**승인 전 읽기 전용 scope.** 위 main/역사/소스 확인과 별도 읽기 권한이 있을 때 `node scripts/ci/incident-mobile-successor.mjs --review-scope "$until_epoch" "$editor_id" 4< "$registered_graph_reader_file"`을 사용한다. `editor_id`는 32자리 공개 식별자이며 토큰 문자열이 아니다. FD 0/3은 쓰지 않는다. scope와 digest, `uploadAuthorized:false`만 반환하며 승인·장부·업로드는 만들지 않는다. 실제 업로드에서는 요청자의 Editor를 별도 검증하고 새로 관측한 scope에만 승인 서명을 대조한다.

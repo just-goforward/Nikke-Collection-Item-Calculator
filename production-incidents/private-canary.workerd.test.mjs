@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
+import {hash} from 'node:crypto';
 import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -12,6 +13,13 @@ import {successorBuild} from './sealed-successor.ts';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const admin='1'.repeat(18), channel='2'.repeat(18);
 const schema=readFileSync(new URL('schema.sql',import.meta.url),'utf8').replaceAll('\n',' ');
+
+test('sealed canary fixture at its original expiry reproduces the attested module, never the active Site build',t=>{
+  const tmp=mkdtempSync(join(tmpdir(),'historical-canary-'));
+  t.after(()=>rmSync(tmp,{recursive:true,force:true}));
+  execFileSync('bash',['scripts/ci/bundle-private-canary.sh',tmp],{cwd:root,env:{PATH:process.env.PATH,HOME:tmp,CI:'true',INCIDENT_CANARY_END:'1795448388'}});
+  assert.equal(hash('sha256',readFileSync(join(tmp,'private-canary.js'))),'abfdaf31352409a747917ade12e6dd5fbbbac9a76cde214d65ec9849957eec00');
+});
 
 test('generated one-shot canary uses local workerd fetch and local D1 only',async t=>{
   const tmp=mkdtempSync(join(tmpdir(),'incident-runtime-'));

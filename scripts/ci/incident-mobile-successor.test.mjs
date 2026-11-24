@@ -13,7 +13,7 @@ import enrollment from '../../site-worker/production-root-release-v1.json' with 
 import {serviceBuild} from '../../production-incidents/sealed-successor.ts';
 import {original} from './incident-recovery-id.mjs';
 import {db as database,digest,namespace} from './incident-provider.mjs';
-import {publicHash} from './incident-owner-upload-only.mjs';
+import {historicalEditor,publicHash} from './incident-owner-upload-only.mjs';
 import {owner} from './incident-receipt.mjs';
 import {checkApproval,newBuild,readPredecessor,uploadScope} from './incident-mobile-successor.mjs';
 import {readTransition} from './root-promotion-custody.mjs';
@@ -46,6 +46,10 @@ test('substituted predecessor bytes never authorize a new slot',t=>{
 test('original on-device predecessor marker and ACK match the independently recorded digests', {skip:!process.env.INCIDENT_U_ORIGINAL_RECEIPT_DIR && 'requires retained original owner receipts (not generated fixtures)'},()=>{
   const p=readPredecessor(process.env.INCIDENT_U_ORIGINAL_RECEIPT_DIR);
   assert.equal(p.markerSha,'e16afc3b992035149f42000b5984ac654acbaf8d5db7329ee411c03e31240068');assert.equal(p.ackSha,'6e132d263351ea1ca1312a8d202c7ec6ea8e06e96ecb6dd52c26068a2ca1ae14');
+});
+test('corrupt retained proof fails without falling back to a new artifact',t=>{
+  const dir=mkdtempSync(join(tmpdir(),'invalid-attestation-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  writeFileSync(join(dir,'installed.json'),'{}');assert.throws(()=>historicalEditor(dir),/retained provenance digest mismatch/);
 });
 test('owner decision and signed independent review bind this exact merged SHA, editor, graph, build and expiry',()=>{
   const now=Date.now(),head='f'.repeat(40),scope=uploadScope(head,Math.floor(now/1000)+300,'c'.repeat(64),'1'.repeat(32),'2'.repeat(32));

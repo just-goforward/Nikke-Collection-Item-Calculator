@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {checkedCheckout, checkedMain, executeUpload} from './incident-owner-upload-only.mjs';
-import {newBuild,predecessor,replaceInactive} from './incident-mobile-successor.mjs';
+import {newBuild,predecessor,replaceInactive,reviewScope} from './incident-mobile-successor.mjs';
 import {baseline, failed, script, target} from './incident-canary-control.mjs';
 import {account, bindings, client, db, digest, name, namespace, registry, root, zone} from './incident-provider.mjs';
 import {original} from './incident-recovery-id.mjs';
@@ -162,12 +162,22 @@ function fixture(fault,mobile=false) {
     if(fault==='old ID') return Response.json({success:true,errors:null,messages:null,result:{id:trial}});
     return Response.json({success:true,errors:null,messages:null,result:{id:candidate}});
   };
-  if(mobile){const run=()=>replaceInactive({module:bundles.public,until:Math.floor(Date.now()/1000)+900,head:'a'.repeat(40),dir,read:client('offline-reader',send),send,token:'offline-editor',editorId:'1'.repeat(32),readerId:'2'.repeat(32),authorize:scope=>{assert.notEqual(fault,'unsigned');assert.equal(scope.build,newBuild);return {scopeSha256:digest(JSON.stringify(scope))};}});return {run,slot,writes:()=>writes};}
+  if(mobile){
+    const inputs={head:'a'.repeat(40),until:Math.floor(Date.now()/1000)+900,editorId:'1'.repeat(32),readerId:'2'.repeat(32),read:client('offline-reader',send)};
+    const run=()=>replaceInactive({...inputs,module:bundles.public,dir,send,token:'offline-editor',authorize:scope=>{assert.notEqual(fault,'unsigned');assert.equal(scope.build,newBuild);return {scopeSha256:digest(JSON.stringify(scope))};}});
+    return {run,preview:()=>reviewScope(inputs),slot,writes:()=>writes};
+  }
   const run=()=>executeUpload({module:fault==='wrong pin'?bundles.canary:bundles.public,until:Math.floor(Date.now()/1000)+900,
     read:client('offline-reader',send),token:'offline-editor',dir,send,head:'a'.repeat(40),
     requireSource:()=>assert.notEqual(fault,'main moved')});
   return {run,calls,marker,writes:()=>writes};
 }
+test('scope preview only reads; its digest binds the actual upload and creates no journal or approval',async()=>{
+  const f=fixture(null,true),p=await f.preview();assert.equal(p.uploadAuthorized,false);
+  assert(!JSON.stringify(p).includes('offline-reader'));assert(!existsSync(f.slot));assert.equal(f.writes(),0);
+  const u=await f.run();assert.equal(u.approval.scopeSha256,p.scopeSha256);assert.deepEqual(u.scope,p.scope);
+  const bad=fixture('changed predecessor',true);await assert.rejects(bad.preview());assert(!existsSync(bad.slot));assert.equal(bad.writes(),0);
+});
 test('mobile successor: only the separately journaled new version can verify; no activation or replay',async()=>{
   for(const [fault,count] of [[null,1],['absent predecessor',0],['changed predecessor',0],['unsigned',0],['fail-open route',0],['old ID',1],['lost ACK',1],['stale binding',1],['extra version',1],['post deployment drift',1]]){
     const f=fixture(fault,true);
