@@ -26,13 +26,13 @@ const successor = Object.freeze({
 });
 export const beforeIds = Object.freeze([baseline.version, baseline.partial, baseline.donor, failed.version, successor.version].sort());
 // Both restoration IDs are provider readbacks, not fields signed by the historical permit.
-const history = [
+export const history = [
   [successor.restored, baseline.version], [successor.deployment, successor.version],
   ['5dadd20e-0a39-41c1-863e-b5dc0329b972', baseline.version],
   [failed.deployment, failed.version], [baseline.deployment, baseline.version],
 ].map(([id,version_id]) => ({id,versions:[{version_id,percentage:100}]}));
 export const closed = Object.freeze({deployment:successor.restored, version:baseline.version, crons:[]});
-export const publicBindings = () => bindings(baseline.build).map(b => b.name === 'PUBLIC_INGRESS' ? {...b,text:'1'} : b);
+export const publicBindings = (build=baseline.build) => bindings(build).map(b => b.name === 'PUBLIC_INGRESS' ? {...b,text:'1'} : b);
 const attemptDir = () => join(userInfo().homedir, '.incident-owner-upload-only');
 
 function windowOpen(until) {
@@ -120,11 +120,14 @@ function historicalReceipt(dir, run, workflowPath, sha, artifact, filename, reta
   return readFileSync(file);
 }
 
-// Only the mobile successor can recover an absent push; older owner operations remain push-only.
-function sourceJobs(head,query,mobileRecovery) {
+// Only the mobile successor can recover an absent push; rollback alone may use its protected ancestor.
+function sourceJobs(head,query,mobileRecovery,rollback=false) {
   const branch = query('branches/main');
-  check(branch.protected === true && branch.commit.sha === head && query(`commits/${head}`).commit.verification.verified === true,
-    'protected signed source changed');
+  check(branch.protected === true && query(`commits/${head}`).commit.verification.verified === true, 'protected signed source changed');
+  if (rollback && branch.commit.sha !== head) {
+    const c = query(`compare/${head}...${branch.commit.sha}`);
+    check(c.status === 'ahead' && c.merge_base_commit?.sha === head, 'reviewed rollback source no longer in protected main');
+  } else check(branch.commit.sha === head, 'protected signed source changed');
   const pulls = query(`commits/${head}/pulls`);
   check(pulls.some(p=>p.merged_at && p.merge_commit_sha === head && p.base.ref === 'main' && p.base.repo.id === 1229775730),
     'not the merged source PR');
@@ -143,10 +146,10 @@ function sourceJobs(head,query,mobileRecovery) {
   return {jobs:jobs.jobs,event};
 }
 
-export function checkedMain(head,query) {
-  const {jobs} = sourceJobs(head,query,false);
+export function checkedMain(head,query,requiredStep='Verify post-successor inactive upload only (offline)',rollback=false) {
+  const {jobs} = sourceJobs(head,query,false,rollback);
   check(jobs.some(j => j.name === 'Site source prerequisites' && j.conclusion === 'success' && j.steps.some(s =>
-    s.name === 'Verify post-successor inactive upload only (offline)' && s.conclusion === 'success')), 'offline upload checks did not pass');
+    s.name === requiredStep && s.conclusion === 'success')), 'required offline checks did not pass');
 }
 
 export function checkedMobileMain(head,query) {

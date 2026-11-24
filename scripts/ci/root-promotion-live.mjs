@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { createPublicKey, verify } from 'node:crypto';
 import { assertProductionKey } from '../root-release-custody.mjs';
+import {rootGet} from './root-promotion-get.mjs';
+import {client} from './incident-provider.mjs';
+import {stageU,observeIncident} from './incident-stage-u-evidence.mjs';
 import legacy from '../../site-worker/production-forecast.proposed.json' with {type:'json'};
 import { sha256 } from './root-promotion-custody.mjs';
 
@@ -10,7 +13,7 @@ const api=`https://api.cloudflare.com/client/v4`, worker=`/accounts/${account}/w
 const sortKeys=x=>Array.isArray(x)?x.map(sortKeys):x!==null&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,sortKeys(x[k])])):x;
 const by=(xs,key)=>[...xs].sort((a,b)=>a[key]<b[key]?-1:a[key]>b[key]?1:0);
 async function get(url,limit,token) {
-  const r=await fetch(url,{redirect:'error',cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(12000),headers:token?{authorization:`Bearer ${token}`}:{'cache-control':'no-cache'}});
+  const r=await rootGet(url,{cache:'no-store',credentials:'omit',headers:token?{authorization:`Bearer ${token}`}:{'cache-control':'no-cache'}});
   assert.equal(r.status,200,`read failed: ${new URL(url).pathname}`);const chunks=[];let size=0;
   for await(const c of r.body){size+=c.length;assert(size<=limit,'response size exceeded');chunks.push(c);}
   return {bytes:Buffer.concat(chunks,size),headers:r.headers};
@@ -34,8 +37,14 @@ export function assertExactRoutes(routes, enrolled) {
     assert.match(r.id,/^[a-f0-9]{32}$/); if(priorId)assert.equal(r.id,priorId,'existing route was replaced');
   }
 }
+// Only the immediately succeeding single-version deployment can confirm a particular write.
+export async function confirmLineage(token,from,post){
+  const {deployments}=await cf(`${worker}/scripts/${site}/deployments?per_page=2`,token);
+  assert.deepEqual(deployments.map(({id,versions})=>[id,versions.map(v=>[v.version_id,v.percentage])]),
+    [[post.deployment,[[post.version,100]]],[from.deployment,[[from.version,100]]]],'deployment changed or original write overtaken');
+}
 export async function observeSite(enrolled,token){
-  const [live,producer,domains,routes,subdomain,schedules,settings]=await Promise.all([active(site,token),active(enrolled.publisherWorker,token),cf(`${worker}/domains?zone_id=${zone}&hostname=${hostname}`,token),cf(`/zones/${zone}/workers/routes`,token),cf(`${worker}/scripts/${site}/subdomain`,token),cf(`${worker}/scripts/${site}/schedules`,token),cf(`${worker}/scripts/${site}/settings`,token)]);
+  const [live,producer,domains,routes,subdomain,schedules,settings,incident]=await Promise.all([active(site,token),active(enrolled.publisherWorker,token),cf(`${worker}/domains?zone_id=${zone}&hostname=${hostname}`,token),cf(`/zones/${zone}/workers/routes`,token),cf(`${worker}/scripts/${site}/subdomain`,token),cf(`${worker}/scripts/${site}/schedules`,token),cf(`${worker}/scripts/${site}/settings`,token),observeIncident(client(token,rootGet),enrolled.serviceCodeHash)]);
   assert.equal(producer.version,enrolled.publisherVersion);assert.equal(domains.length,1);const [domain]=domains;
   assert.equal(domain.service,site);assert.equal(domain.environment,'production');assert.equal(domain.hostname,hostname);assert.equal(domain.zone_id,zone);assert.equal(domain.enabled,true);
   assertExactRoutes(routes,enrolled);
@@ -54,9 +63,9 @@ export async function observeSite(enrolled,token){
   for(const [k,ns,limit] of [['FORECAST_RATE_LIMITER','419201',60],['STATS_HEALTH_RATE_LIMITER','419105',320]]){assert.equal(b[k].type,'ratelimit');assert.equal(String(b[k].namespace_id),ns);assert.deepEqual(b[k].simple,{limit,period:60});}
   // Strip version annotations only. In particular keep binding values/IDs, asset routing, operational settings and zone routes.
   const {annotations:_annotations,...stable}=settings;
-  const control={account,zone,site,domain,routes:by(routes,'id'),subdomain,schedules,assetConfig:cfg,
+  const control={account,zone,site,domain,routes:by(routes,'id'),subdomain,schedules,incident,assetConfig:cfg,
     activeBindings:by(v.bindings??[],'name'),activeEnv:v.env??{},settings:{...stable,bindings}};
-  return {...live,controlSha256:sha256(JSON.stringify(sortKeys(control))),producerVersion:producer.version,moduleSha256:moduleHash,
+  return {...live,incident,controlSha256:sha256(JSON.stringify(sortKeys(control))),producerVersion:producer.version,moduleSha256:moduleHash,
     headersSha256:sha256(Buffer.from(headers.content_base64,'base64')),annotations:v.annotations??{}};
 }
 const verifyDoc=(signed,key)=>{assert.equal(typeof signed.statement,'string');assert(verify(null,Buffer.from(signed.statement),key,Buffer.from(signed.signature,'base64')),'bad producer signature');return JSON.parse(signed.statement);};
@@ -86,6 +95,8 @@ export async function served(files, documentsOnly=false, immutable=new Set()){
 }
 export const versionMessage=(role,manifest)=>`root-${role}:${manifest}`;
 export function assertStartingState(g,live,h){
+  assert.equal(live.incident?.version,stageU.version,'wrong observed incident version');
+  assert.equal(live.incident.build,stageU.build,'wrong observed incident build');assert.match(live.incident.deployment,uuid);
   assert.equal(live.controlSha256,g.controlSha256,'Site control plane changed');assert.equal(live.version,g.fromVersion,'unexpected active Site version');assert.equal(live.deployment,g.fromDeployment,'unexpected active Site deployment');
-  if(g.operation!=='root-install-bridge') { const from=g.operation==='root-activate-forward'?'rollback':'forward';assert.equal(live.annotations['workers/tag'],g.source);assert.equal(live.annotations['workers/message'],versionMessage(from,h.directions[from].manifestSha256)); }
+  if(g.operation!=='root-install-bridge') { const from=g.operation==='root-restore-rollback'?'forward':'rollback';assert.equal(live.annotations['workers/tag'],g.source);assert.equal(live.annotations['workers/message'],versionMessage(from,h.directions[from].manifestSha256)); }
 }

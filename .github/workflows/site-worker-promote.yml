@@ -17,6 +17,8 @@ on:
           - root-install-bridge
           - root-activate-forward
           - root-restore-rollback
+          - root-abandon-bridge
+          - root-reconcile
 permissions:
   contents: read
 concurrency:
@@ -192,7 +194,7 @@ jobs:
           path: ${{ runner.temp }}/root-pair/rollback
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         id: forward
         with:
@@ -200,7 +202,7 @@ jobs:
           path: ${{ runner.temp }}/root-pair/forward
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ steps.rollback.outputs.artifact-id }}
@@ -223,9 +225,11 @@ jobs:
           name: root-pair-receipt-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/root-pair/receipt
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
   publish-root-pair:
-    if: contains(fromJSON('["root-install-bridge","root-activate-forward","root-restore-rollback"]'), inputs.operation) && github.ref == 'refs/heads/main' && github.ref_protected && inputs.deploy_sha == github.sha
+    outputs:
+      state_id: ${{ steps.state.outputs.artifact-id }}
+    if: contains(fromJSON('["root-install-bridge","root-activate-forward","root-restore-rollback","root-abandon-bridge","root-reconcile"]'), inputs.operation) && github.ref == 'refs/heads/main' && github.ref_protected && inputs.deploy_sha == github.sha
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: cloudflare-site-production
@@ -235,6 +239,9 @@ jobs:
     env:
       ROOT_OPERATION: ${{ inputs.operation }}
       ROOT_SITE_TRANSITION: ${{ vars.ROOT_SITE_TRANSITION }}
+      ROOT_SWITCH_SIGNERS: ${{ vars.ROOT_SWITCH_SIGNERS }}
+      ROOT_TECHNICAL_REVIEW: ${{ vars.ROOT_TECHNICAL_REVIEW }}
+      ROOT_OWNER_DECISION: ${{ vars.ROOT_OWNER_DECISION }}
       ROOT_PAIR_SOURCE_APPROVAL_SHA256: ${{ vars.ROOT_PAIR_SOURCE_APPROVAL_SHA256 }}
       ROOT_PAIR_REVIEW_SHA256: ${{ vars.ROOT_PAIR_REVIEW_SHA256 }}
       REVIEW_RUN: ${{ vars.ROOT_PAIR_REVIEW_RUN_ID }}
@@ -263,7 +270,7 @@ jobs:
           artifact-ids: ${{ steps.grant.outputs.receipt }}
           merge-multiple: true
           path: ${{ runner.temp }}/root-promotion/receipt
-      - if: inputs.operation != 'root-install-bridge'
+      - if: steps.grant.outputs.bridge_id != ''
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           github-token: ${{ github.token }}
@@ -271,6 +278,14 @@ jobs:
           artifact-ids: ${{ steps.grant.outputs.bridge_id }}
           merge-multiple: true
           path: ${{ runner.temp }}/root-promotion/bridge
+      - if: steps.grant.outputs.ack_id != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.grant.outputs.ack_run }}
+          artifact-ids: ${{ steps.grant.outputs.ack_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/root-promotion
       - id: seals
         env:
           GH_TOKEN: ${{ github.token }}
@@ -300,22 +315,67 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci/root-promotion-custody.mjs restore
-      - name: Provision pinned Chromium before any write
-        run: node node_modules/@playwright/test/cli.js install --with-deps chromium
       - name: Recheck live control, producer and sealed bytes; perform only this transition
+        if: inputs.operation != 'root-reconcile' && inputs.operation != 'root-abandon-bridge'
         env:
           GH_TOKEN: ${{ github.token }}
           ROOT_CONTROL_READ_TOKEN: ${{ secrets.CLOUDFLARE_ROOT_CONTROL_READ_TOKEN }}
+          ROOT_RUM_READ_TOKEN: ${{ secrets.CLOUDFLARE_ROOT_RUM_READ_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_SITE_API_TOKEN }}
+          ROOT_BROWSER_EU: ${{ secrets.ROOT_BROWSER_EU }}
+          ROOT_EGRESS_KEY: ${{ secrets.ROOT_EGRESS_KEY }}
+          ROOT_BROWSER_NON_EU: ${{ secrets.ROOT_BROWSER_NON_EU }}
           CLOUDFLARE_ACCOUNT_ID: 15be33fd20ea78eb3d60b719be831148
           SITE_DEPLOY_ACCOUNT_ID: 15be33fd20ea78eb3d60b719be831148
           SITE_DEPLOY_WORKER: collection-kit-site-production
           SITE_DEPLOY_HOSTNAME: nikkecollection.com
         run: node scripts/deploy-site.ts production-root-sealed "$GITHUB_SHA"
-      - name: Retain verified direction-specific live state (never on failed readback)
+      - name: Retain acknowledged root write before health checks
+        if: inputs.operation != 'root-reconcile' && inputs.operation != 'root-abandon-bridge'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: root-state-${{ inputs.operation }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/root-promotion/state.json
+          name: root-write-${{ inputs.operation }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/root-promotion/write.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
+      - name: Verify the acknowledged version without a Site writer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT_CONTROL_READ_TOKEN: ${{ secrets.CLOUDFLARE_ROOT_CONTROL_READ_TOKEN }}
+          ROOT_RUM_READ_TOKEN: ${{ secrets.CLOUDFLARE_ROOT_RUM_READ_TOKEN }}
+          ROOT_BROWSER_EU: ${{ secrets.ROOT_BROWSER_EU }}
+          ROOT_EGRESS_KEY: ${{ secrets.ROOT_EGRESS_KEY }}
+          ROOT_BROWSER_NON_EU: ${{ secrets.ROOT_BROWSER_NON_EU }}
+          CLOUDFLARE_ACCOUNT_ID: 15be33fd20ea78eb3d60b719be831148
+          SITE_DEPLOY_ACCOUNT_ID: 15be33fd20ea78eb3d60b719be831148
+          SITE_DEPLOY_WORKER: collection-kit-site-production
+          SITE_DEPLOY_HOSTNAME: nikkecollection.com
+        run: node scripts/ci/promote-root-pair.mjs confirm
+      - name: Retain verified direction-specific live state (never on failed readback)
+        id: state
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: root-state-${{ fromJSON(env.ROOT_SITE_TRANSITION).operation }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/root-promotion/state.json
+            ${{ runner.temp }}/root-promotion/regional.json
+          if-no-files-found: error
+          retention-days: 90
+  attest-root-state:
+    needs: publish-root-pair
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.publish-root-pair.outputs.state_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/verified-root
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ runner.temp }}/verified-root/state.json
+          create-storage-record: false
