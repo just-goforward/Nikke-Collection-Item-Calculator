@@ -28,6 +28,8 @@ cargo +1.99.1 fetch --locked --manifest-path rust/service-h14/Cargo.toml
 cargo +1.99.1 metadata --offline --locked --manifest-path rust/service-h14/Cargo.toml --format-version 1 >/dev/null
 ```
 
+With Chromium installed, `node --test e2e/stock-undo.test.mjs` checks that immediate focus, typing and Calculate use the restored stock after Undo. It is an offline component regression, not a package or release qualification.
+
 To regenerate the workspace lock after intentional manifest changes, use `pnpm install --no-frozen-lockfile` before the frozen checks. Retain the release-age gate and the exact lifecycle allowlist; do not automatically exempt freshly published versions. Production website packaging has its own identity, trust and artifact validation steps. Installing dependencies alone does not authenticate or release the site.
 
 ## Selection boundaries (2026-11-22)

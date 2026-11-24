@@ -220,6 +220,14 @@ node scripts/ci/incident-owner-upload-only.mjs "$bundle/public/worker.js" "$unti
 
 **승인 전 읽기 전용 scope.** 위 main/역사/소스 확인과 별도 읽기 권한이 있을 때 `node scripts/ci/incident-mobile-successor.mjs --review-scope "$until_epoch" "$editor_id" 4< "$registered_graph_reader_file"`을 사용한다. `editor_id`는 32자리 공개 식별자이며 토큰 문자열이 아니다. FD 0/3은 쓰지 않는다. scope와 digest, `uploadAuthorized:false`만 반환하며 승인·장부·업로드는 만들지 않는다. 실제 업로드에서는 요청자의 Editor를 별도 검증하고 새로 관측한 scope에만 승인 서명을 대조한다.
 
+### 단계 U 후속 준비: Undo 복원 수정 전용 (승인·업로드·활성화 아님)
+
+`scripts/ci/incident-undo-stage-u.mjs`는 레이아웃 `layoutU`의 정확한 원본 intent/ACK/verified 및 이전 장부를 선행 조건으로 삼는다. #99 제품 수정·생성된 서비스 identity·등록 계약·새 오프라인 게이트를 **한 번의 검토된 squash**로 기존 보호 main `c552ebfc…`에 적용한 경우만 검토한다. 실제 서명 보호 main SHA, 그 SHA의 성공 push/source jobs, 원래 게시자 키 및 배포를 확인한 별도 `ROOT_PAIR_SOURCE_APPROVAL_SHA256`이 필요하다. PR/로컬 SHA나 수동 run으로 대체하지 않는다.
+
+새 서비스 `670227ca951c6390ec4bfc94705f645378720de51edab254bafa3e5ec3a5f951`는 이전과 같은 정확한 receiver 모듈이더라도 `INCIDENT_BUILD`가 달라 기존 비활성 UUID를 쓸 수 없다. 합의된 독점 창과 읽기 자격으로 원래 장치의 `--review-scope`를 사용하면 FD 4만 읽고 `uploadAuthorized:false`를 반환한다. 실제 한 번의 비활성 업로드에는 별도로 등록된 `INCIDENT_UNDO_OWNER_COMMENT_ID`, `INCIDENT_UNDO_TECH_REVIEW`, `INCIDENT_UNDO_TECH_REVIEW_KEY`, FD 0/3/4의 범위가 좁은 자격이 필요하다. 예전 Editor나 정책 승인·서명은 재사용하지 않는다. 이 절은 해당 자격을 발급하거나 업로드를 요청하지 않는다.
+
+후속 슬롯 `successor-of-e0fd1e38-5f7b-4777-9d96-681c6bb45038`에 intent를 먼저 동기화한다. 승인된 한 번의 `deploy=false` 업로드 뒤 원래 inert/무경로/무cron 상태, 전체 버전 목록과 새 UUID의 모듈·바인딩을 독립 읽기로 대조한다. ACK 불명확·충돌·창 만료 시 장부를 보존하고 재실행하지 않는다. 성공해도 `activationAuthorized:false`다. 입수 후 원본 영수증을 별도로 검토하여 보호된 소스에 실제 UUID 및 원본 해시를 등록하기 전에는 새 비공개 QA 작업을 시작하지 않는다. 아래 과거 레이아웃 A 게이트는 수정하지 않는다. 새 Stage A 및 Site 게이트에는 실제 영수증과 동일 SHA의 준비 증거, 별도 운영 승인과 읽기 검증이 필요하며 여기에는 포함되지 않는다.
+
 ### 단계 A 소스 검토: 레이아웃 버전 전용 (활성화·Site 전환 미승인)
 
 이 절차는 업로드하지 않는다. 설치·업로드 영수증과 canary `sent/1`, 관리자의 별도 **DM 도착 확인**은 선행 근거이며 새 DM 시도나 쓰기 허가가 아니다. 루트 solver 승격이나 `/preview/` 변경은 포함하지 않는다.

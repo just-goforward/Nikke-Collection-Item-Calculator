@@ -14,9 +14,11 @@ import {baseline,schedule,script,target} from './incident-canary-control.mjs';
 import {account,bindings,db,digest,name,namespace,registry,root,workers,zone} from './incident-provider.mjs';
 import {original} from './incident-recovery-id.mjs';
 import {successorSummary} from '../../production-incidents/sealed-successor.ts';
-import enrolled from '../../site-worker/production-root-release-v1.json' with {type:'json'};
+import publication from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 import {graphEnv,owner,repo} from './incident-receipt.mjs';
 
+// The historical Stage A remains pinned to the layout receiver, not the current candidate.
+const enrolled={...publication,serviceCodeHash:layoutU.build};
 const candidate='e0fd1e38-5f7b-4777-9d96-681c6bb45038';
 const tmp=mkdtempSync(join(tmpdir(),'incident-activation-')),cwd=fileURLToPath(new URL('../../production-incidents/',import.meta.url));
 const modules={};before(()=>{

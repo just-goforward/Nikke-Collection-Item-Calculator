@@ -110,6 +110,8 @@ jobs:
         run: node --test scripts/ci/incident-mobile-successor.test.mjs
       - name: Verify exact existing incident activation and rollback (offline)
         run: node --test scripts/ci/incident-owner-activate.test.mjs
+      - name: Verify single inactive Undo successor (offline)
+        run: node --test scripts/ci/incident-undo-stage-u.test.mjs
 
       - name: Select the source profile from exact bytes, never a dispatch flag
         id: profile

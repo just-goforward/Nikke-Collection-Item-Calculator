@@ -36,7 +36,7 @@ function sync(dir) {const fd=openSync(dir,'r');try{fsyncSync(fd);}finally{closeS
 const record=(dir,name,v)=>{writeFileSync(join(dir,name),JSON.stringify(v)+'\n',{mode:0o600,flag:'wx',flush:true});sync(dir);};
 export function uploadScope(head,until,topology,editorId,readerId) {
   assert.match(head,/^[a-f0-9]{40}$/);assert.match(topology,/^[a-f0-9]{64}$/);assert.match(editorId,immutable);assert.match(readerId,immutable);assert.notEqual(editorId,readerId);
-  assert.equal(enrollment.serviceCodeHash,newBuild);assert.equal(digest(JSON.stringify(publicBindings(newBuild))),bindingsSha256);
+  assert.equal(digest(JSON.stringify(publicBindings(newBuild))),bindingsSha256);
   return {operation:'layout-successor-inactive-upload-v1',repository:repo,source:head,account,worker:original.workerId,predecessor,predecessorReceipt:stageU,build:newBuild,module:publicHash,bindingsSha256,donor:baseline.donor,inertDeployment:closed.deployment,topology,editorId,readerId,until};
 }
 // Independent reviewer may be an automated service. Only the authenticated human owner's unedited commit comment authorizes THIS scope.
@@ -104,6 +104,7 @@ async function main([file,end,editorId,...extra]) {
   const dir=join(userInfo().homedir,'.incident-owner-upload-only'),head=git('rev-parse','HEAD');
   const source=()=>{checkRecoveryCheckout(head,git);assert.equal(JSON.parse(gh('api','user')).id,owner);checkedMobileMain(head,api);};
   source();const priorReceipt=readStageU(dir);unusedSlot(dir);protectedEnv(graphEnv);
+  assert.equal(enrollment.serviceCodeHash,newBuild,'historical layout contract is no longer current');
   const {assertServiceH14Build}=await import('../service-h14-integrity.ts');const identity=await assertServiceH14Build();
   assert.equal(identity.codeHash,newBuild);assert.equal(identity.nativeSourceHash,enrollment.nativeSourceHash);assert.equal(identity.exactWasmHash,enrollment.nativeWasmSha256);
   const retained=process.env.INCIDENT_U_RETAINED_PROOF_DIR;

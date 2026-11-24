@@ -22,9 +22,9 @@ const digest = /^[0-9a-f]{64}$/, uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f
 const strings = (re, ...vals) => vals.every(x => typeof x === 'string' && re.test(x));
 const parsePinned = (path, pin) => { assert.match(pin, digest); const b = readFileSync(path); assert.equal(sha256(b), pin, 'promotion bytes differ from independent pin'); return JSON.parse(b); };
 export function readTransition(env) {
+  assertContext(env, env.GITHUB_SHA); assert.equal(env.GITHUB_REF_PROTECTED, 'true');
   // Source enrollment is necessary, not proof of activation. observeSite verifies the live receiver.
   assert.equal(enrolled.serviceCodeHash,layoutU.build,'no verified receiver for this candidate build');
-  assertContext(env, env.GITHUB_SHA); assert.equal(env.GITHUB_REF_PROTECTED, 'true');
   const op = env.ROOT_OPERATION, event = json(env.GITHUB_EVENT_PATH);
   assert(op==='root-reconcile' || Object.hasOwn(operations, op)); assert.equal(event.inputs.operation, op); assert.equal(event.inputs.deploy_sha, env.GITHUB_SHA);
   // The protected grant selects one direction. It is not itself the owner signature.
