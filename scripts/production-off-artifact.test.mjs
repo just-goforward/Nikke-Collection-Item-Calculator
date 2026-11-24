@@ -234,6 +234,7 @@ function fakeDeployment(options = {}) {
     if (command === "git") {
       assert.equal(configuration.env.CLOUDFLARE_API_TOKEN, undefined);
       if (args[0] === "rev-parse") return options.head ?? SHA;
+      if (args[0] === "ls-tree") return ""; // Historical pre-enrollment wrapper fixture.
       assert.deepEqual(args, ["status", "--porcelain", "--untracked-files=all"]);
       snapshots++;
       return options.status?.(snapshots) ?? "";
@@ -265,7 +266,7 @@ test("OFF promotion validates an existing-worker artifact before the synthetic c
   assert.equal(args[args.indexOf("--assets") + 1], DIST);
   assert.equal(upload[0].configuration.env.CLOUDFLARE_ACCOUNT_ID, ACCOUNT);
   assert.equal(upload[0].configuration.env.CLOUDFLARE_API_TOKEN, TOKEN);
-  assert.equal(f.calls.filter(call => call.command === "git").length, 4);
+  assert.equal(f.calls.filter(call => call.command === "git").length, 5);
   assert.equal(f.calls.filter(call => call.args.includes("--input-type=module")).length, 1);
 });
 

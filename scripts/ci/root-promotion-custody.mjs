@@ -8,6 +8,8 @@ import { assertContext } from '../site-release.mjs';
 import { requireReviewedBytes } from './root-source-profile.mjs';
 import { checkPair, checkReview } from './prepare-root-pair.mjs';
 import { childEnvironment } from './run-checked-command.mjs';
+import enrolled from '../../site-worker/production-root-release-v1.json' with {type:'json'};
+import {serviceBuild as predecessorBuild} from '../../production-incidents/sealed-successor.ts';
 
 export const root = resolve(import.meta.dirname, '../..');
 export const roles = ['rollback', 'forward'];
@@ -18,6 +20,8 @@ const digest = /^[0-9a-f]{64}$/, uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f
 const strings = (re, ...vals) => vals.every(x => typeof x === 'string' && re.test(x));
 const parsePinned = (path, pin) => { assert.match(pin, digest); const b = readFileSync(path); assert.equal(sha256(b), pin, 'promotion bytes differ from independent pin'); return JSON.parse(b); };
 export function readTransition(env) {
+  // Stage U holds every root direction. Only the earlier receiver binding has an enrolled version.
+  assert.equal(enrolled.serviceCodeHash,predecessorBuild,'no activated incident receiver for this candidate build');
   assertContext(env, env.GITHUB_SHA); assert.equal(env.GITHUB_REF_PROTECTED, 'true');
   const op = env.ROOT_OPERATION, event = json(env.GITHUB_EVENT_PATH);
   assert(Object.hasOwn(operations, op)); assert.equal(event.inputs.operation, op); assert.equal(event.inputs.deploy_sha, env.GITHUB_SHA);

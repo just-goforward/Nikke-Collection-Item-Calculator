@@ -5,7 +5,7 @@ import {tmpdir, userInfo} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {isDeepStrictEqual as same} from 'node:util';
-import {activeTokenId, bindings, client, digest, immutable, requireThat as check, root, versionId} from './incident-provider.mjs';
+import {account, activeTokenId, bindings, client, digest, immutable, requireThat as check, root, versionId} from './incident-provider.mjs';
 import {api, certifiedRun, gh, graphEnv, owner, ref, repo, workflow} from './incident-receipt.mjs';
 import {original} from './incident-recovery-id.mjs';
 import {policy} from './incident-owner.mjs';
@@ -18,21 +18,21 @@ const checkout = fileURLToPath(new URL('../../', import.meta.url));
 const versionList = `${target}/versions?per_page=100`;
 const uploadPath = `${target}/versions?deploy=false`;
 const inherited = ['ADMIN_ID', 'BOT_TOKEN'];
-const publicHash = '924bc0aa4ddb4c37351b4551c2d55696c5d0c50e14bef355d605a4af4109ed17';
+export const publicHash = '924bc0aa4ddb4c37351b4551c2d55696c5d0c50e14bef355d605a4af4109ed17';
 const successor = Object.freeze({
   run:'45197180403', version:'a7a44718-3df0-4516-a3fa-ebced4038b9f',
   deployment:'de7ca80b-dd35-47e3-a218-4cee7b05890c', restored:'b87e67ae-d1c2-455a-b7c9-e33126c91e57',
   module:'abfdaf31352409a747917ade12e6dd5fbbbac9a76cde214d65ec9849957eec00',
 });
-const beforeIds = [baseline.version, baseline.partial, baseline.donor, failed.version, successor.version].sort();
+export const beforeIds = Object.freeze([baseline.version, baseline.partial, baseline.donor, failed.version, successor.version].sort());
 // Both restoration IDs are provider readbacks, not fields signed by the historical permit.
 const history = [
   [successor.restored, baseline.version], [successor.deployment, successor.version],
   ['5dadd20e-0a39-41c1-863e-b5dc0329b972', baseline.version],
   [failed.deployment, failed.version], [baseline.deployment, baseline.version],
 ].map(([id,version_id]) => ({id,versions:[{version_id,percentage:100}]}));
-const closed = {deployment:successor.restored, version:baseline.version, crons:[]};
-const publicBindings = () => bindings(baseline.build).map(b => b.name === 'PUBLIC_INGRESS' ? {...b,text:'1'} : b);
+export const closed = Object.freeze({deployment:successor.restored, version:baseline.version, crons:[]});
+export const publicBindings = () => bindings(baseline.build).map(b => b.name === 'PUBLIC_INGRESS' ? {...b,text:'1'} : b);
 const attemptDir = () => join(userInfo().homedir, '.incident-owner-upload-only');
 
 function windowOpen(until) {
@@ -104,7 +104,7 @@ function historicalReceipt(dir, run, workflowPath, sha, artifact, filename) {
 
 // PR-side CI alone cannot authorize the operation. Require the merged, signed
 // protected tip and the successful post-merge push run including the offline guard.
-export function checkedMain(head,query) {
+export function checkedMain(head,query,step='Verify post-successor inactive upload only (offline)') {
   const branch = query('branches/main');
   check(branch.protected && branch.commit.sha === head && query(`commits/${head}`).commit.verification.verified === true,
     'protected signed source changed');
@@ -118,7 +118,7 @@ export function checkedMain(head,query) {
     Number.isSafeInteger(run.id) && Number.isSafeInteger(run.run_attempt) && run.run_attempt > 0,'no exact-main source CI');
   const jobs = query(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
   check(jobs.total_count === jobs.jobs.length && jobs.jobs.some(j => j.name === 'Site source prerequisites' && j.conclusion === 'success' &&
-    j.steps.some(s => s.name === 'Verify post-successor inactive upload only (offline)' && s.conclusion === 'success')), 'offline upload checks did not pass');
+    j.steps.some(s => s.name === step && s.conclusion === 'success')), 'offline upload checks did not pass');
 }
 
 export function checkedCheckout(git) {
@@ -137,6 +137,9 @@ function provenance() {
   const head = git('rev-parse','HEAD');
   const requireSource = () => checkedMain(head,api);
   requireSource();
+  return {retired:historicalEditor(),requireSource,head};
+}
+export function historicalEditor() {
   const dir = mkdtempSync(join(tmpdir(),'incident-upload-proof-'));
   try {
     const installed = historicalReceipt(dir,'45171435589',workflow,'b65321df6af1a67773642261315d3b6edd4c63bc','incident-installed','installed.json');
@@ -150,12 +153,14 @@ function provenance() {
     // The unsigned local journal records SENT/1 and inert restoration, not the restoration ID.
     const journal = readFileSync(join(userInfo().homedir,'.incident-private-canary',successor.run,'journal.jsonl'));
     check(digest(journal) === 'c86e031f96c0b4c5e87e76e516d4ded97c79ee4feef9561617ab1338a97f059f', 'wrong local successor journal');
-    return {retired:i.editorId,requireSource,head};
+    return i.editorId;
   } finally { rmSync(dir,{recursive:true,force:true}); }
 }
 
-async function checkedCredentials(retired, until) {
+export async function checkedCredentials(retired, until) {
   const management = client(privateInput(3)), read = client(privateInput(4));
+  const token = privateInput(0), editorRead = client(token);
+  async function inspect() {
   const groups = await management(`${root}/tokens/permission_groups`);
   check(Array.isArray(groups) && groups.every(g => typeof g?.id === 'string' && g.id && typeof g.name === 'string'), 'invalid permission catalog');
   const roles = new Map(groups.map(g => [g.id,g.name]));
@@ -163,7 +168,6 @@ async function checkedCredentials(retired, until) {
   const readerId = await activeTokenId(read);
   check(readerId === gh('variable','get','INCIDENT_GRAPH_TOKEN_ID','--env',graphEnv,'--repo',repo), 'unregistered graph reader');
   policy(await management(`${root}/tokens/${readerId}`),readerId,roles);
-  const token = privateInput(0), editorRead = client(token);
   const id = await activeTokenId(editorRead);
   check(id !== retired && id !== readerId,'wrong editor identity');
   const editor = await management(`${root}/tokens/${id}`);
@@ -171,12 +175,20 @@ async function checkedCredentials(retired, until) {
   const issued = Date.parse(editor.issued_on), expires = Date.parse(editor.expires_on), now = Date.now();
   check(issued <= now && expires > now && expires-issued <= 86400000 && expires >= until*1000, 'expected fresh, bounded Editor');
   check(same(await control(editorRead),closed),'Editor cannot confirm the reserved target');
-  return {read,token};
+  return {editorId:id,readerId,issued,expires};
+  }
+  const initial=await inspect();
+  const recheck=async()=>{
+    check(same(await inspect(),initial),'token identities or policy changed');
+    const mid=await activeTokenId(management);check(mid!==initial.editorId && mid!==initial.readerId,'shared token identity');
+    const detail=await management(root+'/tokens/'+mid);const [p]=detail.policies??[];
+    const groups=await management(root+'/tokens/permission_groups');const roles=new Map(groups.map(g=>[g.id,g.name]));
+    check(detail.id===mid && detail.status==='active' && detail.policies?.length===1 && p.effect==='allow' && p.permission_groups?.length===1 && roles.get(p.permission_groups[0].id)==='Account API Tokens Read' && same(p.resources,{['com.cloudflare.api.account.'+account]:'*'}),'wrong token policy reader');
+  };
+  return {read,token,...initial,recheck};
 }
 
-export async function executeUpload({module,until,read,token,dir,send,requireSource,head}) {
-  windowOpen(until);
-  check(module.length > 0 && module.length < 512*1024 && digest(module) === publicHash,'wrong public module');
+export function uploadReadbacks(read) {
   const expectClosed = async () => {
     check(same(await control(read),closed),'inert 100%/private controls changed');
     const {deployments} = await read(`${script}/deployments?per_page=100`);
@@ -195,6 +207,12 @@ export async function executeUpload({module,until,read,token,dir,send,requireSou
     await exact(baseline.donor,baseline.module,inherited,'worker.js');
     await exact(successor.version,successor.module,inherited,'private-canary.js');
   };
+  return {expectClosed,inventory,exact,verifyKnown};
+}
+export async function executeUpload({module,until,read,token,dir,send,requireSource,head}) {
+  windowOpen(until);
+  check(module.length > 0 && module.length < 512*1024 && digest(module) === publicHash,'wrong public module');
+  const {expectClosed,inventory,exact,verifyKnown}=uploadReadbacks(read);
   await expectClosed();
   const topology = await privateGraph(read);
   await verifyKnown();

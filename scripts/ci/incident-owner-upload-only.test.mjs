@@ -1,11 +1,12 @@
 import test, {after, before} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {closeSync, existsSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {checkedCheckout, checkedMain, executeUpload} from './incident-owner-upload-only.mjs';
+import {newBuild,predecessor,replaceInactive} from './incident-mobile-successor.mjs';
 import {baseline, failed, script, target} from './incident-canary-control.mjs';
 import {account, bindings, client, db, digest, name, namespace, registry, root, zone} from './incident-provider.mjs';
 import {original} from './incident-recovery-id.mjs';
@@ -78,9 +79,10 @@ test('credential cleanup preserves standard descriptors for a later synchronous 
   }
 });
 
-function fixture(fault) {
-  const dir = mkdtempSync(join(tmp,'state-')), marker = join(dir,`${original.workerId}.json`);
+function fixture(fault,mobile=false) {
+  const dir = mkdtempSync(join(realpathSync(tmp),'state-')), marker = join(dir,`${original.workerId}.json`);
   const others = Array.from({length:20},(_,i)=>({id:i.toString(16).padStart(32,'0'),name:`other-${i}`}));
+  const slot=join(dir,'successor-of-'+predecessor);
   const calls = []; let posted=false, writes=0;
   const worker = {id:original.workerId,name,created_on:original.createdOn,deployed_on:original.createdOn,tags:[original.tag],
     logpush:false,observability:{enabled:false},tail_consumers:[],subdomain:{enabled:false,previews_enabled:false},
@@ -88,11 +90,12 @@ function fixture(fault) {
   const pub = bindings(serviceBuild).map(b=>b.name==='PUBLIC_INGRESS'?{...b,text:'1'}:b);
   const inherited = ['ADMIN_ID','BOT_TOKEN'].map(name=>({name,type:'inherit',version_id:baseline.donor}));
   function row(id) {
-    assert.ok([baseline.version,baseline.donor,trial,candidate].includes(id));
-    const phase = id===trial?'canary':id===candidate?'public':'inert', main=phase==='canary'?'private-canary.js':'worker.js';
+    assert.ok([baseline.version,baseline.donor,trial,candidate,...(mobile?[predecessor]:[])].includes(id));
+    const phase = id===trial?'canary':[candidate,predecessor].includes(id)?'public':'inert', main=phase==='canary'?'private-canary.js':'worker.js';
     const names = id===baseline.version?[]:['ADMIN_ID','BOT_TOKEN'];
     if (fault==='wrong donor' && id===baseline.donor || fault==='lost secret' && id===candidate) names.pop();
-    const b = (phase==='public' && fault!=='canary bindings'?pub:bindings(phase==='canary'||fault==='canary bindings'&&id===candidate?successorBuild:serviceBuild))
+    const chosen=mobile && (id===candidate && fault!=='stale binding' || id===predecessor && fault==='changed predecessor')?pub.map(b=>b.name==='INCIDENT_BUILD'?{...b,text:newBuild}:b):pub;
+    const b = (phase==='public' && fault!=='canary bindings'?chosen:bindings(phase==='canary'||fault==='canary bindings'&&id===candidate?successorBuild:serviceBuild))
       .map(x=>x.type==='d1'?{...x,database_id:db}:x).concat(names.map(name=>({name,type:'secret_text'})));
     const bytes = id===candidate&&fault==='different bytes'?bundles.canary:bundles[phase];
     const v = {id,compatibility_date:'2026-08-14',main_module:main,usage_model:'standard',urls:id===candidate&&fault==='version URL'?['test.invalid']:[],
@@ -118,6 +121,7 @@ function fixture(fault) {
     }
     if(path===`${target}/versions?per_page=100`) {
       const ids=knownIds.slice(); if(fault==='missing successor') ids.pop();
+      if(mobile && fault!=='absent predecessor')ids.push(predecessor);
       if(fault==='same count wrong ID') ids[1]=candidate;
       if(posted && fault!=='no visible result') ids.push(candidate);
       if(posted && fault==='extra version') ids.push('11111111-2222-3333-4444-555555555555');
@@ -128,6 +132,7 @@ function fixture(fault) {
     if(path===`${root}/d1/database/${db}`) return [{name,uuid:db}];
     if(path===`${root}/pages/projects?per_page=1`) return [[],1,0];
     if(path===`/zones?account.id=${account}&per_page=50`) return [[{id:zone,account:{id:account}}],50,1];
+    if(mobile && path==='/zones/'+zone+'/workers/routes') return [[['863270c636c945b8b788c329c9762f50','/preview/*','collection-kit-site-preview-k1r2'],['483199a1890b4fb696b38d53b6d63e3c','/api/calendar','collection-kit-conditional-production'],['85e95eb76fd94eeba4531b7b26caa11c','/api/joint-supply/v2','collection-kit-conditional-production']].map(([id,p,script])=>({id,pattern:'nikkecollection.com'+p,script,request_limit_fail_open:fault==='fail-open route'}))];
     if(path===`/zones/${zone}/workers/routes`) return [fault==='route'?[{id:'0'.repeat(32),pattern:'example.test/*',script:name}]:[]];
     if(path===`${target}/previews?per_page=1`) { const a=posted&&fault==='new preview'?[{}]:[]; return [a,1,a.length]; }
     if(path.endsWith(`/domains?service=${name}`)) return [[],0,0];
@@ -145,8 +150,10 @@ function fixture(fault) {
       return Response.json({success:true,errors:[],messages:[],result,result_info});
     }
     writes++;assert.equal(writes,1);assert.equal(options.method,'POST');assert.equal(path,`${target}/versions?deploy=false`);
-    assert.equal(options.headers.authorization,'Bearer offline-editor');assert.equal(JSON.parse(readFileSync(marker)).phase,'attempt-consumed');
-    assert.deepEqual(JSON.parse(options.body),{main_module:'worker.js',compatibility_date:'2026-08-14',compatibility_flags:[],bindings:[...pub,...inherited],
+    assert.equal(options.headers.authorization,'Bearer offline-editor');
+    if(mobile)assert.equal(JSON.parse(readFileSync(join(slot,'intent.json'))).scope.predecessor,predecessor);else assert.equal(JSON.parse(readFileSync(marker)).phase,'attempt-consumed');
+    const sentBindings=mobile?pub.map(b=>b.name==='INCIDENT_BUILD'?{...b,text:newBuild}:b):pub;
+    assert.deepEqual(JSON.parse(options.body),{main_module:'worker.js',compatibility_date:'2026-08-14',compatibility_flags:[],bindings:[...sentBindings,...inherited],
       modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:bundles.public.toString('base64')}]});
     // The provider might create a version even though the response never arrives.
     posted=fault!=='no visible result';
@@ -155,11 +162,19 @@ function fixture(fault) {
     if(fault==='old ID') return Response.json({success:true,errors:null,messages:null,result:{id:trial}});
     return Response.json({success:true,errors:null,messages:null,result:{id:candidate}});
   };
+  if(mobile){const run=()=>replaceInactive({module:bundles.public,until:Math.floor(Date.now()/1000)+900,head:'a'.repeat(40),dir,read:client('offline-reader',send),send,token:'offline-editor',editorId:'1'.repeat(32),readerId:'2'.repeat(32),authorize:scope=>{assert.notEqual(fault,'unsigned');assert.equal(scope.build,newBuild);return {scopeSha256:digest(JSON.stringify(scope))};}});return {run,slot,writes:()=>writes};}
   const run=()=>executeUpload({module:fault==='wrong pin'?bundles.canary:bundles.public,until:Math.floor(Date.now()/1000)+900,
     read:client('offline-reader',send),token:'offline-editor',dir,send,head:'a'.repeat(40),
     requireSource:()=>assert.notEqual(fault,'main moved')});
   return {run,calls,marker,writes:()=>writes};
 }
+test('mobile successor: only the separately journaled new version can verify; no activation or replay',async()=>{
+  for(const [fault,count] of [[null,1],['absent predecessor',0],['changed predecessor',0],['unsigned',0],['fail-open route',0],['old ID',1],['lost ACK',1],['stale binding',1],['extra version',1],['post deployment drift',1]]){
+    const f=fixture(fault,true);
+    if(fault)await assert.rejects(f.run());else {const result=await f.run();assert.equal(result.id,candidate);assert.equal(result.activationAuthorized,false);assert.equal(JSON.parse(readFileSync(join(f.slot,'ack.json'))).build,newBuild);}
+    assert.equal(f.writes(),count);assert.equal(existsSync(join(f.slot,'verified.json')),!fault);await assert.rejects(f.run());assert.equal(f.writes(),count);
+  }
+});
 
 test('only one inactive public version, independently verified against actual bundled bytes and unchanged private graph',async()=>{
   const f=fixture();const v=await f.run();assert.equal(v.phase,'inactive-upload-verified');assert.equal(v.candidate,candidate);assert.equal(v.deployment,restored);
