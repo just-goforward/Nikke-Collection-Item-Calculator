@@ -6,7 +6,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {checkedCheckout, checkedMain, executeUpload} from './incident-owner-upload-only.mjs';
-import {newBuild,predecessor,replaceInactive,reviewScope} from './incident-mobile-successor.mjs';
+import {newBuild,replaceInactive,reviewScope} from './incident-mobile-successor.mjs';
+import {stageU,stageUPredecessor} from './incident-stage-u-evidence.mjs';
 import {baseline, failed, script, target} from './incident-canary-control.mjs';
 import {account, bindings, client, db, digest, name, namespace, registry, root, zone} from './incident-provider.mjs';
 import {original} from './incident-recovery-id.mjs';
@@ -82,7 +83,7 @@ test('credential cleanup preserves standard descriptors for a later synchronous 
 function fixture(fault,mobile=false) {
   const dir = mkdtempSync(join(realpathSync(tmp),'state-')), marker = join(dir,`${original.workerId}.json`);
   const others = Array.from({length:20},(_,i)=>({id:i.toString(16).padStart(32,'0'),name:`other-${i}`}));
-  const slot=join(dir,'successor-of-'+predecessor);
+  const slot=join(dir,'successor-of-'+stageU.version);
   const calls = []; let posted=false, writes=0;
   const worker = {id:original.workerId,name,created_on:original.createdOn,deployed_on:original.createdOn,tags:[original.tag],
     logpush:false,observability:{enabled:false},tail_consumers:[],subdomain:{enabled:false,previews_enabled:false},
@@ -90,11 +91,13 @@ function fixture(fault,mobile=false) {
   const pub = bindings(serviceBuild).map(b=>b.name==='PUBLIC_INGRESS'?{...b,text:'1'}:b);
   const inherited = ['ADMIN_ID','BOT_TOKEN'].map(name=>({name,type:'inherit',version_id:baseline.donor}));
   function row(id) {
-    assert.ok([baseline.version,baseline.donor,trial,candidate,...(mobile?[predecessor]:[])].includes(id));
-    const phase = id===trial?'canary':[candidate,predecessor].includes(id)?'public':'inert', main=phase==='canary'?'private-canary.js':'worker.js';
+    assert.ok([baseline.version,baseline.donor,trial,candidate,...(mobile?[stageUPredecessor,stageU.version]:[])].includes(id));
+    const phase = id===trial?'canary':[candidate,stageUPredecessor,stageU.version].includes(id)?'public':'inert', main=phase==='canary'?'private-canary.js':'worker.js';
     const names = id===baseline.version?[]:['ADMIN_ID','BOT_TOKEN'];
     if (fault==='wrong donor' && id===baseline.donor || fault==='lost secret' && id===candidate) names.pop();
-    const chosen=mobile && (id===candidate && fault!=='stale binding' || id===predecessor && fault==='changed predecessor')?pub.map(b=>b.name==='INCIDENT_BUILD'?{...b,text:newBuild}:b):pub;
+    const build=mobile && id===candidate?(fault==='stale binding'?stageU.build:newBuild):
+      mobile && id===stageU.version?(fault==='changed predecessor'?newBuild:stageU.build):serviceBuild;
+    const chosen=pub.map(b=>b.name==='INCIDENT_BUILD'?{...b,text:build}:b);
     const b = (phase==='public' && fault!=='canary bindings'?chosen:bindings(phase==='canary'||fault==='canary bindings'&&id===candidate?successorBuild:serviceBuild))
       .map(x=>x.type==='d1'?{...x,database_id:db}:x).concat(names.map(name=>({name,type:'secret_text'})));
     const bytes = id===candidate&&fault==='different bytes'?bundles.canary:bundles[phase];
@@ -121,7 +124,7 @@ function fixture(fault,mobile=false) {
     }
     if(path===`${target}/versions?per_page=100`) {
       const ids=knownIds.slice(); if(fault==='missing successor') ids.pop();
-      if(mobile && fault!=='absent predecessor')ids.push(predecessor);
+      if(mobile){ids.push(stageUPredecessor);if(fault!=='absent predecessor')ids.push(stageU.version);}
       if(fault==='same count wrong ID') ids[1]=candidate;
       if(posted && fault!=='no visible result') ids.push(candidate);
       if(posted && fault==='extra version') ids.push('11111111-2222-3333-4444-555555555555');
@@ -151,7 +154,7 @@ function fixture(fault,mobile=false) {
     }
     writes++;assert.equal(writes,1);assert.equal(options.method,'POST');assert.equal(path,`${target}/versions?deploy=false`);
     assert.equal(options.headers.authorization,'Bearer offline-editor');
-    if(mobile)assert.equal(JSON.parse(readFileSync(join(slot,'intent.json'))).scope.predecessor,predecessor);else assert.equal(JSON.parse(readFileSync(marker)).phase,'attempt-consumed');
+    if(mobile)assert.deepEqual(JSON.parse(readFileSync(join(slot,'intent.json'))).scope.predecessorReceipt,stageU);else assert.equal(JSON.parse(readFileSync(marker)).phase,'attempt-consumed');
     const sentBindings=mobile?pub.map(b=>b.name==='INCIDENT_BUILD'?{...b,text:newBuild}:b):pub;
     assert.deepEqual(JSON.parse(options.body),{main_module:'worker.js',compatibility_date:'2026-08-14',compatibility_flags:[],bindings:[...sentBindings,...inherited],
       modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:bundles.public.toString('base64')}]});
@@ -159,12 +162,12 @@ function fixture(fault,mobile=false) {
     posted=fault!=='no visible result';
     if(fault==='lost ACK'||fault==='no visible result') throw Error('connection lost');
     if(fault==='invalid ACK') return Response.json({success:true,errors:[{}],messages:[],result:{id:candidate}});
-    if(fault==='old ID') return Response.json({success:true,errors:null,messages:null,result:{id:trial}});
+    if(fault==='old ID') return Response.json({success:true,errors:null,messages:null,result:{id:mobile?stageU.version:trial}});
     return Response.json({success:true,errors:null,messages:null,result:{id:candidate}});
   };
   if(mobile){
-    const inputs={head:'a'.repeat(40),until:Math.floor(Date.now()/1000)+900,editorId:'1'.repeat(32),readerId:'2'.repeat(32),read:client('offline-reader',send)};
-    const run=()=>replaceInactive({...inputs,module:bundles.public,dir,send,token:'offline-editor',authorize:scope=>{assert.notEqual(fault,'unsigned');assert.equal(scope.build,newBuild);return {scopeSha256:digest(JSON.stringify(scope))};}});
+    const inputs={head:'a'.repeat(40),dir,until:Math.floor(Date.now()/1000)+900,editorId:'1'.repeat(32),readerId:'2'.repeat(32),read:client('offline-reader',send)};
+    const run=()=>replaceInactive({...inputs,module:bundles.public,send,token:'offline-editor',authorize:scope=>{assert.notEqual(fault,'unsigned');assert.equal(scope.build,newBuild);return {scopeSha256:digest(JSON.stringify(scope))};}});
     return {run,preview:()=>reviewScope(inputs),slot,writes:()=>writes};
   }
   const run=()=>executeUpload({module:fault==='wrong pin'?bundles.canary:bundles.public,until:Math.floor(Date.now()/1000)+900,
@@ -178,12 +181,18 @@ test('scope preview only reads; its digest binds the actual upload and creates n
   const u=await f.run();assert.equal(u.approval.scopeSha256,p.scopeSha256);assert.deepEqual(u.scope,p.scope);
   const bad=fixture('changed predecessor',true);await assert.rejects(bad.preview());assert(!existsSync(bad.slot));assert.equal(bad.writes(),0);
 });
-test('mobile successor: only the separately journaled new version can verify; no activation or replay',async()=>{
-  for(const [fault,count] of [[null,1],['absent predecessor',0],['changed predecessor',0],['unsigned',0],['fail-open route',0],['old ID',1],['lost ACK',1],['stale binding',1],['extra version',1],['post deployment drift',1]]){
+test('layout successor: seven exact versions to eight; only the new slot can verify; no activation or replay',async()=>{
+  for(const [fault,count] of [[null,1],['absent predecessor',0],['changed predecessor',0],['unsigned',0],['fail-open route',0],['split',0],['cron',0],['old ID',1],['lost ACK',1],['no visible result',1],['stale binding',1],['lost secret',1],['extra env',1],['different bytes',1],['version URL',1],['new preview',1],['extra version',1],['post deployment drift',1]]){
     const f=fixture(fault,true);
-    if(fault)await assert.rejects(f.run());else {const result=await f.run();assert.equal(result.id,candidate);assert.equal(result.activationAuthorized,false);assert.equal(JSON.parse(readFileSync(join(f.slot,'ack.json'))).build,newBuild);}
+    if(fault)await assert.rejects(f.run());else {const result=await f.run();assert.equal(result.id,candidate);assert.equal(result.activationAuthorized,false);
+      assert.deepEqual(JSON.parse(readFileSync(join(f.slot,'ack.json'))),{id:candidate,source:'a'.repeat(40),predecessor:stageU.version,build:newBuild,module:stageU.module,bindingsSha256:result.scope.bindingsSha256});}
     assert.equal(f.writes(),count);assert.equal(existsSync(join(f.slot,'verified.json')),!fault);await assert.rejects(f.run());assert.equal(f.writes(),count);
+    if(count){await assert.rejects(f.preview(),/attempt already consumed/);assert.ok(existsSync(join(f.slot,'intent.json')));}
   }
+});
+test('concurrent layout uploads consume one fixed predecessor slot',async()=>{
+  const f=fixture(null,true),results=await Promise.allSettled([f.run(),f.run()]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(f.writes(),1);
 });
 
 test('only one inactive public version, independently verified against actual bundled bytes and unchanged private graph',async()=>{

@@ -155,7 +155,8 @@ export function checkedMain(head,query,requiredStep='Verify post-successor inact
 export function checkedMobileMain(head,query) {
   const {jobs,event} = sourceJobs(head,query,true);
   const required = [
-    ['Site source prerequisites', ['Verify post-successor inactive upload only (offline)', 'Verify mobile retry inactive successor (offline)',
+    ['Site source prerequisites', ['Verify post-successor inactive upload only (offline)', 'Verify single inactive layout successor (offline)',
+      'Verify exact existing incident activation and rollback (offline)',
       'Select the source profile from exact bytes, never a dispatch flag',
       ...(event === 'workflow_dispatch' ? ['Authenticate the signed protected main tip'] : [])]],
     ['Production root source (no publication)', ['Verify formal source bindings and the two-direction preparation contract',

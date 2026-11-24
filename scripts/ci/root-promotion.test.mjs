@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { operations, paths, sha256, verifyHandoff } from './root-promotion-custody.mjs';
+import { operations, paths, readTransition, sha256, verifyHandoff } from './root-promotion-custody.mjs';
 import { assertExactRoutes, checkFresh, versionMessage } from './root-promotion-live.mjs';
 import { rootGet } from './root-promotion-get.mjs';
 import {stageU} from './incident-stage-u-evidence.mjs';
@@ -14,6 +14,10 @@ import { transition as publishTransition, confirmTransition, confirmBridgeExit, 
 const after='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const incident={version:stageU.version,build:stageU.build,deployment:'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef'};
 const transition=async(g,c,io)=>confirmTransition(g,c,await publishTransition(g,c,io),io,async()=>{});
+test('without a verified layout receiver receipt no Site grant is read, in either direction',()=>{
+  for(const op of [...Object.keys(operations),'root-reconcile'])
+    assert.throws(()=>readTransition({ROOT_OPERATION:op}),/no verified receiver for this candidate build/);
+});
 function fixture(op){
   const g={source:'test-only',operation:op,minimumProducerSequence:7,fromVersion:'before',fromDeployment:'old',controlSha256:'control',rumConfigSha256:sha256('config'),previewSha256:sha256('[]'),bridge:op==='root-install-bridge'?null:{}};
   const role=operations[op],h={directions:{rollback:{manifestSha256:'R'},forward:{manifestSha256:'F'}}},c={role,h,manifest:h.directions[role].manifestSha256,expiresAt:Date.now()+60000,pair:{files:{headersSha256:'paired-headers'}}};

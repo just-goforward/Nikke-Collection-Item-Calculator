@@ -177,7 +177,19 @@ node scripts/ci/incident-owner-upload-only.mjs "$bundle/public/worker.js" "$unti
 
 완료는 `inactive-upload-verified`만 인정한다. 기록은 원 장치 OS 계정 홈의 `~/.incident-owner-upload-only/bd4b7c3527c14626935139b0924e1249.json`(POST **전** 배타적 생성·동기화)과 응답 ID의 `.ack`다. 실패·유실·무응답·CI/서명 만료·불일치 시 재실행, 다른 장치/계정, 마커 삭제, 구 canary/배포 도구로 보정하지 않는다. **Cloudflare의 여러 GET과 POST 사이 원자적 잠금은 없다.** 같은 reader로 버전 전체·deployments·배포 비율·cron·preview·그래프만 대조하며, `.ack`나 목록에서 보이는 새 ID만으로 성공 판정하지 않는다. 저장된 비밀값이나 D1 행을 열어 대조하지 않는다. 실제 활성화·공개·발송은 별도 의사결정이다.
 
-### 단계 U: 모바일 재시도 후보의 비활성 후속 버전 (검토 초안, 실행 승인 아님)
+### 레이아웃 후보: 원본 U에만 결속된 단일 비활성 후속 업로드 (미승인)
+
+레이아웃이 바뀐 서비스의 `INCIDENT_BUILD`는 `2bfe30a171be2e58243bcf3c6b05961c3b031a1d4ddbc114e650a928605c90d0`다. 아래 기록의 `3ffefebc-3a91-424c-b8d0-b4d5aa0a0218`은 `24d65a82…`만 처리하며, **새 버전 UUID나 영수증은 아직 없다**. 기존 U/A 명령과 승인을 재사용하지 않는다.
+
+1. `1b73c733283f3cecaaaee782fe897281493be631`의 직계 자식인 단일 서명 squash만 검토한다. `checkRecoveryCheckout`의 전체 경로 목록과 실제 diff(제품 두 파일, enrollment, incident 및 release 검사·문서)를 확인한다. 보호 main의 정확한 SHA·enrollment 소스 검토와 같은 attempt의 CI가 필요하다. 비공개 QA·제품 packet, 운영 인증이나 업로드는 이 커밋의 산출물이 아니다.
+2. 원 장치의 이전 marker/ACK와 U의 intent/ACK/verified 원본을 모두 읽어 고정 해시와 대조한다. 설치·성공 및 실패 canary·배포 이력도 그대로 보존한다. 새 scope에는 `layout-successor-inactive-upload-v1`, U의 원본 세 해시, 위 단일 빌드, 기존 공개 모듈 `924bc0aa…`, 비밀 제외 바인딩 SHA-256 `8db7effc4f4f7f0bf97c536e4960f642692806689c83a871dd4f1b870ef383bd`, 고정 donor/inert와 이번 창·자격 ID가 들어간다.
+3. 별도 읽기 권한으로만 `node scripts/ci/incident-mobile-successor.mjs --review-scope "$until_epoch" "$editor_id" 4< "$registered_graph_reader_file"`을 사용한다. 소유자의 변경되지 않은 정확한 커밋 댓글과 독립 서명 검토가 각각 필요하다. U에서 사용한 변수가 아니라 보호 환경의 `INCIDENT_LAYOUT_OWNER_COMMENT_ID`, `INCIDENT_LAYOUT_TECH_REVIEW`, `INCIDENT_LAYOUT_TECH_REVIEW_KEY`를 쓴다. 댓글 형식은 아래와 같되 새 scope·서명의 digest여야 한다. 같은 SHA의 녹색 CI도 운영 승인이 아니다.
+4. 승인된 배타 창에서만 같은 CLI에 `"$bundle/public/worker.js" "$until_epoch"`를 주고, 기존 FD 0/3/4 방식으로 U 완료 후 발행한 새 단일 Worker Editor와 별도 reader들을 전달한다. 허용되는 POST는 `versions?deploy=false` 한 번뿐이다. 원 장치 고정 슬롯 `~/.incident-owner-upload-only/successor-of-3ffefebc-3a91-424c-b8d0-b4d5aa0a0218/`을 배타 생성하고 intent를 먼저 동기화한다. 오류·무응답이어도 슬롯 삭제, 다른 장치 재시도, 목록에서 ACK 추정은 금지한다.
+5. 원래 7개 버전·5개 deployment·inert 단독 100%·기존 3개 route·빈 cron/preview/domain을 확인한다. ACK 이후에는 새 UUID의 모듈, 바인딩 및 비밀 **이름**과 정확히 8개 버전, 변경되지 않은 그래프와 inert 트래픽까지 확인해야 `verified.json`을 만든다. secret 값·D1·발송·Site에는 쓰지 않는다. `activationAuthorized:false`는 영구 보존한다. 실제 새 intent/ACK/verified 원본 해시·UUID에 결속하는 별도 코드 검토와 의사결정 전에는 incident 활성화와 모든 Site 전환을 계속 차단한다.
+
+### 과거 증거: 단계 U 모바일 재시도 후보 (재실행 금지)
+
+아래 U 절차는 원본 영수증의 출처를 설명하는 역사 기록이다. 명령·함수·파일 목록은 당시 소스(`b84443033056b28a5f23594f90c4171863015e57`) 기준이며, 현재 같은 이름의 CLI는 위 레이아웃 후보 전용이다. 과거 명령을 현재 checkout에서 실행하지 않는다.
 
 기존 공개 모듈의 SHA-256은 같아도 `INCIDENT_BUILD`는 버전별 바인딩이다. `00323557-9e9f-470f-b491-3906316f5d69`는 이전 단일 빌드만 받는다. 새 단일 빌드는 `24d65a8263bf42e0205f4ee49c5451344c7c35c4c645cb849c4e88a47bb55f83`이다. 이전 inert/donor·private canary의 빌드, SQL, 마커와 ACK는 보존한다. U는 Site의 모든 공개 방향 및 legacy/OFF/rebuild 우회를 차단한다. U에는 incident 활성화·롤백 기능이 없다. PR #90이나 테스트 결과는 업로드 승인이 아니다.
 
@@ -208,7 +220,7 @@ node scripts/ci/incident-owner-upload-only.mjs "$bundle/public/worker.js" "$unti
 
 **승인 전 읽기 전용 scope.** 위 main/역사/소스 확인과 별도 읽기 권한이 있을 때 `node scripts/ci/incident-mobile-successor.mjs --review-scope "$until_epoch" "$editor_id" 4< "$registered_graph_reader_file"`을 사용한다. `editor_id`는 32자리 공개 식별자이며 토큰 문자열이 아니다. FD 0/3은 쓰지 않는다. scope와 digest, `uploadAuthorized:false`만 반환하며 승인·장부·업로드는 만들지 않는다. 실제 업로드에서는 요청자의 Editor를 별도 검증하고 새로 관측한 scope에만 승인 서명을 대조한다.
 
-### 단계 A 초안: 검증된 모바일 후속 버전의 정확 경로·5분 cron 전환 (루트 승격과 별개)
+### 과거 단계 A 초안: 기존 모바일 버전 전용 (레이아웃 후보에 사용 금지)
 
 이 절차는 업로드하지 않는다. 설치·업로드 영수증과 canary `sent/1`, 관리자의 별도 **DM 도착 확인**은 선행 근거이며 새 DM 시도나 쓰기 허가가 아니다. 루트 solver 승격이나 `/preview/` 변경은 포함하지 않는다.
 

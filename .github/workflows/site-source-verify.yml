@@ -106,7 +106,7 @@ jobs:
         run: node --test production-incidents/private-canary.test.mjs production-incidents/private-canary.workerd.test.mjs scripts/ci/incident-canary-control.test.mjs
       - name: Verify post-successor inactive upload only (offline)
         run: node --test scripts/ci/incident-owner-upload-only.test.mjs
-      - name: Verify mobile retry inactive successor (offline)
+      - name: Verify single inactive layout successor (offline)
         run: node --test scripts/ci/incident-mobile-successor.test.mjs
       - name: Verify exact existing incident activation and rollback (offline)
         run: node --test scripts/ci/incident-owner-activate.test.mjs
