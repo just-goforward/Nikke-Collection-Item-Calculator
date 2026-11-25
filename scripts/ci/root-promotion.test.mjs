@@ -7,27 +7,32 @@ import { join, resolve } from 'node:path';
 import { operations, paths, readTransition, sha256, verifyHandoff } from './root-promotion-custody.mjs';
 import { assertExactRoutes, checkFresh, versionMessage } from './root-promotion-live.mjs';
 import { rootGet } from './root-promotion-get.mjs';
-import {layoutU,stageU,stageUPredecessor} from './incident-stage-u-evidence.mjs';
+import {layoutU,undoU,stageU,stageUPredecessor} from './incident-stage-u-evidence.mjs';
 import { transition as publishTransition, confirmTransition, confirmBridgeExit, readWriteCheckpoint } from './promote-root-pair.mjs';
 import enrollment from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 
 // Test only sequencing below custody, with in-memory counters. No credentials, approved production SHA, environment grant or remotely consumable receipt.
 const after='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-const incident={version:layoutU.version,build:layoutU.build,deployment:'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef'};
+const incident={version:undoU.version,build:undoU.build,deployment:'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef'};
 const transition=async(g,c,io)=>confirmTransition(g,c,await publishTransition(g,c,io),io,async()=>{});
 test('Site operations outside exact-main manual workflow are denied before receiver checks',()=>{
   for(const op of [...Object.keys(operations),'root-reconcile'])
     assert.throws(()=>readTransition({ROOT_OPERATION:op}),/Exact main manual workflow required/);
 });
-test('an exact-main manual workflow cannot proceed without a receiver for the enrolled build',()=>{
+test('a protected workflow and enrolled inactive receiver still do not grant a Site operation',t=>{
+  assert.equal(enrollment.serviceCodeHash,undoU.build);
+  const dir=mkdtempSync(join(tmpdir(),'undo-transition-'));
+  t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const event=join(dir,'event.json');
   const repository='just-goforward/Nikke-Collection-Item-Calculator',sha='a'.repeat(40);
   const context={GITHUB_REPOSITORY:repository,GITHUB_SHA:sha,GITHUB_WORKFLOW_SHA:sha,GITHUB_REF:'refs/heads/main',
     GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF_PROTECTED:'true',GITHUB_RUN_ID:'1',GITHUB_RUN_ATTEMPT:'1',
     GITHUB_WORKFLOW_REF:`${repository}/.github/workflows/site-worker-promote.yml@refs/heads/main`};
-  for(const op of [...Object.keys(operations),'root-reconcile'])
-    assert.throws(()=>readTransition({...context,ROOT_OPERATION:op}),
-      {code:'ERR_ASSERTION',message:/^no verified receiver for this candidate build(?:\n|$)/,
-        actual:enrollment.serviceCodeHash,expected:layoutU.build});
+  for(const op of [...Object.keys(operations),'root-reconcile']) {
+    writeFileSync(event,JSON.stringify({inputs:{operation:op,deploy_sha:sha}}));
+    assert.throws(()=>readTransition({...context,ROOT_OPERATION:op,GITHUB_EVENT_PATH:event,ROOT_SITE_TRANSITION:'{"profile":"not-authorized"}'}),
+      {code:'ERR_ASSERTION',actual:'not-authorized',expected:'production-root-transition-v1'});
+  }
 });
 function fixture(op){
   const g={source:'test-only',operation:op,minimumProducerSequence:7,fromVersion:'before',fromDeployment:'old',controlSha256:'control',rumConfigSha256:sha256('config'),previewSha256:sha256('[]'),bridge:op==='root-install-bridge'?null:{}};
@@ -78,7 +83,7 @@ for(const [operation,expected,pre] of [['root-install-bridge','BRIDGE_READY','ge
 }
 test('each Site write and terminal readback needs the same verified active incident identity',async()=>{
   for(const op of ['root-install-bridge','root-activate-forward','root-restore-rollback','root-abandon-bridge']){
-    for(const side of ['pre','post'])for(const patch of [{version:stageUPredecessor},{version:stageU.version},{build:stageU.build},{version:stageU.version,build:stageU.build},{build:sha256('other build')}]){
+    for(const side of ['pre','post'])for(const patch of [{version:stageUPredecessor},{version:stageU.version},{build:stageU.build},{version:stageU.version,build:stageU.build},{version:layoutU.version},{build:layoutU.build},{version:layoutU.version,build:layoutU.build},{build:sha256('other build')}]){
       const f=fixture(op),observe=f.io.observe;let n=0;
       f.io.observe=()=>{const live=observe();++n;
         const change=side==='pre'?n===1:op==='root-abandon-bridge'?n===2:f.calls.includes('write');

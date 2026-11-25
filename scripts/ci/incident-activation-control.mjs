@@ -3,14 +3,14 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {isDeepStrictEqual as same} from 'node:util';
 import {baseline, control, privateGraph, schedule, script, target} from './incident-canary-control.mjs';
 import {beforeIds, history, publicBindings, publicHash, uploadReadbacks} from './incident-owner-upload-only.mjs';
-import {layoutU,stageU,stageUPredecessor,checkReceiverVersion,checkLayoutVersion} from './incident-stage-u-evidence.mjs';
+import {layoutU,undoU,stageU,stageUPredecessor,checkReceiverVersion,checkLayoutVersion,checkUndoVersion} from './incident-stage-u-evidence.mjs';
 import {db, immutable, name, noPreviews, requireThat as check, root, versionId, workers, zone} from './incident-provider.mjs';
 import {original} from './incident-recovery-id.mjs';
 import {incidentOrigin, incidentPath} from '../../shared/recalculationIncident.ts';
 import {successorSummary} from '../../production-incidents/sealed-successor.ts';
 import enrolled from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 
-const candidate=layoutU.version;
+const candidate=undoU.version;
 export const routePath = `/zones/${zone}/workers/routes`, incidentUrl = incidentOrigin + incidentPath;
 const host = new URL(incidentOrigin).hostname, pattern = host + incidentPath;
 const preview = 'collection-kit-site-preview-k1r2', site = 'collection-kit-site-production', publisher = 'collection-kit-conditional-production';
@@ -69,12 +69,13 @@ function checkedRoutes(rows,owned) {
 }
 export async function checkedTarget(read,s,serviceCodeHash) {
   const ids=(await read(`${target}/versions?per_page=100`)).map(v=>v.id).sort();
-  check(same(ids,[...beforeIds,stageUPredecessor,stageU.version,candidate].sort()),'changed eight-version inventory');
+  check(same(ids,[...beforeIds,stageUPredecessor,stageU.version,layoutU.version,candidate].sort()),'changed nine-version inventory');
   const {exact}=uploadReadbacks(read);
   await exact(baseline.version,baseline.module,[],'worker.js');
   await exact(stageUPredecessor,publicHash,['ADMIN_ID','BOT_TOKEN'],'worker.js',publicBindings());
   await checkReceiverVersion(read,stageU.build);
-  await checkLayoutVersion(read,serviceCodeHash);
+  await checkLayoutVersion(read,layoutU.build);
+  await checkUndoVersion(read,serviceCodeHash);
   await noPreviews(read,original.workerId);
   check(same(await read(`${workers}/domains?service=${name}`),[]),'incident custom domain present');
   checkedRoutes(await read(routePath),s.route);

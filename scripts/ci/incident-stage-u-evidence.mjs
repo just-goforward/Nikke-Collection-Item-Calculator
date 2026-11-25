@@ -20,6 +20,13 @@ export const layoutU=Object.freeze({source:'5649b7f942c1892100a40b782f9716015d89
   intentSha256:'f31ab715c04987481102b79d9ce8ae681f71d42fed7125fb40f35d4c93a2f1a4',
   ackSha256:'b202d53695046099c2c98c66581a66a0a99ba4c4800d5d12aea88c4daaccf168',
   verifiedSha256:'94c3d58540cf841d4926282e7bf4caca0937fd06c66d2090e5f5ac7ec085a987'});
+export const undoU=Object.freeze({source:'4901bb0bdf786907e84321fe9b27a766e119724d',version:'aa8a110e-05ac-48c6-811e-fad5f510c307',
+  contract:'950422dfe31f33bac0632d46736f0bfed819855845b43e5b22b596eec6279c56',
+  build:'670227ca951c6390ec4bfc94705f645378720de51edab254bafa3e5ec3a5f951',module:publicHash,
+  bindingsSha256:'7c8a14cab315650b33154d5d6428b76248b8cbd5c160f01144e7768f6604cd87',
+  intentSha256:'80cc2f6a46fdf263ab150fc57a8270c8fe7e47f4ee42071511e643fe65806888',
+  ackSha256:'df219c89e08e1209ee4e4b44be836baa30ebc2c9e94b581a477b15f06e9be8df',
+  verifiedSha256:'4566619b31adbca899e614673faa98b5633dd2e974808185d6b2bc48cc594c28'});
 
 export function checkOwnerDirectory(dir) {
   const s=lstatSync(dir);assert(s.isDirectory() && realpathSync(dir)===dir && s.uid===process.getuid() && !(s.mode&0o077),'unsafe owner directory');
@@ -56,6 +63,18 @@ export function readLayoutU(dir) {
   assert.equal(scope.worker,original.workerId);assert.equal(scope.inertDeployment,closed.deployment);
   return verified;
 }
+export function readUndoU(dir) {
+  const previous=readLayoutU(dir);
+  const verified=readSuccessor(dir,layoutU.version,undoU),{scope,approval,verifiedAt}=verified;
+  assert.equal(scope.operation,'undo-successor-inactive-upload-v1');
+  assert.equal(scope.contract,undoU.contract);assert.deepEqual(scope.predecessorReceipt,layoutU);
+  assert.equal(scope.predecessor,layoutU.version);assert.equal(scope.module,undoU.module);
+  assert.equal(scope.worker,original.workerId);assert.equal(scope.inertDeployment,closed.deployment);
+  assert.equal(approval.scopeSha256,digest(JSON.stringify(scope)));
+  assert(Number.isSafeInteger(scope.until) && previous.verifiedAt<verifiedAt && verifiedAt<1000*scope.until);
+  assert.notEqual(scope.editorId,previous.scope.editorId);
+  return verified;
+}
 
 async function exactReceiver(read,build,enrolled) {
   assert.equal(build,enrolled.build,'receiver not enrolled for this service build');
@@ -64,11 +83,12 @@ async function exactReceiver(read,build,enrolled) {
 }
 export const checkReceiverVersion=(read,build)=>exactReceiver(read,build,stageU);
 export const checkLayoutVersion=(read,build)=>exactReceiver(read,build,layoutU);
+export const checkUndoVersion=(read,build)=>exactReceiver(read,build,undoU);
 
 // A matching inactive version, receiver route, or build setting on another version is not live proof.
 export async function observeIncident(read,build) {
   const live=await control(read);
-  assert.equal(live.version,layoutU.version,'layout receiver is not the sole active incident version');
-  assert.deepEqual(live.crons,[schedule]);await checkLayoutVersion(read,build);
+  assert.equal(live.version,undoU.version,'Undo receiver is not the sole active incident version');
+  assert.deepEqual(live.crons,[schedule]);await checkUndoVersion(read,build);
   return {deployment:live.deployment,version:live.version,build};
 }
