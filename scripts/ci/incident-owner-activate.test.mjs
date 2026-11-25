@@ -6,20 +6,19 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {capabilities,checkedTarget,incidentUrl,operate,probeIngress,reconcile,replay,routePath,siteWitness} from './incident-activation-control.mjs';
-import {layoutU,readLayoutU,stageU,stageUPredecessor as predecessor,readStageU,observeIncident} from './incident-stage-u-evidence.mjs';
+import {layoutU,readLayoutU,undoU,readUndoU,stageU,stageUPredecessor as predecessor,readStageU,observeIncident} from './incident-stage-u-evidence.mjs';
 import {replaceInactive,reviewScope} from './incident-mobile-successor.mjs';
+import {reviewUndoScope,uploadUndoInactive} from './incident-undo-stage-u.mjs';
 import {authorizeTokens,checkedSource,custody,restoredControl,retainedRestore,rootProof,routePolicy} from './incident-owner-activate.mjs';
 import {beforeIds,checkedMain,history,publicBindings,publicHash} from './incident-owner-upload-only.mjs';
 import {baseline,schedule,script,target} from './incident-canary-control.mjs';
 import {account,bindings,db,digest,name,namespace,registry,root,workers,zone} from './incident-provider.mjs';
 import {original} from './incident-recovery-id.mjs';
 import {successorSummary} from '../../production-incidents/sealed-successor.ts';
-import publication from '../../site-worker/production-root-release-v1.json' with {type:'json'};
+import enrolled from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 import {graphEnv,owner,repo} from './incident-receipt.mjs';
 
-// The historical Stage A remains pinned to the layout receiver, not the current candidate.
-const enrolled={...publication,serviceCodeHash:layoutU.build};
-const candidate='e0fd1e38-5f7b-4777-9d96-681c6bb45038';
+const candidate='aa8a110e-05ac-48c6-811e-fad5f510c307';
 const tmp=mkdtempSync(join(tmpdir(),'incident-activation-')),cwd=fileURLToPath(new URL('../../production-incidents/',import.meta.url));
 const modules={};before(()=>{
   const env={PATH:process.env.PATH,HOME:tmp,WRANGLER_SEND_METRICS:'false',CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV:'false'};
@@ -40,12 +39,12 @@ function setup(){
   const live={jobs:structuredClone(history),crons:[],routes:[
     ['863270c636c945b8b788c329c9762f50','/preview/*','collection-kit-site-preview-k1r2'],['483199a1890b4fb696b38d53b6d63e3c','/api/calendar','collection-kit-conditional-production'],
     ['85e95eb76fd94eeba4531b7b26caa11c','/api/joint-supply/v2','collection-kit-conditional-production']
-  ].map(([id,path,script])=>({id,pattern:'nikkecollection.com'+path,script,request_limit_fail_open:false})),ids:[...beforeIds,predecessor,stageU.version,candidate],body:'html',box:{...goodBox},graph:'graph',http:301};
+  ].map(([id,path,script])=>({id,pattern:'nikkecollection.com'+path,script,request_limit_fail_open:false})),ids:[...beforeIds,predecessor,stageU.version,layoutU.version,candidate],body:'html',box:{...goodBox},graph:'graph',http:301};
   const calls=[],dir=join(mkdtempSync(join(tmp,'run-')),'custody'),journal=custody(dir);
   const targetWorker={id:original.workerId,name,created_on:original.createdOn,deployed_on:stamp,tags:[original.tag],tail_consumers:[],logpush:false,observability:{enabled:false},subdomain:{enabled:false,previews_enabled:false},references:{workers:[],domains:[],dispatch_namespace_outbounds:[],durable_objects:[],queues:[]}};
   const read=async p=>{
     if(p===`${target}/versions?per_page=100`)return live.ids.map(id=>({id}));
-    for(const [id,phase,build] of [[candidate,'public',live.candidateBuild??enrolled.serviceCodeHash],[stageU.version,'public',live.historicalBuild??stageU.build],[predecessor,'public',baseline.build],[baseline.version,'inert',baseline.build]]) if(p===`${target}/versions/${id}?include=modules`) {
+    for(const [id,phase,build] of [[candidate,'public',live.candidateBuild??enrolled.serviceCodeHash],[layoutU.version,'public',live.layoutBuild??layoutU.build],[stageU.version,'public',live.historicalBuild??stageU.build],[predecessor,'public',baseline.build],[baseline.version,'inert',baseline.build]]) if(p===`${target}/versions/${id}?include=modules`) {
       const b=phase==='inert'?bindings(build):[...publicBindings(build),...['ADMIN_ID','BOT_TOKEN'].map(name=>({name,type:'secret_text'}))];
       return {id,main_module:'worker.js',usage_model:'standard',compatibility_date:'2026-08-14',urls:[],bindings:b,
         modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:modules[phase]}],...(id===candidate?live.versionChange:{})};
@@ -94,7 +93,7 @@ function setup(){
 }
 test('root observer distinguishes inactive U, old active UUID, same-module stale binding, wrong share and cron',async()=>{
   const f=setup(),observe=()=>observeIncident(f.read,enrolled.serviceCodeHash);
-  assert.equal(layoutU.version,candidate);assert.equal(layoutU.build,enrolled.serviceCodeHash);
+  assert.equal(undoU.version,candidate);assert.equal(undoU.build,enrolled.serviceCodeHash);
   await assert.rejects(observe(),/sole active/); // Candidate bytes are already in the inventory.
   f.live.jobs.unshift({id:active,versions:[{version_id:candidate,percentage:100}]});
   await assert.rejects(observe());f.live.crons=[cron];
@@ -104,7 +103,7 @@ test('root observer distinguishes inactive U, old active UUID, same-module stale
   await assert.rejects(observeIncident(f.read,baseline.build),/not enrolled/);
   f.live.candidateBuild=stageU.build;await assert.rejects(observe(),/unexpected bindings/);
   f.live.candidateBuild=enrolled.serviceCodeHash;
-  for(const old of [stageU.version,predecessor]) {f.live.jobs[0].versions[0].version_id=old;await assert.rejects(observe(),/sole active/);}
+  for(const old of [layoutU.version,stageU.version,predecessor]) {f.live.jobs[0].versions[0].version_id=old;await assert.rejects(observe(),/sole active/);}
   f.live.jobs[0].versions=[{version_id:candidate,percentage:90},{version_id:predecessor,percentage:10}];await assert.rejects(observe(),/ambiguous active/);
   assert.deepEqual(f.calls,[]);
 });
@@ -128,10 +127,22 @@ test('original Stage U bytes required: predecessor alone, missing ACK, substitut
   // Even an empty fixed slot consumes the upload. Neither review nor write may reach the provider.
   await assert.rejects(reviewScope(args),/already consumed/);await assert.rejects(replaceInactive(args),/already consumed/);
   for(const file of ['intent.json','ack.json','verified.json'])originalCopy(join(layout,file));
-  assert.equal(readLayoutU(copy).id,candidate);assert.equal(readLayoutU(originalReceiptDir).activationAuthorized,false);
+  assert.equal(readLayoutU(copy).id,layoutU.version);assert.equal(readLayoutU(originalReceiptDir).activationAuthorized,false);
   for(const file of ['intent.json','ack.json','verified.json']){
     writeFileSync(join(copy,layout,file),readFileSync(join(copy,slot,file)));
     assert.throws(()=>readLayoutU(copy),new RegExp('wrong original '+file));originalCopy(join(layout,file));
+  }
+  assert.throws(()=>readUndoU(copy),{code:'ENOENT'});
+  const undo='successor-of-'+layoutU.version;mkdirSync(join(copy,undo),{mode:0o700});
+  await assert.rejects(reviewUndoScope(args),/already consumed/);
+  await assert.rejects(uploadUndoInactive({...args,module:Buffer.from(modules.public,'base64')}),/already consumed/);
+  originalCopy(join(undo,'intent.json'));originalCopy(join(undo,'verified.json'));
+  assert.throws(()=>readUndoU(copy),{code:'ENOENT'});
+  originalCopy(join(undo,'ack.json'));
+  assert.equal(readUndoU(copy).id,candidate);assert.equal(readUndoU(copy).activationAuthorized,false);
+  for(const file of ['intent.json','ack.json','verified.json']){
+    writeFileSync(join(copy,undo,file),readFileSync(join(copy,layout,file)));
+    assert.throws(()=>readUndoU(copy),new RegExp('wrong original '+file));originalCopy(join(undo,file));
   }
 });
 test('unsigned incident activation and rollback cannot spend even one more intent',async()=>{
@@ -150,6 +161,7 @@ for(const [label,alter] of Object.entries({
   'predecessor absent':x=>x.ids.splice(x.ids.indexOf(predecessor),1),'stale candidate build':x=>x.candidateBuild=baseline.build,
   'wrong module':x=>x.versionChange={modules:[]},'unexpected env':x=>x.versionChange={env:{}},'version preview':x=>x.versionChange={urls:['other']},
   'mobile predecessor absent':x=>x.ids.splice(x.ids.indexOf(stageU.version),1),'mobile predecessor rebound':x=>x.historicalBuild=enrolled.serviceCodeHash,
+  'layout predecessor absent':x=>x.ids.splice(x.ids.indexOf(layoutU.version),1),'layout predecessor rebound':x=>x.layoutBuild=enrolled.serviceCodeHash,
   'unsealed outbox':x=>x.box.sealed=0,'pending or claimed canary':x=>x.box.state='claimed','extra sendable row':x=>x.box.notifications=3,
   'insecure HTTP':x=>x.http=200,'revoked source':x=>x.revoked=true,
 })) test('no mutation: '+label,async()=>{const f=setup();alter(f.live);await assert.rejects(f.run());assert.deepEqual(f.calls,[]);});
@@ -282,7 +294,7 @@ test('fresh exact-zone permission and exactly one UUID Editor; management, graph
   await assert.rejects(authorizeTokens({...args,upload:{...upload,verifiedAt:ms-1000}}),/issued after/);
 });
 test('exact clean source gate and historical rollback ancestry do not authorize a stale activation',()=>{
-  const parent='5649b7f942c1892100a40b782f9716015d89fdc5',files=[
+  const parent='4901bb0bdf786907e84321fe9b27a766e119724d',files=[
   'docs/root-rum-witness.md',
   'production-incidents/RUNBOOK.ko.md',
   'scripts/ci/incident-activation-control.mjs',

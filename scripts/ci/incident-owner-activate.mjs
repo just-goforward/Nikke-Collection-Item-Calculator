@@ -10,12 +10,12 @@ import {original} from './incident-recovery-id.mjs';
 import {policy} from './incident-owner.mjs';
 import {checkedMain,history,privateInput} from './incident-owner-upload-only.mjs';
 import {terminalExit,capabilities,checkedTarget,initialGraph,operate,probeIngress,reconcile,siteWitness} from './incident-activation-control.mjs';
-import {layoutU,readLayoutU} from './incident-stage-u-evidence.mjs';
+import {undoU,readUndoU} from './incident-stage-u-evidence.mjs';
 import {observeSite,versionMessage} from './root-promotion-live.mjs';
 import enrolled from '../../site-worker/production-root-release-v1.json' with {type:'json'};
 import {checkSwitchAuthority} from './root-switch-policy.mjs';
 
-const parent=layoutU.source, step='Verify exact existing incident activation and rollback (offline)';
+const parent=undoU.source, step='Verify exact existing incident activation and rollback (offline)';
 const checkout=fileURLToPath(new URL('../../',import.meta.url));
 const files=[
   'docs/root-rum-witness.md',
@@ -113,7 +113,7 @@ export function rootProof(head,run,pair,{query=api,member=artifactMember,archive
   check(v.profile==='production-root-state-v1' && terminalExit(v) && (!artifactOperation || v.operation===artifactOperation) && v.source===head &&
     v.handoffSha256===pair.handoff && v.manifestSha256===pair.rollback && hash.test(v.moduleSha256) && hash.test(v.controlSha256) &&
     versionId.test(v.deployment) && versionId.test(v.version) && v.producerVersion===enrolled.publisherVersion &&
-    versionId.test(v.incident?.deployment) && v.incident.version===layoutU.version && v.incident.build===layoutU.build,'root restoration not bound to enrolled handoff and receiver');
+    versionId.test(v.incident?.deployment) && v.incident.version===undoU.version && v.incident.build===undoU.build,'root restoration not bound to enrolled handoff and receiver');
   return v;
 }
 export function restoredControl(receipt,live) {
@@ -131,7 +131,7 @@ function syncDir(dir) {const fd=openSync(dir,'r');try{fsyncSync(fd);}finally{clo
 export function custody(dir) {
   const put=(name,data)=>{safe(dir,true);writeFileSync(join(dir,name),JSON.stringify(data)+'\n',{flag:'wx',mode:0o600,flush:true});syncDir(dir);};
   const get=name=>readJSON(join(dir,name));
-  const identity={schema:4,worker:original.workerId,layoutU,from:history[0].id};
+  const identity={schema:5,worker:original.workerId,undoU,from:history[0].id};
   return {
     begin(head,before,pair) {mkdirSync(dir,{mode:0o700});syncDir(dirname(dir));put('start',{...identity,head,before,pair});},
     intent(n,op) {put(`${n}.intent`,{op});},
@@ -150,7 +150,7 @@ export function custody(dir) {
   };
 }
 function uploadProof(home) {
-  const receipt=readLayoutU(join(home,'.incident-owner-upload-only'));
+  const receipt=readUndoU(join(home,'.incident-owner-upload-only'));
   const j=join(home,'.incident-private-canary','45197180403','journal.jsonl');safe(j);
   check(digest(readFileSync(j))==='c86e031f96c0b4c5e87e76e516d4ded97c79ee4feef9561617ab1338a97f059f','wrong private successor journal');
   return receipt;
@@ -168,13 +168,13 @@ export async function authorizeTokens({management,reader,editor,route,registered
     roles.get(p.permission_groups[0].id)==='Account API Tokens Read' && same(p.resources,{[`com.cloudflare.api.account.${account}`]:'*'}),'wrong token-policy reader');
   policy(await detail(rid),rid,roles);
   const e=await detail(eid), z=await detail(zid);policy(e,eid,roles,original.workerId);routePolicy(z,zid,roles);bounded(e,until);bounded(z,until);
-  check([e,z].every(t=>Date.parse(t.issued_on)>upload.verifiedAt),'writers must be issued after the layout upload');
+  check([e,z].every(t=>Date.parse(t.issued_on)>upload.verifiedAt),'writers must be issued after the Undo upload');
 }
 async function main([mode,end,run,...extra]) {
   const readOnly=mode==='reconcile';
   check(['activate','rollback','reconcile'].includes(mode) && /^\d{10}$/.test(end) && (mode!=='activate' && run===undefined || numeric.test(run)) &&
     !extra.length && !process.env.CI && !process.env.GITHUB_ACTIONS && (readOnly || !process.stdin.isTTY),'local owner, window and intended root proof required');
-  check(enrolled.serviceCodeHash===layoutU.build,'no enrolled Stage A receipt for this build');
+  check(enrolled.serviceCodeHash===undoU.build,'no enrolled Stage A receipt for this build');
   const until=Number(end); windowOpen(until);
   const home=userInfo().homedir,git=(...args)=>execFileSync('git',args,{cwd:checkout,stdio:['ignore','pipe','pipe'],encoding:'utf8'}).trim(),head=git('rev-parse','HEAD');
   const source=()=>{checkedSource(git,head);check(JSON.parse(gh('api','user')).id===owner,'not the authenticated owner');checkedMain(head,api,step,mode!=='activate');};
@@ -198,10 +198,10 @@ async function main([mode,end,run,...extra]) {
   const signed=Object.fromEntries(['ROOT_SWITCH_SIGNERS','ROOT_TECHNICAL_REVIEW','ROOT_OWNER_DECISION'].map(k=>[k,gh('variable','get',k,'--env',graphEnv,'--repo',repo)]));
   const approveChange=([record,...state])=>{
     const {packet,rehearsal,forward,rollback}=record;
-    return checkSwitchAuthority(signed,head,'incident-'+mode,{until,run:run??null,worker:original.workerId,layoutU,handoff:record.handoff,pair:{packet,rehearsal,forward,rollback},state});
+    return checkSwitchAuthority(signed,head,'incident-'+mode,{until,run:run??null,worker:original.workerId,undoU,handoff:record.handoff,pair:{packet,rehearsal,forward,rollback},state});
   };
   console.log(JSON.stringify(await operate(mode,{...ops,...observe,head,journal,authority,approveChange,
-    initialGraph:async()=>{const graph=await initialGraph(reader);if(mode==='activate')check(graph===upload.scope.topology,'graph differs from the verified layout baseline');return graph;},
+    initialGraph:async()=>{const graph=await initialGraph(reader);if(mode==='activate')check(graph===upload.scope.topology,'graph differs from the verified Undo baseline');return graph;},
     pairProof:()=>rootProof(head,run,null),windowOpen:()=>windowOpen(until)})));
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href) main(process.argv.slice(2)).catch(()=>{

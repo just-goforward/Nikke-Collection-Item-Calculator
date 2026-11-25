@@ -9,7 +9,7 @@ import { requireReviewedBytes } from './root-source-profile.mjs';
 import { checkPair, checkReview } from './prepare-root-pair.mjs';
 import { childEnvironment } from './run-checked-command.mjs';
 import enrolled from '../../site-worker/production-root-release-v1.json' with {type:'json'};
-import {layoutU} from './incident-stage-u-evidence.mjs';
+import {undoU} from './incident-stage-u-evidence.mjs';
 import {rootGet} from './root-promotion-get.mjs';
 import { checkRehearsal, checkSwitchAuthority, siteScope } from './root-switch-policy.mjs';
 
@@ -24,7 +24,7 @@ const parsePinned = (path, pin) => { assert.match(pin, digest); const b = readFi
 export function readTransition(env) {
   assertContext(env, env.GITHUB_SHA); assert.equal(env.GITHUB_REF_PROTECTED, 'true');
   // Source enrollment is necessary, not proof of activation. observeSite verifies the live receiver.
-  assert.equal(enrolled.serviceCodeHash,layoutU.build,'no verified receiver for this candidate build');
+  assert.equal(enrolled.serviceCodeHash,undoU.build,'no verified receiver for this candidate build');
   const op = env.ROOT_OPERATION, event = json(env.GITHUB_EVENT_PATH);
   assert(op==='root-reconcile' || Object.hasOwn(operations, op)); assert.equal(event.inputs.operation, op); assert.equal(event.inputs.deploy_sha, env.GITHUB_SHA);
   // The protected grant selects one direction. It is not itself the owner signature.
