@@ -1,0 +1,28 @@
+name: Mac writer approval only
+run-name: 'mac-writer-v1:${{ inputs.operation }}:${{ inputs.scope_sha256 }}'
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        required: true
+        options: [incident-activate, root-install-bridge]
+      scope_sha256:
+        description: SHA-256 of the independently constructed operation intent
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: mac-root-change-window
+  cancel-in-progress: false
+jobs:
+  approve:
+    if: github.repository_id == '1229775730' && github.ref == 'refs/heads/main' && github.ref_protected && github.actor_id == '281915448' && github.run_attempt == '1'
+    name: Approve exact local writer intent
+    runs-on: ubuntu-24.04
+    environment: cloudflare-site-production
+    steps:
+      - name: Record protected approval only
+        env:
+          SCOPE: ${{ inputs.scope_sha256 }}
+        run: '[[ "$SCOPE" =~ ^[0-9a-f]{64}$ ]]'
