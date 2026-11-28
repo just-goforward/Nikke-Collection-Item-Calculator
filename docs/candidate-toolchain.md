@@ -39,6 +39,22 @@ To regenerate the workspace lock after intentional manifest changes, use `pnpm i
 - Rust stable 1.100.0 was available. The reference certified asset stays on 1.99.0, the H14 native build and root default stay on 1.99.1. Replacing them or their Cargo locks changes the input to native provenance and is not a dependency-only refresh of the validated solver. `rust/certified` and `rust/service-h14` have the same 16 locked registry dependencies; `rust/solver-rs` has none. Compared with crates.io stable, `num-bigint` 0.4.8 vs 0.5.1 is an exact-pin/major-line constraint; `itoa` 1.0.18 vs 1.0.19 and `syn` 3.0.9 vs 3.0.10 are intentionally retained transitive pins, not known-incompatible updates. The other 13 match. A native attestation for the changed JS inputs must be regenerated using the real Rust build; never relabel prior bytes or their historical build receipt.
 - Full per-importer registry/installed inventory, all Cargo locks and per-version OSV queries are in the main evidence directory `.artifacts/production-root-candidate/dependencies/inventory.json`; `audit.json` contains the pnpm advisory results. These are point-in-time scans, not guarantees of absence of vulnerabilities.
 
+## Local production-policy diagnosis (not release admission)
+
+On a fresh checkout with the frozen dependencies above, `pnpm run build:operations` builds `dist-service-bundled/` with bundled forecast, empty trust keys and no root capability. It will not overwrite an existing output. It records each step in a private `local-service-profile-*` directory under the OS temp directory. Only this local command uses `scripts/formal-local-service.config.mjs`; the preview, private root and production packaging targets keep their own guards. The diagnostic receipt reports the actual H14 policy, not the legacy solver's policy.
+
+Vite success is **not** a successful package. The final command still invokes the original production packager and its content check. At the `ca290405` baseline the source shell has no statistics bootstrap and this command stops at the packager's exactly-one-script guard. Do not add a fake bootstrap, copy a production receipt, or treat an unsealed directory as a candidate.
+
+To reproduce the **diagnosis only** after that failure, in the disposable checkout with no `dist`, link `dist` to `dist-service-bundled` (the unchanged Miniflare server reads `dist`). Set `OPERATIONAL_PRIVATE_RESULTS_DIR` to a fresh, absolute, non-symlinked directory outside the checkout. Run each original reporter once:
+
+```sh
+node node_modules/vitest/vitest.mjs run --config vitest.operational-ci.config.ts
+node node_modules/@playwright/test/cli.js test --config playwright.operational-ci.config.ts
+node node_modules/@playwright/test/cli.js test --config playwright.analytics-ci.config.ts
+```
+
+`P001`–`P008` are still the approved historical cases; they are not a Hybrid B oracle. The cases that require `certified-staging`, its WASM, and its exact-rational wire cannot be satisfied by relabeling a `service-fused-h14-v1` result. Independent B enrollment needs a distinct suite/IDs bound to the exact reviewed consumer, Worker graph, WASM, signed forecast and policy. Retain the three locales, storage/network isolation, genuine result and stock transitions, fail-closed WASM failure and analytics controls. Separately authorize the statistics policy, numerical reference and protected-main source; a local report changes none of those gates.
+
 ## Protected root-pair preparation (not a publication command)
 
 `site-source-verify.yml` always runs the common type, operations and publication-guard checks. No enrolled source record means the original K1R2 build, content validation and verification artifact. For a tracked prospective record, `root-source-profile.mjs` checks the production-only target/key and all three identities against `assertServiceH14Build()`. A PR can complete the **review-only** isolated root build and formal source checks without a future main SHA or publication grant. Only a protected-main push with independent exact-source approval can select `root`; malformed or unapproved main enrollment fails, not a legacy fallback. Both root source lanes build only isolated, nondeployable assets. `prepare-root-pair` checks the successful **push to main**, both required successful jobs, source SHA and exact run attempt. A PR check, producer signature or private comparison alone is insufficient.
